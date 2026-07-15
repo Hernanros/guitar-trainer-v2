@@ -110,37 +110,37 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PLAT-01 | TBD | Pending |
-| PLAT-02 | TBD | Pending |
-| PLAT-03 | TBD | Pending |
-| PLAT-04 | TBD | Pending |
-| ONB-01 | TBD | Pending |
-| ONB-02 | TBD | Pending |
-| ONB-03 | TBD | Pending |
-| ONB-04 | TBD | Pending |
-| SKILL-01 | TBD | Pending |
-| SKILL-02 | TBD | Pending |
-| SKILL-03 | TBD | Pending |
-| SKILL-04 | TBD | Pending |
-| SKILL-05 | TBD | Pending |
-| SOTD-01 | TBD | Pending |
-| SOTD-02 | TBD | Pending |
-| SOTD-03 | TBD | Pending |
-| SOTD-04 | TBD | Pending |
-| SOTD-05 | TBD | Pending |
-| LIB-01 | TBD | Pending |
-| TOOL-01 | TBD | Pending |
-| TOOL-02 | TBD | Pending |
-| COST-01 | TBD | Pending |
-| COST-02 | TBD | Pending |
-| COST-03 | TBD | Pending |
-| COST-04 | TBD | Pending |
+| PLAT-01 | Phase 1 | Pending |
+| PLAT-02 | Phase 1 | Pending |
+| PLAT-03 | Phase 1 | Pending |
+| PLAT-04 | Phase 1 | Pending |
+| ONB-01 | Phase 2 | Pending |
+| ONB-02 | Phase 2 | Pending |
+| ONB-03 | Phase 2 | Pending |
+| ONB-04 | Phase 2 | Pending |
+| SKILL-01 | Phase 2 | Pending |
+| SKILL-02 | Phase 2 | Pending |
+| SKILL-03 | Phase 3 | Pending |
+| SKILL-04 | Phase 4 | Pending |
+| SKILL-05 | Phase 4 | Pending |
+| SOTD-01 | Phase 3 | Pending |
+| SOTD-02 | Phase 3 | Pending |
+| SOTD-03 | Phase 3 | Pending |
+| SOTD-04 | Phase 3 | Pending |
+| SOTD-05 | Phase 3 | Pending |
+| LIB-01 | Phase 5 | Pending |
+| TOOL-01 | Phase 5 | Pending |
+| TOOL-02 | Phase 5 | Pending |
+| COST-01 | Phase 4 | Pending |
+| COST-02 | Phase 4 | Pending |
+| COST-03 | Phase 4 | Pending |
+| COST-04 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 25 total
-- Mapped to phases: 0 (will be filled by roadmapper)
-- Unmapped: 25 ⚠️
+- Mapped to phases: 25
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-15*
-*Last updated: 2026-07-15 after initialization*
+*Last updated: 2026-07-15 after roadmap creation*
