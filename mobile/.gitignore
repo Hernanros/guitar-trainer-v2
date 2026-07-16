@@ -45,3 +45,6 @@ example
 # Generated TypeScript types from OpenAPI (D-02) — never commit
 # Regenerate with: npm run codegen:local (FastAPI server must be running)
 src/api/generated/
+
+# Claude Code IDE settings
+.claude/
