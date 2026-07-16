@@ -42,9 +42,12 @@ example
 /ios
 /android
 
-# Generated TypeScript types from OpenAPI (D-02) — never commit
-# Regenerate with: npm run codegen:local (FastAPI server must be running)
-src/api/generated/
+# Generated TypeScript types from OpenAPI (D-02).
+# schema.d.ts is a committed baseline (TypeScript compiles without running codegen).
+# Regenerate with: npm run codegen:local (FastAPI server must be running at localhost:8000)
+# Note: ignore specific generated files, not the directory, so the negation !schema.d.ts works.
+src/api/generated/*.json
+src/api/generated/*.js
 
 # Claude Code IDE settings
 .claude/

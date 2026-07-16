@@ -2,6 +2,13 @@
 // TanStack Query client with MMKV offline persistence.
 // Pattern 2 from RESEARCH.md — MMKV write-through on every successful response.
 //
+// Offline strategy:
+// MMKV write-through persister: every successful TanStack Query response is written to MMKV
+// immediately (throttled to 1s). On app restart with no network, PersistQueryClientProvider
+// rehydrates from MMKV before the first render. staleTime=Infinity means the app never
+// silently refetches in Phase 1 — data is fresh until explicitly invalidated. Phase 3 will
+// introduce shorter stale times when AI-generated content can change daily.
+//
 // NOTE: MMKV v4 (NitroModules) requires a native dev-client build.
 // This file CANNOT run in Expo Go — always use npx expo start --dev-client.
 import { QueryClient } from '@tanstack/react-query';

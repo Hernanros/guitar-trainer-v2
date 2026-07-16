@@ -28,8 +28,11 @@ node_modules/
 dist/
 web-build/
 
-# Generated — never commit
-mobile/src/api/generated/
+# Generated TypeScript types — baseline schema.d.ts IS committed (allows tsc without codegen).
+# When codegen runs, it overwrites schema.d.ts in place. Other generated artifacts are ignored.
+# Regenerate with: cd mobile && npm run codegen:local (FastAPI server must be running)
+mobile/src/api/generated/*.js
+mobile/src/api/generated/*.json
 
 # Server virtualenv
 server/.venv/
