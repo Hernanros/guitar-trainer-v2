@@ -31,13 +31,23 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Today tab shows a hardcoded song-of-the-day fetched from the Railway-hosted FastAPI backend backed by a persistent Postgres instance
   4. With the device in airplane mode, reopening the app still renders yesterday's cached "today" payload from MMKV
   5. Three-tab shell (Today · Library · Toolkit) navigates without crashing; Library and Toolkit render placeholder screens
-**Plans**: 4 plans
+**Plans**: 4 plans in 3 waves
 
 Plans:
+
+**Wave 1**
 - [ ] 01-01-PLAN.md — Walking Skeleton: monorepo scaffold + FastAPI server + Pydantic models + DB-backed endpoint + Expo app + codegen loop
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 01-02-PLAN.md — SVG rendering: ChordDiagram + TabNotation components + Today tab wired to full breakdown payload
 - [ ] 01-03-PLAN.md — MMKV offline persistence: PersistQueryClientProvider + MMKV persister at root layout
-- [ ] 01-04-PLAN.md — Ship to devices: Railway deploy + iOS EAS preview build + Android EAS preview build
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 01-04-PLAN.md — Ship to devices: Railway deploy + iOS EAS preview build + Android EAS preview build *(autonomous: false — Apple Developer + device UDID gate)*
+
+**Cross-cutting constraints:**
+- D-01 (full Phase 3-ready payload shape) + D-02 (Pydantic → generated TS types) — enforced across 01-01 and 01-02
+- MMKV v4 requires a dev-client build (Expo Go cannot load it) — runtime verification of 01-03 lives in 01-04 after the dev-client installs
 
 ### Phase 2: Onboarding & Initial Skill Graph
 **Goal**: A new user completes the 5–8 minute onboarding once, the server persists a 3-level DAG skill graph with 5-bpm tempo bins seeded from those answers, and the user can re-run onboarding from Settings.
@@ -103,7 +113,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Empty Loop | 0/4 | Not started | - |
+| 1. Foundation & Empty Loop | 0/4 | Planned | - |
 | 2. Onboarding & Initial Skill Graph | 0/TBD | Not started | - |
 | 3. AI Teacher & Song of the Day | 0/TBD | Not started | - |
 | 4. Cost Governor & Node Verification | 0/TBD | Not started | - |
