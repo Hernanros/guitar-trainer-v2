@@ -866,27 +866,31 @@ def downgrade() -> None:
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Python version for Railway Nixpacks**
    - What we know: Nixpacks auto-detects Python from `requirements.txt`; recent versions default to Python 3.12
    - What's unclear: Whether a `runtime.txt` or `.python-version` file is required for Railway's Nixpacks builder to select the correct Python 3.12
    - Recommendation: Add a `runtime.txt` containing `python-3.12` to `server/` to make the version explicit — takes 30 seconds and eliminates ambiguity
+   - **RESOLVED:** Plan 01-01 Task 1 creates `server/runtime.txt` containing `python-3.12`, explicitly pinning the Python version for Railway Nixpacks.
 
 2. **Apple Developer membership timing**
    - What we know: iOS `preview` (ad hoc) builds require an active Apple Developer Program membership ($99/year)
    - What's unclear: Whether Hernan already has an active Apple Developer account
    - Recommendation: Confirm before planning Wave 1 of iOS build tasks; if not enrolled, the iOS build tasks are blocked until enrollment completes (can take 24–48 hours)
+   - **RESOLVED:** Plan 01-04 Task 2 is a `checkpoint:human-verify` gate that confirms Apple Developer membership and registers the device UDID before the iOS EAS build is triggered. iOS build is skippable if enrollment is pending.
 
 3. **`EXPO_PUBLIC_API_URL` per environment sourcing**
    - What we know: EAS supports per-environment variables via `eas env:create`; local dev uses `.env`
    - What's unclear: Whether the Railway service URL is stable (Railway may reassign URLs on service recreation)
    - Recommendation: Use Railway's "custom domain" or note that the Railway-assigned `*.up.railway.app` URL is stable for a given service name
+   - **RESOLVED:** Plan 01-01 Task 2 creates `mobile/.env` (local) and `mobile/.env.production` (placeholder), and Plan 01-04 Task 1 updates `.env.production` with the real Railway URL after deployment and sets the EAS environment variable via `eas env:create`.
 
 4. **songs table: Alembic autogenerate vs manual migration**
    - What we know: Alembic can autogenerate from SQLAlchemy models
    - What's unclear: Whether to use autogenerate or write the migration manually for the initial table
    - Recommendation: Write the initial migration manually (shown in code examples above) — autogenerate adds SQLAlchemy ORM model dependency that Phase 1 may not need for a single query
+   - **RESOLVED:** Plan 01-01 Task 1 writes `server/alembic/versions/0001_initial_songs_table.py` as a manual Alembic revision with the full songs table DDL, matching the code example above.
 
 ---
 
