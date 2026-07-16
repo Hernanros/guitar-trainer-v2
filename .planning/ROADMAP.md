@@ -39,8 +39,8 @@ Plans:
 - [x] 01-01-PLAN.md — Walking Skeleton: monorepo scaffold + FastAPI server + Pydantic models + DB-backed endpoint + Expo app + codegen loop *(2026-07-16)*
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 01-02-PLAN.md — SVG rendering: ChordDiagram + TabNotation components + Today tab wired to full breakdown payload
-- [ ] 01-03-PLAN.md — MMKV offline persistence: PersistQueryClientProvider + MMKV persister at root layout
+- [x] 01-02-PLAN.md — SVG rendering: ChordDiagram + TabNotation components + Today tab wired to full breakdown payload *(2026-07-16)*
+- [x] 01-03-PLAN.md — MMKV offline persistence: PersistQueryClientProvider + MMKV persister at root layout *(2026-07-16)*
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 01-04-PLAN.md — Ship to devices: Railway deploy + iOS EAS preview build + Android EAS preview build *(autonomous: false — Apple Developer + device UDID gate)*
@@ -113,7 +113,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Empty Loop | 1/4 | In progress (Wave 2) | - |
+| 1. Foundation & Empty Loop | 3/4 | Awaiting Wave 3 (prerequisites) | - |
 | 2. Onboarding & Initial Skill Graph | 0/TBD | Not started | - |
 | 3. AI Teacher & Song of the Day | 0/TBD | Not started | - |
 | 4. Cost Governor & Node Verification | 0/TBD | Not started | - |
