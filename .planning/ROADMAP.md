@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 
 **Wave 1**
-- [ ] 01-01-PLAN.md — Walking Skeleton: monorepo scaffold + FastAPI server + Pydantic models + DB-backed endpoint + Expo app + codegen loop
+- [x] 01-01-PLAN.md — Walking Skeleton: monorepo scaffold + FastAPI server + Pydantic models + DB-backed endpoint + Expo app + codegen loop *(2026-07-16)*
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 01-02-PLAN.md — SVG rendering: ChordDiagram + TabNotation components + Today tab wired to full breakdown payload
@@ -113,7 +113,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Empty Loop | 0/4 | Planned | - |
+| 1. Foundation & Empty Loop | 1/4 | In progress (Wave 2) | - |
 | 2. Onboarding & Initial Skill Graph | 0/TBD | Not started | - |
 | 3. AI Teacher & Song of the Day | 0/TBD | Not started | - |
 | 4. Cost Governor & Node Verification | 0/TBD | Not started | - |
