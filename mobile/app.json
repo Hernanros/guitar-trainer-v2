@@ -8,9 +8,12 @@
     "scheme": "guitartrainer",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.hernanrosenblum.guitartrainerv2",
+      "supportsTablet": true
     },
     "android": {
+      "package": "com.hernanrosenblum.guitartrainerv2",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -37,6 +40,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "5f696678-3c16-457a-bad8-69106a953649"
+      }
     }
   }
 }
