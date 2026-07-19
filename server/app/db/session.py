@@ -1,9 +1,11 @@
 # server/app/db/session.py
 # Async SQLAlchemy engine and session factory.
 #
-# CRITICAL: Railway injects DATABASE_URL with the scheme "postgres://", but
+# Railway may inject DATABASE_URL with either scheme:
+#   - "postgres://"    (legacy, pre-Postgres 15 style)
+#   - "postgresql://"  (current, Postgres 15+ recommended form)
 # SQLAlchemy 2.0 async with asyncpg requires "postgresql+asyncpg://".
-# We rewrite the scheme at startup (Pitfall 3 from RESEARCH.md).
+# We normalize whichever form Railway hands us.
 import os
 from typing import AsyncGenerator
 
@@ -21,8 +23,16 @@ def _get_database_url() -> str:
             "DATABASE_URL environment variable is not set. "
             "Set it to your Postgres connection string before starting the server."
         )
-    # Rewrite Railway's postgres:// scheme for SQLAlchemy async (Pitfall 3)
-    return raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    if raw_url.startswith("postgresql+asyncpg://"):
+        return raw_url
+    if raw_url.startswith("postgres://"):
+        return raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    if raw_url.startswith("postgresql://"):
+        return raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    raise RuntimeError(
+        f"DATABASE_URL has an unrecognized scheme (expected postgres://, "
+        f"postgresql://, or postgresql+asyncpg://): {raw_url[:20]}..."
+    )
 
 
 DATABASE_URL = _get_database_url()
