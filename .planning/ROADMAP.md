@@ -43,7 +43,7 @@ Plans:
 - [x] 01-03-PLAN.md — MMKV offline persistence: PersistQueryClientProvider + MMKV persister at root layout *(2026-07-16)*
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 01-04-PLAN.md — Ship to devices: Railway deploy + iOS EAS preview build + Android EAS preview build *(autonomous: false — Apple Developer + device UDID gate)*
+- [x] 01-04-PLAN.md — Ship to devices: Railway deploy ✓ + iOS EAS preview build ✓ + Android EAS preview build ⏸ deferred *(2026-07-19; Android pending device/emulator setup — PLAT-02)*
 
 **Cross-cutting constraints:**
 - D-01 (full Phase 3-ready payload shape) + D-02 (Pydantic → generated TS types) — enforced across 01-01 and 01-02
@@ -113,7 +113,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Empty Loop | 3/4 | Awaiting Wave 3 (prerequisites) | - |
+| 1. Foundation & Empty Loop | 4/4 executed (Android build deferred) | Substantially complete (PLAT-02 pending) | 2026-07-19 |
 | 2. Onboarding & Initial Skill Graph | 0/TBD | Not started | - |
 | 3. AI Teacher & Song of the Day | 0/TBD | Not started | - |
 | 4. Cost Governor & Node Verification | 0/TBD | Not started | - |

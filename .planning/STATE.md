@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 ## Current Position
 
 Phase: 1 of 5 (Foundation & Empty Loop)
-Plan: 3 of 4 complete (01-01 Walking Skeleton, 01-02 SVG rendering, 01-03 MMKV persistence all done)
-Status: Wave 3 pending — `/gsd:execute-phase 1 --wave 3` when Railway + EAS + Apple Developer prerequisites are ready
-Last activity: 2026-07-16 — Wave 2 merged to main (SVG rendering + MMKV verification; tsc --noEmit clean). Wave 3 deferred pending user prerequisites.
+Plan: 4 of 4 executed (01-04 Ship shipped iOS + Railway; Android build deferred as documented follow-up)
+Status: Phase 1 substantially complete — PLAT-01 + PLAT-03 + PLAT-04 satisfied; PLAT-02 (Android) deferred pending Android device/emulator setup
+Last activity: 2026-07-19 — Wave 3 iOS shipped end-to-end. iPhone installed via EAS ad-hoc, Today tab fetched Sweet Home Chicago from live Railway, airplane-mode + force-quit + reopen served the cached song (PLAT-04 verified on real device).
 
-Progress: [███████░░░] 75%
+Progress: [█████████░] 95% (Phase 1 pending only the Android build)
 
 ## Performance Metrics
 
@@ -66,6 +66,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16
-Stopped at: Phase 1 Waves 1+2 executed (3/4 plans done). Wave 3 (01-04 Ship to devices) awaits Railway + EAS + Apple Developer prerequisites.
-Resume file: .planning/phases/01-foundation-empty-loop/01-04-PLAN.md
+Last session: 2026-07-19
+Stopped at: Phase 1 Wave 3 executed on iOS end-to-end. Live Railway backend + iPhone install + airplane-mode MMKV verified. Android build deferred pending device/emulator. Ready for `/gsd-verify-work 1` or `/gsd-discuss-phase 2`.
+Resume file: .planning/phases/01-foundation-empty-loop/01-04-SUMMARY.md

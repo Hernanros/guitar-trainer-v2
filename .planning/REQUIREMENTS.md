@@ -110,10 +110,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PLAT-01 | Phase 1 | Pending |
-| PLAT-02 | Phase 1 | Pending |
-| PLAT-03 | Phase 1 | Pending |
-| PLAT-04 | Phase 1 | Pending |
+| PLAT-01 | Phase 1 | ✓ Satisfied (iOS EAS ad-hoc build installed on device, 2026-07-19) |
+| PLAT-02 | Phase 1 | ⏸ Deferred (Android build pending device/emulator setup) |
+| PLAT-03 | Phase 1 | ✓ Satisfied (FastAPI on Railway + persistent Postgres, 2026-07-19) |
+| PLAT-04 | Phase 1 | ✓ Satisfied (MMKV airplane-mode cache verified on iPhone, 2026-07-19) |
 | ONB-01 | Phase 2 | Pending |
 | ONB-02 | Phase 2 | Pending |
 | ONB-03 | Phase 2 | Pending |
