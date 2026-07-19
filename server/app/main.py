@@ -15,9 +15,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Guitar Trainer API",
+    title="Fletcher API",
     version="1.0.0",
-    description="Walking Skeleton — song-of-day endpoint backed by Postgres.",
+    description="Fletcher — mobile AI guitar teacher. Walking Skeleton: song-of-day endpoint backed by Postgres.",
 )
 
 # CORS: allow all origins for mobile POC client.

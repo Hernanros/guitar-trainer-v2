@@ -76,6 +76,8 @@ If everything else fails, this must work: opening the app → getting today's so
 | 4-layer concentric AI cost guardrails | Every LLM call routes through one governor module; billing alerts + per-user caps + user-facing quota | — Pending |
 | "Song of the Day" over "session builder" as daily hook | One decision, one artifact, daily ritual — beats a menu screen | — Pending |
 | Streaming (Spotify) deferred and paid | Was mandatory in v1 — v2 works standalone; streaming becomes paid tier differentiator | — Pending |
+| Product name: **Fletcher** (2026-07-19) | Terence Fletcher from *Whiplash* — the demanding music teacher archetype. Fits the "AI teacher" positioning better than "Guitar Trainer" (teacher > trainer), memorable, and lands a joke for anyone who's seen the film. Applied to display name (`expo.name`) and FastAPI title. Internal identifiers (bundle ID `com.hernanrosenblum.guitartrainerv2`, EAS slug `guitar-trainer`, Railway service, GitHub repo `guitar-trainer-v2`) intentionally kept as-is to avoid churning the working iOS install and live Railway URL — those get renamed on a future Ship track when it's cheap. | — In use |
+| Fletcher visual identity: JK Simmons reference (planned, 2026-07-19) | The joke lands harder with the face. Explicit visual reference to the *Whiplash* character in the app itself — likely candidates: app icon, splash screen ("Not my tempo."), onboarding "meet your teacher" moment. Asset acquisition + likeness/legal considerations deferred until Phase 2 (onboarding) when the visual context is naturally needed. | — To design |
 
 ## Evolution
 
