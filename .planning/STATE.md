@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 
 ## Current Position
 
-Phase: 1 of 5 (Foundation & Empty Loop)
-Plan: 4 of 4 executed (01-04 Ship shipped iOS + Railway; Android build deferred as documented follow-up)
-Status: Phase 1 substantially complete — PLAT-01 + PLAT-03 + PLAT-04 satisfied; PLAT-02 (Android) deferred pending Android device/emulator setup
-Last activity: 2026-07-19 — Wave 3 iOS shipped end-to-end. iPhone installed via EAS ad-hoc, Today tab fetched Sweet Home Chicago from live Railway, airplane-mode + force-quit + reopen served the cached song (PLAT-04 verified on real device).
+Phase: 2 of 5 (Onboarding & Initial Skill Graph)
+Plan: Context captured (14 decisions across onboarding shape, song input, skill graph seeding, session preferences); ready for `/gsd-plan-phase 2`
+Status: Phase 1 iOS-complete (Android build deferred); Phase 2 context ready to plan
+Last activity: 2026-07-20 — Phase 2 CONTEXT.md written. Big decisions: 5-section wizard w/ Fletcher intros, MMKV wizard state + device UUID identity (multi-user seams resolved), free-text + Sonnet batch parse on Complete, fail-open with bootstrap graph, fixed root taxonomy (Rhythm/Lead/Chord Voicings/Fingerstyle/Music Theory/Timing), normalized per-user tree schema, songs table with category enum + song_skills junction, all mastery starts at 0.
 
-Progress: [█████████░] 95% (Phase 1 pending only the Android build)
+Progress: [█████░░░░░] Phase 1 shipped (iOS), Phase 2 planned next
 
 ## Performance Metrics
 
@@ -47,6 +47,8 @@ Recent decisions affecting current work:
 - Design phase (2026-07-14, recovered): Skill graph is a 3-level DAG with 5-bpm tempo bins, deterministic writes only, nightly 5% decay >7 days
 - Roadmap (2026-07-15): 5 vertical-MVP phases, each delivering an end-to-end user capability; every phase carries `Mode: mvp`
 - Phase 1 context (2026-07-15): Full Phase 3-ready payload shape from day one (dummy content), Pydantic → OpenAPI → generated TS types, semantic music JSON for tab/chords, DB-backed trivial selector at `GET /api/v1/song-of-day`
+- Fletcher product identity (2026-07-19): Product named Fletcher (JK Simmons / Whiplash reference); "the teacher Fletcher should have been" positioning — reinforcing not critical, celebrates hard-won achievements by grinders (not savants). Fletcher-vocabulary ("Rushing", "Dragging", "Not my tempo") used as diagnosis + coaching (sharp word + next step). Design brief at `.planning/design/fletcher-identity.md`.
+- Phase 2 context (2026-07-20): 5-section wizard (Welcome/Play/Working/Aspire/Preferences), MMKV wizard state + device UUID identity (resolves multi-user seams — users table + X-User-ID header, no auth), free-text + Sonnet batch parse on Complete (~$0.02–$0.05/user), fixed root taxonomy, normalized per-user tree schema, all mastery starts at 0 (deterministic writes principle preserved)
 
 ### Pending Todos
 
@@ -66,6 +68,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-19
-Stopped at: Phase 1 Wave 3 executed on iOS end-to-end. Live Railway backend + iPhone install + airplane-mode MMKV verified. Android build deferred pending device/emulator. Ready for `/gsd-verify-work 1` or `/gsd-discuss-phase 2`.
-Resume file: .planning/phases/01-foundation-empty-loop/01-04-SUMMARY.md
+Last session: 2026-07-20
+Stopped at: Phase 2 context gathered (14 decisions locked). Ready for `/gsd-plan-phase 2`.
+Resume file: .planning/phases/02-onboarding-skill-graph/02-CONTEXT.md
