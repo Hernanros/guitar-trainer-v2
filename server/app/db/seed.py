@@ -126,19 +126,43 @@ HARDCODED_SONG = {
 }
 
 
+import uuid as _uuid_module
+
+# System user sentinel UUID (matches migration 0002 seed — per <specifics> in 02-CONTEXT.md)
+SYSTEM_USER_ID = _uuid_module.UUID("00000000-0000-0000-0000-000000000000")
+
+
 async def seed_songs(db: AsyncSession) -> None:
-    """Insert the hardcoded seed song if the songs table is empty. Idempotent."""
+    """Insert the hardcoded seed song if the songs table is empty. Idempotent.
+
+    Phase 2 (02-01): also ensures the system user row exists (idempotent ON CONFLICT)
+    and assigns the seed song to the system user with category='can_play'.
+    The system user is seeded by migration 0002 on fresh databases; this call
+    handles the case where migration ran before seed (e.g., dev restarts).
+    """
+    # local imports to avoid circular dep at module level
+    from app.models.db import Song as SongORM, User as UserORM
+
     result = await db.execute(text("SELECT COUNT(*) FROM songs"))
     count = result.scalar()
     if count and count > 0:
         logger.info("seed_songs: songs table already has %d row(s), skipping.", count)
         return
 
+    logger.info("seed_songs: ensuring system user exists.")
+    # Ensure system user exists (ON CONFLICT DO NOTHING — migration already seeds it
+    # on fresh DBs, but dev may start the server without running migration first).
+    await db.execute(
+        text(
+            "INSERT INTO users (id, preferences, onboarded_at, created_at) "
+            "VALUES (:id, '{}', now(), now()) ON CONFLICT (id) DO NOTHING"
+        ),
+        {"id": str(SYSTEM_USER_ID)},
+    )
+
     logger.info("seed_songs: inserting hardcoded Sweet Home Chicago row.")
     # asyncpg requires JSONB columns to be passed as dicts (not JSON strings).
     # Using SQLAlchemy ORM insert avoids raw SQL parameter quoting issues.
-    from app.models.db import Song as SongORM  # local import to avoid circular dep at module level
-
     song_row = SongORM(
         title=HARDCODED_SONG["title"],
         artist=HARDCODED_SONG["artist"],
@@ -147,8 +171,10 @@ async def seed_songs(db: AsyncSession) -> None:
         bpm=HARDCODED_SONG["bpm"],
         key=HARDCODED_SONG["key"],
         breakdown=HARDCODED_SONG["breakdown"],
+        user_id=SYSTEM_USER_ID,
+        category="can_play",
     )
     db.add(song_row)
     await db.flush()
     await db.commit()
-    logger.info("seed_songs: seed row inserted.")
+    logger.info("seed_songs: seed row inserted with user_id=system and category=can_play.")
