@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.song_of_day import router as song_router
+from app.api.v1.users import router as users_router
 from app.db.seed import seed_songs
 from app.db.session import AsyncSessionLocal
 
@@ -27,11 +28,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],      # Phase 1 POC — narrow to Railway URL in Phase 2
     allow_credentials=False,   # MUST be False when allow_origins=["*"]
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
 app.include_router(song_router, prefix="/api/v1")
+app.include_router(users_router, prefix="/api/v1")
 
 
 @app.get("/healthz", tags=["ops"])
