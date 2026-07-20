@@ -38,13 +38,17 @@ export interface paths {
         put?: never;
         /**
          * Bootstrap User
-         * @description Bootstrap stub (02-01): creates the user row + marks onboarded_at.
+         * @description Bootstrap the user (D-04 + D-05 + D-06 + D-07):
          *
-         *     Skill-graph population (Sonnet call + song_skills + skill_nodes writes) is added in 02-03.
-         *     Returns SkillGraphResponse(nodes=[]) — empty until 02-03 lands.
-         *
-         *     Idempotent: ON CONFLICT DO UPDATE means repeated calls with the same UUID
-         *     succeed and update onboarded_at (no 500 on duplicates per D-04).
+         *     1. Idempotency guard (Revision D): if skill_nodes already exist for this user_id,
+         *        short-circuit with mode='existing' — no Sonnet call, no writes.
+         *     2. Upsert users row + preferences + raw_onboarding_text (parent transaction).
+         *     3. Open SAVEPOINT (async with db.begin_nested()) around: Sonnet call +
+         *        _persist_bootstrap(mode='full').
+         *     4. On AIParseError: SAVEPOINT rolls back automatically; call
+         *        _persist_bootstrap(mode='bootstrap') OUTSIDE the nested block to write 6-root fallback.
+         *     5. Set onboarded_at on the user row.
+         *     6. Single await db.commit() at end.
          */
         post: operations["bootstrap_user_api_v1_users_post"];
         delete?: never;
@@ -69,6 +73,51 @@ export interface paths {
         get: operations["get_user_api_v1_users__user_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{user_id}/skill-graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Skill Graph
+         * @description Return the user's full skill graph (tree via parent_id, no separate edges list per D-09).
+         */
+        get: operations["get_skill_graph_api_v1_users__user_id__skill_graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{user_id}/re-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re Run Onboarding
+         * @description Settings re-run (per D-14 Claude's Discretion):
+         *
+         *     Wipes user's songs + song_skills + skill_nodes; keeps users row + preferences
+         *     (overwritten with new body); then re-runs the same SAVEPOINT fail-open bootstrap.
+         *
+         *     Protection: refuses 403 if user_id is the system UUID (T-02-03-06 — seed data guard).
+         */
+        post: operations["re_run_onboarding_api_v1_users__user_id__re_run_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -183,12 +232,28 @@ export interface components {
          * SkillGraphResponse
          * @description POST /api/v1/users response body + GET /api/v1/users/{user_id}/skill-graph.
          *
-         *     In 02-01 this is always nodes=[] (Sonnet call lands in 02-03).
+         *     In 02-01 this was always nodes=[] (Sonnet call landed in 02-03).
          *     In 02-03+ nodes carries the full per-user skill tree.
+         *
+         *     mode values:
+         *       "full"     → Sonnet call succeeded and full DAG persisted (D-06)
+         *       "bootstrap"→ Sonnet failed after retry; SAVEPOINT rolled back; 6-root fallback
+         *                    graph persisted (D-07); raw_onboarding_text saved for future reprocessing
+         *       "existing" → idempotency guard hit; user already had skill_nodes; returned graph
+         *                    unchanged; no Sonnet call fired (Revision D guard)
+         *
+         *     02-04 uses mode="bootstrap" to show the "I'll fill in the details as we go." copy per D-07.
+         *     Mobile client should treat mode="existing" identically to "full".
          */
         SkillGraphResponse: {
             /** Nodes */
             nodes: components["schemas"]["SkillNodeResponse"][];
+            /**
+             * Mode
+             * @default full
+             * @enum {string}
+             */
+            mode: "full" | "bootstrap" | "existing";
         };
         /**
          * SkillNodeResponse
@@ -197,6 +262,10 @@ export interface components {
          *     Deterministic-writes principle (D-11): mastery always starts at 0.0 after onboarding.
          *     Sonnet writes STRUCTURE (nodes + hierarchy), never mastery values.
          *     Mastery is earned via Phase 3 session ratings.
+         *
+         *     level: SQLAlchemy ORM returns the Python SkillLevel enum instance from SAEnum columns
+         *     on read-back. The field_validator coerces it to its .value string so the Literal
+         *     constraint passes. (Rule 1 fix: auto-coercion so from_attributes=True works end-to-end.)
          */
         SkillNodeResponse: {
             /**
@@ -297,14 +366,10 @@ export interface components {
              */
             user_id: string;
             /** Songs */
-            songs: {
-                [key: string]: unknown;
-            };
+            songs: Record<string, never>;
             preferences: components["schemas"]["UserPreferences"];
             /** Raw Input */
-            raw_input: {
-                [key: string]: unknown;
-            };
+            raw_input: Record<string, never>;
         };
         /**
          * UserPreferences
@@ -345,10 +410,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -443,6 +504,72 @@ export interface operations {
             };
         };
     };
+    get_skill_graph_api_v1_users__user_id__skill_graph_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    re_run_onboarding_api_v1_users__user_id__re_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserBootstrapRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_healthz_get: {
         parameters: {
             query?: never;
@@ -458,9 +585,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": Record<string, never>;
                 };
             };
         };

@@ -7,10 +7,10 @@
 #                  (Sonnet tool-use structured output shapes) — added in 02-03.
 # Phase 2 (02-03): SkillNode + SongSkill ORM classes — added in 02-03 alongside the queries.
 from decimal import Decimal
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class SkillNodeResponse(BaseModel):
@@ -19,6 +19,10 @@ class SkillNodeResponse(BaseModel):
     Deterministic-writes principle (D-11): mastery always starts at 0.0 after onboarding.
     Sonnet writes STRUCTURE (nodes + hierarchy), never mastery values.
     Mastery is earned via Phase 3 session ratings.
+
+    level: SQLAlchemy ORM returns the Python SkillLevel enum instance from SAEnum columns
+    on read-back. The field_validator coerces it to its .value string so the Literal
+    constraint passes. (Rule 1 fix: auto-coercion so from_attributes=True works end-to-end.)
     """
     id: UUID
     user_id: UUID
@@ -30,6 +34,18 @@ class SkillNodeResponse(BaseModel):
     mastery: Decimal = Decimal("0.0")      # default 0 — never Sonnet-populated (D-11)
 
     model_config = {"from_attributes": True}
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def coerce_level_enum(cls, v: Any) -> str:
+        """Convert SkillLevel enum to string value when reading from ORM rows.
+
+        SQLAlchemy's SAEnum returns the Python enum instance on attribute access;
+        Pydantic's Literal validator expects the raw string, not the enum instance.
+        """
+        if hasattr(v, "value"):
+            return v.value
+        return v
 
 
 # ---------------------------------------------------------------------------
