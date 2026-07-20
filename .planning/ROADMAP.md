@@ -60,7 +60,19 @@ Plans:
   3. On onboarding completion, an initial 3-level DAG skill graph (root domains → sub-domains → leaf skills with 5-bpm tempo bins) is persisted server-side for the user
   4. Settings screen exposes a "Re-run onboarding" action that resets and re-seeds the skill graph
   5. Skill graph state survives app restart and is fetchable via the FastAPI backend
-**Plans**: TBD
+**Plans**: 4 plans in 3 waves
+
+Plans:
+
+**Wave 1**
+- [ ] 02-01-PLAN.md — User identity foundation: Alembic 0002 (users + song user-scoping + song_skills + skill_nodes) + stub bootstrap endpoint + X-User-ID plumbing + mobile MMKV UUID + root-layout onboarded-check redirect
+
+**Wave 2** *(parallel — blocked on Wave 1)*
+- [ ] 02-02-PLAN.md — Fletcher-voiced wizard: 5-section onboarding shell + intro card + song input area + session-length chips + retention radio + MMKV wizard-state resume-mid-flow + Complete-tap wired to bootstrap
+- [ ] 02-03-PLAN.md — AI + skill graph bootstrap: server/app/ai/ module + Sonnet 4.6 structured tool-use + atomic songs+song_skills+skill_nodes persist + fail-open with 6-root bootstrap graph + GET /skill-graph + POST /re-run endpoints
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 02-04-PLAN.md — Settings + re-run + polish: Settings as 4th tab + Fletcher confirm dialog + useSkillGraph + useUserReonboard hooks + Fletcher loader rotation (3 copy variants) + fail-open card + end-to-end device walkthrough
 
 ### Phase 3: AI Teacher & Song of the Day
 **Goal**: The user opens the Today tab, sees exactly one Song of the Day chosen deterministically from their current skill graph state, gets a Sonnet 4.6 technique breakdown rendered as tab + chord diagrams via react-native-svg, and submits a self-report rating that writes back into the graph via deterministic rules.
