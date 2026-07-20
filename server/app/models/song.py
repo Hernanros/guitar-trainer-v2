@@ -2,7 +2,13 @@
 # Pydantic v2 models — D-03 compliant semantic music JSON.
 # These are the single source of truth for the API contract (D-02).
 # Mobile TypeScript types are generated from the FastAPI OpenAPI schema.
-from typing import Optional
+#
+# Phase 2: SongResponse extended with optional category + user_id (D-14).
+# category is Optional to accommodate system-user seed row (which has can_play backfilled).
+# user_id is Optional per D-14 step 1; Phase 3 will tighten.
+from typing import Literal, Optional
+from uuid import UUID
+
 from pydantic import BaseModel
 
 
@@ -71,5 +77,8 @@ class SongResponse(BaseModel):
     bpm: int
     key: str
     breakdown: Breakdown
+    # Phase 2 additions (Optional per D-14 — backfilled on existing row, nullable for new)
+    user_id: Optional[UUID] = None
+    category: Optional[Literal["can_play", "working_on", "aspirational"]] = None
 
     model_config = {"from_attributes": True}

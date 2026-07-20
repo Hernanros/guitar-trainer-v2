@@ -10,7 +10,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 # Import ORM models so Alembic can detect schema changes via autogenerate.
-from app.models.db import Base, Song  # noqa: F401 — needed for target_metadata
+from app.models.db import Base, Song, User  # noqa: F401 — needed for target_metadata
 
 config = context.config
 
