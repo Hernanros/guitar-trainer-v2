@@ -1,0 +1,42 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-07-20T20:00:00Z",
+  "phase": "02",
+  "phase_name": "Onboarding & Initial Skill Graph",
+  "phase_dir": ".planning/phases/02-onboarding-skill-graph",
+  "plan": 0,
+  "task": 0,
+  "total_tasks": 0,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": "01-01", "name": "Walking Skeleton — monorepo + FastAPI + Postgres + Expo + codegen", "status": "done", "commit": "ace7196"},
+    {"id": "01-02", "name": "SVG rendering — ChordDiagram + TabNotation + Today tab wiring", "status": "done", "commit": "e485e90"},
+    {"id": "01-03", "name": "MMKV offline persistence — verification-only, baseline schema.d.ts", "status": "done", "commit": "50b4423"},
+    {"id": "01-04", "name": "Ship to devices — Railway deploy + iOS EAS build (Android deferred)", "status": "done", "commit": "bb9039d"},
+    {"id": "02-context", "name": "Phase 2 discuss-phase — 14 decisions captured across 4 areas", "status": "done", "commit": "842d24e"}
+  ],
+  "remaining_tasks": [
+    {"id": "02-ui-phase", "name": "Optional: /gsd-ui-phase 2 to produce UI-SPEC.md for onboarding + Fletcher visuals", "status": "not_started"},
+    {"id": "02-plan", "name": "/gsd-plan-phase 2 — create PLAN.md files for onboarding + skill graph seeding", "status": "not_started"},
+    {"id": "02-execute", "name": "/gsd-execute-phase 2 — implement Phase 2", "status": "not_started"},
+    {"id": "01-04-android", "name": "Deferred: PLAT-02 Android EAS build (needs Android device or emulator)", "status": "not_started"}
+  ],
+  "blockers": [],
+  "human_actions_pending": [
+    {"action": "Android device or emulator setup (for PLAT-02 completion)", "context": "Wave 3 shipped iOS only per user pacing choice; Android build was deferred with documented fallback in 01-04-SUMMARY", "blocking": false},
+    {"action": "Fletcher character portrait asset acquisition (AI-generated or commissioned)", "context": "Required for the onboarding 'Meet Fletcher' welcome section per fletcher-identity.md. Prompt direction in design brief. Deferred to Phase 2 UI-phase", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "Product name: Fletcher (JK Simmons / Whiplash reference)", "rationale": "Reinforces the AI-teacher positioning; the joke is that this Fletcher is 'the teacher Fletcher should have been' — reinforcing not critical, celebrates hard-won achievements by grinders", "phase": "cross-phase"},
+    {"decision": "Fletcher voice contract: sharp diagnosis + coaching next step + confidence signal", "rationale": "Keeps Fletcher-vocabulary ('Rushing', 'Dragging', 'Not my tempo') as signature but delivers them as coaching, not putdowns. See .planning/design/fletcher-identity.md", "phase": "cross-phase"},
+    {"decision": "Multi-user seams resolved: users table + device UUID + X-User-ID header, no auth", "rationale": "Deferred from Phase 1, forced by Phase 2 onboarding creating first real user data. UUID generated per device, MMKV stores it, all API requests send X-User-ID", "phase": "02"},
+    {"decision": "5-section onboarding wizard: Welcome / Play / Working on / Aspire / Preferences", "rationale": "Sectioned wizard beats conversational (40%+ abandon on chat) and standard-form (weakest voice). Welcome is the Fletcher joke-landing moment; each song category gets emotional weight; Aspire is the retention hook", "phase": "02"},
+    {"decision": "Free-text song input + Sonnet batch parse on Complete", "rationale": "Cheapest (~$0.02-0.05/user), most Fletcher-native voice fit. Single LLM call outputs both canonicalized songs and initial skill graph. Fail-open with bootstrap graph on failure", "phase": "02"},
+    {"decision": "Fixed root taxonomy: Rhythm / Lead / Chord Voicings / Fingerstyle / Music Theory / Timing", "rationale": "Sonnet writes sub-domains and leaves within these. Reduces Phase 4 dedup collision surface. Proposed values — iterate in Phase 2 UI-phase", "phase": "02"},
+    {"decision": "Normalized per-user skill_nodes tree; songs table with category enum + song_skills junction", "rationale": "Defers multi-parent DAG + canonical shared nodes to Phase 4. Aspirational retention hook lives at song level (query: skills where song.category=aspirational). Foundation for Phase 5 Library too", "phase": "02"},
+    {"decision": "All mastery starts at 0 after onboarding", "rationale": "Preserves 'deterministic writes only, no LLM in write path' from PROJECT.md. Sonnet writes structure; Phase 3 ratings write mastery", "phase": "02"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "Run /gsd-ui-phase 2 (recommended — first heavy-UI phase, where Fletcher visual identity ships) OR /gsd-plan-phase 2 directly if you want to move faster",
+  "context_notes": "Phase 1 shipped iOS end-to-end on Hernan's real iPhone — Sweet Home Chicago fetched from Railway, airplane-mode + force-quit + reopen served the cached song (PLAT-04 verified). Phase 2 discuss-phase produced 14 decisions with strong Fletcher-voice + data-model rigor. Phase 2 is the first heavy-UI phase (Phase 1 was scaffolding), and the natural home for Fletcher's visual identity to ship in real screens — hence the strong recommendation for /gsd-ui-phase 2 before /gsd-plan-phase 2. The user paused after CONTEXT.md landed; no in-flight work to recover, no unresolved blockers, no dirty tree."
+}
