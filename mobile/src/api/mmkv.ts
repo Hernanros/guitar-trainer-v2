@@ -58,3 +58,93 @@ export function clearOnboardedAt(): void {
   // MMKV v4 API: remove() replaces delete() from v3 (see 01-01-SUMMARY.md deviation #5)
   userMmkv.remove(ONBOARDED_AT_KEY);
 }
+
+// ---------------------------------------------------------------------------
+// Wizard state helpers (02-02)
+//
+// All wizard-section text (play / working-on / aspire) is buffered here.
+// Nothing hits Postgres until the user taps Complete (D-03).
+// On force-quit + reopen, the wizard reads these keys to resume mid-flow.
+// clearWizardState() is called on successful Complete and by 02-04's re-run.
+// ---------------------------------------------------------------------------
+
+/**
+ * Section IDs — must match Expo Router file names under onboarding/.
+ */
+export type WizardSection = 'index' | 'play' | 'working-on' | 'aspire' | 'preferences';
+
+const WIZARD_SECTION_PREFIX = 'wizard.section.';
+const WIZARD_LAST_SECTION_KEY = 'wizard.last_section';
+const WIZARD_PREFS_KEY = 'wizard.preferences';
+
+/**
+ * Persists the free-text content typed into a wizard section.
+ * Called on every keystroke via 300ms debounce in SongInputArea.
+ * D-03: MMKV-only wizard state; nothing touches Postgres until Complete.
+ */
+export function setWizardSection(section: WizardSection, text: string): void {
+  userMmkv.set(`${WIZARD_SECTION_PREFIX}${section}`, text);
+}
+
+/**
+ * Returns the text previously typed in a section, or '' if none.
+ * Used by SongInputArea to prefill on resume (D-03).
+ */
+export function getWizardSection(section: WizardSection): string {
+  return userMmkv.getString(`${WIZARD_SECTION_PREFIX}${section}`) ?? '';
+}
+
+/**
+ * Records the section the user was last on.
+ * index.tsx reads this on mount and redirects when non-null + not 'index'.
+ * D-03: resume mid-flow.
+ */
+export function setLastSection(section: WizardSection): void {
+  userMmkv.set(WIZARD_LAST_SECTION_KEY, section);
+}
+
+/**
+ * Returns the last section the user visited, or null on first launch.
+ */
+export function getLastSection(): WizardSection | null {
+  const v = userMmkv.getString(WIZARD_LAST_SECTION_KEY);
+  return (v as WizardSection | undefined) ?? null;
+}
+
+/**
+ * Wipes all wizard-state keys.
+ * Called on successful Complete (preferences.tsx onSuccess) and by 02-04 re-run.
+ */
+export function clearWizardState(): void {
+  const sections: WizardSection[] = ['index', 'play', 'working-on', 'aspire', 'preferences'];
+  sections.forEach((s) => userMmkv.remove(`${WIZARD_SECTION_PREFIX}${s}`));
+  userMmkv.remove(WIZARD_LAST_SECTION_KEY);
+  userMmkv.remove(WIZARD_PREFS_KEY);
+}
+
+/**
+ * Persists session-length + retention-format selections from the Preferences section.
+ * Stored as a JSON blob. Read back on mount to survive app restarts (D-03).
+ */
+export function setWizardPreferences(prefs: {
+  session_length_min: 15 | 30 | 45 | 60 | null;
+  retention_format: 'streak' | 'weekly_digest' | 'monthly_milestone' | null;
+}): void {
+  userMmkv.set(WIZARD_PREFS_KEY, JSON.stringify(prefs));
+}
+
+/**
+ * Returns the preferences typed so far, defaulting to null fields if unset.
+ */
+export function getWizardPreferences(): {
+  session_length_min: 15 | 30 | 45 | 60 | null;
+  retention_format: 'streak' | 'weekly_digest' | 'monthly_milestone' | null;
+} {
+  const raw = userMmkv.getString(WIZARD_PREFS_KEY);
+  if (!raw) return { session_length_min: null, retention_format: null };
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { session_length_min: null, retention_format: null };
+  }
+}
