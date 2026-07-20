@@ -1,7 +1,7 @@
 # server/app/models/user.py
 # Pydantic v2 models for user identity and onboarding (Phase 2).
 # Pattern: mirrors server/app/models/song.py — BaseModel + from_attributes=True.
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -22,13 +22,13 @@ class UserPreferences(BaseModel):
 class UserBootstrapRequest(BaseModel):
     """POST /api/v1/users request body (per D-05 + D-04).
 
-    songs: free-text per category — Sonnet parses in 02-03.
+    songs: per-category parsed lines — Sonnet consumes in 02-03.
     raw_input: verbatim wizard text kept for fail-open (D-07).
     """
     user_id: UUID
-    songs: dict              # {can_play: [str], working_on: [str], aspirational: [str]}
+    songs: Dict[str, List[str]]      # {can_play: [str], working_on: [str], aspirational: [str]}
     preferences: UserPreferences
-    raw_input: dict          # verbatim wizard text, kept for fail-open (D-07)
+    raw_input: Dict[str, str]        # verbatim wizard text per category, kept for fail-open (D-07)
 
 
 class UserResponse(BaseModel):

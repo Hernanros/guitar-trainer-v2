@@ -356,7 +356,7 @@ export interface components {
          * UserBootstrapRequest
          * @description POST /api/v1/users request body (per D-05 + D-04).
          *
-         *     songs: free-text per category — Sonnet parses in 02-03.
+         *     songs: per-category parsed lines — Sonnet consumes in 02-03.
          *     raw_input: verbatim wizard text kept for fail-open (D-07).
          */
         UserBootstrapRequest: {
@@ -366,10 +366,14 @@ export interface components {
              */
             user_id: string;
             /** Songs */
-            songs: Record<string, never>;
+            songs: {
+                [key: string]: string[];
+            };
             preferences: components["schemas"]["UserPreferences"];
             /** Raw Input */
-            raw_input: Record<string, never>;
+            raw_input: {
+                [key: string]: string;
+            };
         };
         /**
          * UserPreferences
