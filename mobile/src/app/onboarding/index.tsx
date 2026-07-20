@@ -1,93 +1,51 @@
 // mobile/src/app/onboarding/index.tsx
-// DEVELOPER PLACEHOLDER — this screen is REPLACED ENTIRELY in 02-02.
+// Welcome screen — Fletcher joke-landing moment (02-02).
+// Replaces the 02-01 dev placeholder entirely.
 //
-// Purpose: makes the end-to-end redirect + bootstrap flow verifiable on device
-// BEFORE the full wizard (02-02) ships. The observable flow:
-//   1. Fresh install → root layout reads no onboarded_at → redirects here.
-//   2. Tap "Bootstrap user (dev)" → calls POST /api/v1/users → writes onboarded_at.
-//   3. router.replace('/(tabs)') → app lands on Today tab.
-//   4. Force-quit + reopen → onboarded_at is set → root layout skips /onboarding.
+// Voice contract: fletcher-identity.md lines 87-93.
+//   Heading: "Meet Fletcher."
+//   Body: "He's the teacher Fletcher should have been. Five short questions. Then we practice."
+//   CTA: "Start"
+//   Pattern: warm framing (no user output to diagnose yet at this step — the "diagnosis"
+//   component of the fletcher-identity.md pattern becomes a warm framing on Welcome).
+//   No emojis. No exclamation points. Second person.
 //
-// Voice contract: "Bootstrap user (dev)" is an intentional dev-mode string.
-// Fletcher voice does NOT apply here per <voice_contract> in 02-01-PLAN.md.
-// All Fletcher-voiced copy lands in 02-02 (wizard) and 02-04 (settings).
-import React from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+// D-03 resume-mid-flow: on mount, reads getLastSection(). If the user previously
+//   reached a section past 'index', router.replace() takes them directly there
+//   before any render paint (no Welcome-screen flicker on resume).
+//   MMKV flag approach chosen over URL search params: survives app restarts and
+//   is consistent with how wizard state is managed throughout the flow.
+//   Resume banner ("Welcome back. Picking up where you left off.") deferred to a
+//   polish pass — SongInputArea prefill is the visible resume signal.
+import React, { useEffect } from 'react';
 import { router } from 'expo-router';
-import { useUserBootstrap, type UserBootstrapRequest } from '../../api/users';
-import { getOrCreateUserId } from '../../api/mmkv';
+import { FletcherIntroCard } from '../../components/FletcherIntroCard';
+import { getLastSection, setLastSection } from '../../api/mmkv';
 
-export default function OnboardingPlaceholder() {
-  const bootstrap = useUserBootstrap();
+export default function OnboardingWelcome() {
+  useEffect(() => {
+    // D-03: resume mid-flow. Router.replace fires before the component renders,
+    // so the user never sees the Welcome screen on a resume path.
+    const last = getLastSection();
+    if (last && last !== 'index') {
+      router.replace(`/onboarding/${last}` as Parameters<typeof router.replace>[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const onBootstrap = () => {
-    const body: UserBootstrapRequest = {
-      user_id: getOrCreateUserId(),
-      songs: { can_play: [], working_on: [], aspirational: [] },
-      preferences: { session_length_min: 30, retention_format: 'streak' },
-      raw_input: {},
-    };
-    bootstrap.mutate(body, {
-      onSuccess: () => router.replace('/(tabs)'),
-    });
+  const onStart = () => {
+    // Record that the user is advancing to 'play' for D-03 resume tracking.
+    setLastSection('play');
+    router.push('/onboarding/play');
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.text}>Onboarding placeholder (02-02 replaces this)</Text>
-      <Pressable
-        style={styles.button}
-        onPress={onBootstrap}
-        disabled={bootstrap.isPending}
-        accessibilityRole="button"
-        accessibilityLabel="Bootstrap user dev"
-      >
-        {bootstrap.isPending ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Bootstrap user (dev)</Text>
-        )}
-      </Pressable>
-      {bootstrap.isError && (
-        <Text style={styles.error}>{String(bootstrap.error)}</Text>
-      )}
-    </View>
+    <FletcherIntroCard
+      heading="Meet Fletcher."
+      body="He's the teacher Fletcher should have been. Five short questions. Then we practice."
+      cta="Start"
+      onNext={onStart}
+      progress={{ current: 1, total: 5 }}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  // Dark palette matches the Today tab (#1A1A1A bg, #F5F5F5 text, #E07B39 accent)
-  // Consistent visual continuity between onboarding placeholder and post-onboarding app.
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1A1A1A',
-    padding: 24,
-  },
-  text: {
-    fontSize: 16,
-    color: '#F5F5F5',
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  button: {
-    backgroundColor: '#E07B39',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    minWidth: 160,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  error: {
-    color: '#ff6b6b',
-    marginTop: 16,
-    fontSize: 12,
-    textAlign: 'center',
-  },
-});
