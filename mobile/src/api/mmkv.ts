@@ -148,3 +148,36 @@ export function getWizardPreferences(): {
     return { session_length_min: null, retention_format: null };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Re-run flow helpers (02-04)
+//
+// When Settings "Re-run onboarding" fires, it clears onboarded_at + wizard
+// state, then routes to /onboarding. The wizard Complete tap needs to know
+// whether this is a fresh boot (use POST /users bootstrap) or a re-run
+// (use POST /users/{id}/re-run which wipes first). This flag distinguishes
+// the two cases without having to pass state through the route.
+// ---------------------------------------------------------------------------
+
+const RE_RUN_PENDING_KEY = 'wizard.re_run_pending';
+
+/**
+ * Sets or clears the re-run-pending flag.
+ * Called by Settings before routing to /onboarding (set true),
+ * and by preferences.tsx on successful Complete (set false).
+ */
+export function setReRunPending(pending: boolean): void {
+  if (pending) {
+    userMmkv.set(RE_RUN_PENDING_KEY, 'true');
+  } else {
+    userMmkv.remove(RE_RUN_PENDING_KEY);
+  }
+}
+
+/**
+ * Returns true if the wizard was entered via Settings "Re-run onboarding".
+ * Used by preferences.tsx to branch between useUserBootstrap and useUserReonboard.
+ */
+export function getReRunPending(): boolean {
+  return userMmkv.getString(RE_RUN_PENDING_KEY) === 'true';
+}
