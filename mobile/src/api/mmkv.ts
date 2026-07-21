@@ -8,17 +8,28 @@
 //
 // MMKV v4 (NitroModules) API: createMMKV() replaces `new MMKV()` from v3.
 // Verified against Phase 1 patterns in queryClient.ts (deviation #4 in 01-01-SUMMARY.md).
-//
-// expo-crypto v57: Crypto.randomUUID() returns a standard v4 UUID string.
-// Verified against https://docs.expo.dev/versions/v57.0.0/ (mobile/AGENTS.md mandate).
 import { createMMKV } from 'react-native-mmkv';
-import * as Crypto from 'expo-crypto';
 
 // Separate MMKV instance from the query-cache instance in queryClient.ts.
 export const userMmkv = createMMKV({ id: 'user-store' });
 
 const USER_ID_KEY = 'user_id';
 const ONBOARDED_AT_KEY = 'onboarded_at';
+
+/**
+ * Pure-JS UUID v4 generator (no native dep — kept out of expo-crypto so this file
+ * stays JS-only and Phase 2 doesn't trigger a fresh dev-client build).
+ *
+ * The user_id is a device-local scope key, not a security token: Math.random()
+ * is fine. Format follows RFC 4122 v4 (version=4, variant=8/9/A/B).
+ */
+function generateUuidV4(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 /**
  * Returns the stable device UUID for this installation.
@@ -28,7 +39,7 @@ const ONBOARDED_AT_KEY = 'onboarded_at';
 export function getOrCreateUserId(): string {
   const existing = userMmkv.getString(USER_ID_KEY);
   if (existing) return existing;
-  const fresh = Crypto.randomUUID();
+  const fresh = generateUuidV4();
   userMmkv.set(USER_ID_KEY, fresh);
   return fresh;
 }
