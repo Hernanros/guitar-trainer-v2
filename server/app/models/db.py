@@ -133,7 +133,13 @@ class SkillNode(Base):
     tempo_bin_low: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tempo_bin_high: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     mastery: Mapped[Decimal] = mapped_column(
-        Numeric(4, 3), nullable=False, server_default=text("0.0")
+        Numeric(4, 3),
+        nullable=False,
+        default=Decimal("0.0"),          # Python-side default so new rows have mastery=0.0
+                                          # BEFORE flush/refresh — response serialization
+                                          # needs it non-None on the in-memory object.
+        server_default=text("0.0"),      # DB-side default backs it for direct-SQL inserts
+                                          # (migrations, seeding, external tools).
     )
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
