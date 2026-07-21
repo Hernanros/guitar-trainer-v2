@@ -80,9 +80,13 @@ async def run_onboarding_parse(
     Raises AIParseError if both attempts fail.
     """
     user_content = _format_user_message(raw_input)
-    client = get_client()
 
     async def _call(timeout: float) -> SonnetOnboardingOutput:
+        # get_client() may raise RuntimeError if ANTHROPIC_API_KEY is unset.
+        # Calling it inside _call (which is inside the outer try/except below)
+        # means the RuntimeError gets wrapped as AIParseError and triggers the
+        # D-07 fail-open path — instead of a raw 500 to the client.
+        client = get_client()
         resp = await asyncio.wait_for(
             client.messages.create(
                 model=SONNET_MODEL,
