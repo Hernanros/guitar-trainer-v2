@@ -3,11 +3,9 @@
 # CORS: allow_origins=["*"] for Phase 1 POC — narrow in Phase 2 when user data lands.
 # CRITICAL: allow_credentials MUST be False when allow_origins=["*"] (Pitfall 5).
 import logging
-import traceback
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from app.api.v1.song_of_day import router as song_router
 from app.api.v1.users import router as users_router
@@ -36,23 +34,6 @@ app.add_middleware(
 
 app.include_router(song_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
-
-
-# TEMPORARY debug exception handler — surfaces server-side tracebacks in the
-# response body so a mobile client (or curl) can see what actually broke.
-# Revert this handler once Phase 2 stabilizes and Sentry/log aggregation is wired.
-@app.exception_handler(Exception)
-async def _debug_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    tb = traceback.format_exc()
-    logger.error("Unhandled exception during %s %s:\n%s", request.method, request.url.path, tb)
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": type(exc).__name__,
-            "message": str(exc),
-            "traceback": tb.splitlines()[-25:],
-        },
-    )
 
 
 @app.get("/healthz", tags=["ops"])
