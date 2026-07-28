@@ -16,15 +16,15 @@ Requirements for the "Prove the loop" MVP. Each maps to exactly one roadmap phas
 
 ### Onboarding
 
-- [ ] **ONB-01**: New user completes one-time onboarding that captures songs they can play, songs they're working on, and aspirational songs
-- [ ] **ONB-02**: Onboarding captures style/genre tags and session preferences (session length, retention format — streak vs weekly digest vs monthly milestone)
-- [ ] **ONB-03**: Initial skill graph state is seeded from onboarding answers
-- [ ] **ONB-04**: User can re-run onboarding from Settings at any time
+- [x] **ONB-01**: New user completes one-time onboarding that captures songs they can play, songs they're working on, and aspirational songs
+- [x] **ONB-02**: Onboarding captures style/genre tags and session preferences (session length, retention format — streak vs weekly digest vs monthly milestone)
+- [x] **ONB-03**: Initial skill graph state is seeded from onboarding answers
+- [x] **ONB-04**: User can re-run onboarding from Settings at any time
 
 ### Skill Graph
 
-- [ ] **SKILL-01**: Skill graph is a 3-level DAG (root domains → sub-domains → leaf skills) stored server-side
-- [ ] **SKILL-02**: Leaf skills carry tempo-band data split into 5-bpm bins
+- [x] **SKILL-01**: Skill graph is a 3-level DAG (root domains → sub-domains → leaf skills) stored server-side
+- [x] **SKILL-02**: Leaf skills carry tempo-band data split into 5-bpm bins
 - [ ] **SKILL-03**: Session ratings update the graph via deterministic rules (no LLM in the write path)
 - [ ] **SKILL-04**: New node proposals (from user or AI) pass an embedded-dedup + Sonnet-verifier gate before joining the canonical graph; uncertain proposals queue for curator review
 - [ ] **SKILL-05**: Nightly job decays nodes untouched >7 days by 5%
@@ -114,12 +114,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PLAT-02 | Phase 1 | ⏸ Deferred (Android build pending device/emulator setup) |
 | PLAT-03 | Phase 1 | ✓ Satisfied (FastAPI on Railway + persistent Postgres, 2026-07-19) |
 | PLAT-04 | Phase 1 | ✓ Satisfied (MMKV airplane-mode cache verified on iPhone, 2026-07-19) |
-| ONB-01 | Phase 2 | Pending |
-| ONB-02 | Phase 2 | Pending |
-| ONB-03 | Phase 2 | Pending |
-| ONB-04 | Phase 2 | Pending |
-| SKILL-01 | Phase 2 | Pending |
-| SKILL-02 | Phase 2 | Pending |
+| ONB-01 | Phase 2 | Complete |
+| ONB-02 | Phase 2 | Complete |
+| ONB-03 | Phase 2 | Complete |
+| ONB-04 | Phase 2 | Complete |
+| SKILL-01 | Phase 2 | Complete |
+| SKILL-02 | Phase 2 | Complete |
 | SKILL-03 | Phase 3 | Pending |
 | SKILL-04 | Phase 4 | Pending |
 | SKILL-05 | Phase 4 | Pending |
@@ -137,6 +137,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | COST-04 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 25 total
 - Mapped to phases: 25
 - Unmapped: 0
