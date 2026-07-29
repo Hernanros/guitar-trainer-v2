@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Session resumed. User chose `/gsd-plan-phase 2` directly (skipping optional /gsd-ui-phase 2 — Fletcher visuals will be designed inside implementation plans).
-last_updated: "2026-07-29T08:25:51.430Z"
-last_activity: 2026-07-29 -- Phase 03 execution started
+stopped_at: Session resumed after Phase 3 executed_with_gaps. User chose `/gsd-plan-phase 3 --gaps` to plan closure of the 4 known Wave 1 gaps (selector CTE wiring, /reroll endpoint, useReroll hook, bank_source propagation).
+last_updated: "2026-07-29T12:07:46.054Z"
+last_activity: 2026-07-29 -- Phase 03 planning complete
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 11
-  completed_plans: 8
+  total_plans: 12
+  completed_plans: 11
   percent: 40
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 
 Phase: 03 (AI Teacher & Song of the Day) — EXECUTING
 Plan: 1 of 3
-Status: Executing Phase 03
-Last activity: 2026-07-29 -- Phase 03 execution started
+Status: Ready to execute
+Last activity: 2026-07-29 -- Phase 03 planning complete
 
 Progress: [██████████░░░░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 next
 
@@ -86,6 +86,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-20
-Stopped at: Session resumed. User chose `/gsd-plan-phase 2` directly (skipping optional /gsd-ui-phase 2 — Fletcher visuals will be designed inside implementation plans).
-Resume file: .planning/phases/02-onboarding-skill-graph/02-CONTEXT.md
+Last session: 2026-07-29
+Stopped at: Session resumed after Phase 3 executed_with_gaps. User chose `/gsd-plan-phase 3 --gaps` to plan closure of the 4 known Wave 1 gaps (selector CTE wiring, /reroll endpoint, useReroll hook, bank_source propagation).
+Resume file: .planning/HANDOFF.json (authoritative until gap-closure plan is written)
