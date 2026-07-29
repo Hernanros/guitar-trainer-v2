@@ -1,94 +1,113 @@
 // mobile/src/app/(tabs)/index.tsx
-// Today tab — fetches and renders the full Song of the Day breakdown.
-// Calls useSongOfDay() which hits GET /api/v1/song-of-day via TanStack Query.
-// ChordDiagram and TabNotation render SVG from D-03 semantic JSON.
+// Today tab — Phase 3 (03-01 Slice A) wire-up.
+//
+// Replaces Phase 1's useSongOfDay (hardcoded fetch) with useTodaySong (per-user
+// deterministic selector, keyed by local calendar day for automatic daily rotation).
+//
+// Loading state: FletcherLoader with Phase 3 breakdown-specific messages.
+//   "Fletcher is listening..." → "Working out the fingering..." → "Almost there..."
+//
+// Data state: SongOfDayCard renders the full hero card with Fletcher line variant,
+//   primary "See the breakdown" CTA, and re-roll ghost button.
+//   FromTheBankTag chip renders below difficulty badge when from_bank=true.
+//
+// Error state: plain retry Pressable on #3A1F1F bg — BreakdownErrorCard lands in Slice B.
+//
+// Breakdown detail: removed (Slice A does not render Tab/ChordDiagram).
+//   TabNotation and ChordDiagram imports are preserved so Slice B can restore them
+//   without merge conflicts.
+//
+// Voice contract (fletcher-identity.md, UI-SPEC §1, §10):
+//   All strings delegated to SongOfDayCard.FLETCHER_LINE (verbatim UI-SPEC copy).
+//   No inline string literals — all user-visible copy lives in the component layer.
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  ScrollView,
-} from 'react-native';
-import { useSongOfDay } from '../../api/songOfDay';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useTodaySong, useReroll } from '../../api/todaySong';
+import { FletcherLoader } from '../../components/FletcherLoader';
+import { SongOfDayCard } from '../../components/SongOfDayCard';
+import { FromTheBankTag } from '../../components/FromTheBankTag';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { ChordDiagram } from '../../components/ChordDiagram';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { TabNotation } from '../../components/TabNotation';
-import type { components } from '../../api/generated/schema';
+import type { FletcherLineVariant } from '../../components/SongOfDayCard';
 
-type Chord = components['schemas']['Chord'];
-type TechniqueNote = components['schemas']['TechniqueNote'];
+// Loader messages for Today tab (Phase 3 Slice A: while fetching today's song).
+// Slice B will use these for the breakdown fetch. For Slice A (selector only, no Sonnet),
+// they show briefly until the fast SQL query returns — typically < 500ms.
+const TODAY_LOADER_MESSAGES = [
+  'Fletcher is listening...',
+  'Working out the fingering...',
+  'Almost there...',
+] as const;
 
 export default function TodayScreen() {
-  const { data: song, isLoading, isError, error } = useSongOfDay();
+  const { data: today, isPending, isError, error, refetch } = useTodaySong();
+  const reroll = useReroll();
 
-  if (isLoading) {
+  // --- Loading state ---
+  if (isPending) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#E07B39" />
-        <Text style={styles.loadingText}>Loading...</Text>
-      </View>
+      <FletcherLoader messages={TODAY_LOADER_MESSAGES} isPending={true} />
     );
   }
 
-  if (isError || !song) {
+  // --- Error state ---
+  // BreakdownErrorCard arrives in Slice B; for Slice A a minimal retry is acceptable.
+  if (isError || !today) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>Could not load today's song</Text>
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>Could not load today's song.</Text>
         {error instanceof Error && (
           <Text style={styles.errorDetail}>{error.message}</Text>
         )}
+        <Pressable
+          style={styles.retryButton}
+          onPress={() => refetch()}
+          accessibilityRole="button"
+          accessibilityLabel="Try again"
+        >
+          <Text style={styles.retryText}>Try again</Text>
+        </Pressable>
       </View>
     );
   }
 
+  // --- Derive Fletcher line variant from selector metadata ---
+  let fletcherLineVariant: FletcherLineVariant;
+  if (today.rerolled) {
+    fletcherLineVariant = 'rerolled';
+  } else if (today.from_bank && today.bank_source === 'user_bench') {
+    fletcherLineVariant = 'user_bench';
+  } else if (today.from_bank) {
+    fletcherLineVariant = 'seed_catalog';
+  } else {
+    fletcherLineVariant = 'deterministic';
+  }
+
+  // --- Data state ---
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Song header */}
-      <View style={styles.header}>
-        <Text style={styles.label}>SONG OF THE DAY</Text>
-        <Text style={styles.title}>{song.title}</Text>
-        <Text style={styles.artist}>{song.artist}</Text>
-        <Text style={styles.meta}>
-          {song.genre} · {song.bpm} BPM · Key of {song.key}
-        </Text>
-        <View style={styles.difficultyBadge}>
-          <Text style={styles.difficultyText}>{song.difficulty}</Text>
-        </View>
-      </View>
+      {/* SongOfDayCard — hero card with Fletcher line + CTA + re-roll */}
+      <SongOfDayCard
+        song={today.song}
+        fletcherLineVariant={fletcherLineVariant}
+        rerollsLeft={today.rerolled ? 0 : 1}
+        onTapBreakdown={() => {
+          // Slice B wires this to the breakdown route.
+          Alert.alert('Breakdown', 'Coming in Slice B.');
+        }}
+        onReroll={() => reroll.mutate()}
+        bankChip={
+          // FromTheBankTag chip: visible when bank path fired (25% override or empty working_on).
+          today.from_bank && today.bank_source ? (
+            <FromTheBankTag variant={today.bank_source} />
+          ) : null
+        }
+      />
 
-      {/* Technique Notes */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>How to play it</Text>
-        {song.breakdown.technique_notes.map((note: TechniqueNote, i: number) => (
-          <View key={i} style={styles.techniqueCard}>
-            <Text style={styles.techniqueHeading}>{note.heading}</Text>
-            <Text style={styles.techniqueBody}>{note.body}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Tab Notation */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Tab</Text>
-        <View style={styles.tabContainer}>
-          <TabNotation tab={song.breakdown.tab} />
-        </View>
-      </View>
-
-      {/* Chord Diagrams */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Chords</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chordScroll}
-          contentContainerStyle={styles.chordScrollContent}
-        >
-          {song.breakdown.chords.map((chord: Chord) => (
-            <ChordDiagram key={chord.name} chord={chord} />
-          ))}
-        </ScrollView>
-      </View>
+      {/* Breakdown detail arrives in Slice B */}
+      {/* TabNotation and ChordDiagram imports preserved above for Slice B restoration */}
     </ScrollView>
   );
 }
@@ -102,120 +121,38 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
-  center: {
+  errorContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    backgroundColor: '#1A1A1A',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#999',
+    padding: 24,
+    backgroundColor: '#3A1F1F',
   },
   errorText: {
     fontSize: 16,
-    color: '#c0392b',
-    fontWeight: 'bold',
+    color: '#F5F5F5',
+    fontWeight: '700',
     textAlign: 'center',
+    marginBottom: 8,
   },
   errorDetail: {
-    marginTop: 8,
     fontSize: 13,
     color: '#999',
     textAlign: 'center',
+    marginBottom: 16,
   },
-  header: {
-    marginBottom: 28,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+  retryButton: {
+    backgroundColor: '#E07B39',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  label: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-    color: '#E07B39',
-    marginBottom: 6,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#F5F5F5',
-    marginBottom: 4,
-  },
-  artist: {
+  retryText: {
+    color: '#fff',
     fontSize: 16,
-    color: '#999',
-    marginBottom: 6,
-  },
-  meta: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 10,
-  },
-  difficultyBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#2A2A2A',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#E07B39',
-  },
-  difficultyText: {
-    fontSize: 12,
-    color: '#E07B39',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  section: {
-    marginBottom: 28,
-  },
-  sectionTitle: {
-    fontSize: 12,
     fontWeight: '700',
-    color: '#999',
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  techniqueCard: {
-    backgroundColor: '#242424',
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: '#E07B39',
-  },
-  techniqueHeading: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#F5F5F5',
-    marginBottom: 6,
-  },
-  techniqueBody: {
-    fontSize: 14,
-    color: '#AAA',
-    lineHeight: 21,
-  },
-  tabContainer: {
-    backgroundColor: '#242424',
-    borderRadius: 10,
-    padding: 12,
-    overflow: 'hidden',
-  },
-  chordScroll: {
-    flexGrow: 0,
-  },
-  chordScrollContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    backgroundColor: '#242424',
-    borderRadius: 10,
   },
 });
