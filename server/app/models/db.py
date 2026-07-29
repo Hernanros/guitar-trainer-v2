@@ -99,7 +99,7 @@ class Song(Base):
     difficulty: Mapped[str] = mapped_column(String(50), nullable=True)
     bpm: Mapped[int] = mapped_column(Integer, nullable=True)
     key: Mapped[str] = mapped_column(String(10), nullable=True)
-    breakdown: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    breakdown: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
