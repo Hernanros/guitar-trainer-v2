@@ -87,5 +87,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-07-29
-Stopped at: Session resumed after Phase 3 executed_with_gaps. User chose `/gsd-plan-phase 3 --gaps` to plan closure of the 4 known Wave 1 gaps (selector CTE wiring, /reroll endpoint, useReroll hook, bank_source propagation).
-Resume file: None — gap-closure complete. HANDOFF.json is no longer authoritative.
+Stopped at: Phase 3 gap-closure complete (03-04 executed + verified `human_needed` with 4 device items batched for next EAS build — see memory `eas-batch-phase3-device-verify`). User chose to advance to Phase 4 planning and picked `discuss-phase first` for the Cost Governor & Node Verification design surface.
+Resume file: `.planning/phases/04-cost-governor-node-verification/` (created; awaiting CONTEXT.md via `/gsd:discuss-phase 4`)
