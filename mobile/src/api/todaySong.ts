@@ -1,96 +1,37 @@
 // mobile/src/api/todaySong.ts
-// TanStack Query hooks for Song of the Day (Phase 3, 03-01 Slice A).
+// TanStack Query hooks for Phase 3 song-of-day + breakdown flow.
 //
-// Design decisions (03-RESEARCH.md §7, 03-CONTEXT.md D-05/D-09/D-10):
+// Slice B (this file): useBreakdown(songId) — staleTime: Infinity (cache-forever per D-11).
+// Slice A adds: useTodaySong, useReroll — wired to GET /api/v1/today-song (03-01 scope).
 //
-// useTodaySong: queryKey includes localCalendarDay() so the query automatically
-//   refetches when the user crosses local midnight (new key = new query).
-//   staleTime: 12h (not Infinity — day rollover forces new key naturally, but
-//   12h cap is defensive against clock drift per RESEARCH anti-patterns).
-//   refetchOnWindowFocus: false — Today tab is persistent; window focus events
-//   on mobile are not meaningful triggers.
-//
-// useReroll: useMutation that calls POST /api/v1/today-song/reroll.
-//   onSuccess: setQueryData replaces the today-song cache with the fresh pick.
-//     Do NOT invalidateQueries — that would cause an extra network round trip
-//     and clobber the rerolled=true state the server just returned (D-05).
-//   onError with 409: silently refetch so the UI shows the correct "0 left today"
-//     state if the client somehow got out of sync (UI-SPEC §10 idempotency signal).
-//     Other errors propagate to React Query's error state normally.
-//
-// localCalendarDay: pure function returning "YYYY-MM-DD" from the device's local
-//   clock. Used in the queryKey for automatic daily rotation.
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from './apiClient';
-import { getOrCreateUserId } from './mmkv';
+// Pattern: mirrors useSkillGraph from users.ts; routes through apiFetch (D-04).
+// Generated types: run 'npm run codegen:local' to regenerate schema.d.ts after server changes.
+import { useQuery } from '@tanstack/react-query';
 import type { components } from './generated/schema';
+import { apiFetch } from './apiClient';
 
-export type TodaySongResponse = components['schemas']['TodaySongResponse'];
-
-/**
- * Returns today's local calendar date as "YYYY-MM-DD".
- *
- * Accounts for device timezone offset: subtracting the UTC offset from the UTC
- * timestamp gives the local wall-clock time, from which we take the date part.
- * This matches the server's DATE((now() AT TIME ZONE 'UTC') + (tz * INTERVAL '1 minute'))
- * computation when tz = -Date().getTimezoneOffset().
- */
-export function localCalendarDay(): string {
-  const now = new Date();
-  const offsetMs = now.getTimezoneOffset() * 60 * 1000;
-  const localMidnight = new Date(now.getTime() - offsetMs);
-  return localMidnight.toISOString().slice(0, 10); // "YYYY-MM-DD"
-}
+// Type from generated schema (Pydantic Breakdown → OpenAPI → openapi-typescript).
+export type Breakdown = components['schemas']['Breakdown'];
 
 /**
- * Fetch and cache today's Song of the Day.
+ * Fetch and cache the Sonnet technique breakdown for a given song.
  *
- * queryKey: ['today-song', userId, localCalendarDay()] — changes at local midnight,
- * triggering a new fetch for the new day's song automatically (D-09 daily rotation).
+ * Cache semantics (D-11 cache-forever):
+ *   - staleTime: Infinity — result never considered stale; no background refetch
+ *   - gcTime: 30 days — retain in memory even if all subscribers unmount
+ *   - retry: 0 — T-03-02-05: no auto-retry storm; user-driven retry via "Try again" button
+ *   - enabled: songId !== undefined — disables query entirely if no song selected
+ *
+ * @param songId - The integer song ID from TodaySongResponse.song.id
  */
-export function useTodaySong() {
-  const userId = getOrCreateUserId();
-  return useQuery<TodaySongResponse>({
-    queryKey: ['today-song', userId, localCalendarDay()],
-    queryFn: () => apiFetch<TodaySongResponse>('/api/v1/song-of-day'),
-    staleTime: 1000 * 60 * 60 * 12, // 12h — day-rollover handled by key change
+export function useBreakdown(songId: number | undefined) {
+  return useQuery({
+    queryKey: ['breakdown', songId],
+    queryFn: () => apiFetch<Breakdown>(`/api/v1/songs/${songId}/breakdown`),
+    staleTime: Infinity,
+    gcTime: 1000 * 60 * 60 * 24 * 30, // 30 days
+    enabled: songId !== undefined,
     refetchOnWindowFocus: false,
-  });
-}
-
-/**
- * Reroll today's song (D-05: one per day).
- *
- * onSuccess: replaces today-song cache via setQueryData — NOT invalidateQueries.
- *   setQueryData is intentional: the server already computed the fresh pick and
- *   returned it in the response; we trust it directly instead of refetching.
- *   (RESEARCH §7: setQueryData avoids a second network round trip and prevents
- *   a race where invalidation might resolve to the pre-reroll pick.)
- *
- * onError with HTTP 409: the user already rerolled today but the client state
- *   got out of sync (e.g., multi-device or killed-and-relaunched). Silently
- *   refetch so the UI converges to the server's authoritative "0 left" state.
- *   This is a state-sync moment, not an error card (UI-SPEC §10).
- */
-export function useReroll() {
-  const qc = useQueryClient();
-  const userId = getOrCreateUserId();
-  return useMutation<TodaySongResponse, Error, void>({
-    mutationFn: () =>
-      apiFetch<TodaySongResponse>('/api/v1/today-song/reroll', { method: 'POST' }),
-    onSuccess: (fresh: TodaySongResponse) => {
-      // Replace the today-song cache with the server's fresh rerolled pick.
-      qc.setQueryData(['today-song', userId, localCalendarDay()], fresh);
-    },
-    onError: async (err: Error) => {
-      // UI-SPEC §10: 409 = already rerolled — state-sync, not error card.
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('HTTP 409')) {
-        await qc.invalidateQueries({
-          queryKey: ['today-song', userId, localCalendarDay()],
-        });
-      }
-      // All other errors propagate so React Query's isError state can show retry UI.
-    },
+    retry: 0, // T-03-02-05: no auto-retry; Try Again button is user-driven intent
   });
 }

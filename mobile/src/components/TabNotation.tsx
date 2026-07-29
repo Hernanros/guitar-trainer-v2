@@ -1,26 +1,101 @@
 // mobile/src/components/TabNotation.tsx
 // Hand-rolled react-native-svg tab staff — D-03 compliant.
-// Renders measures[0] in Phase 1; Phase 3 will handle multi-measure scrolling.
-// Accepts a Tab from the generated schema (Pydantic → OpenAPI → openapi-typescript).
+// Phase 3 refactor: renders ALL measures with horizontal ScrollView + React.memo per Measure.
+// Phase 1 rendered only measures[0]; Phase 3 extends for multi-measure scrolling (RESEARCH §2).
+//
+// CRITICAL: Avoid SVG masking primitives — per RESEARCH §8 landmine 9 (Windows perf regression).
+// String lines drawn once for full staff width at the parent Svg level (RESEARCH §2 recommendation).
+// React.memo per Measure prevents re-render storms when parent state changes (RESEARCH §2).
+//
+// Layout constants preserved from Phase 1 (must not change — ChordDiagram calibrates to these):
+//   STRING_SPACING = 20, BEAT_WIDTH = 48, LEFT_MARGIN = 30, TOP_PADDING = 20, STRINGS = 6
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Svg, G, Line, Text, Rect } from 'react-native-svg';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { G, Line, Rect, Svg, Text as SvgText } from 'react-native-svg';
 import type { components } from '../api/generated/schema';
 
 type Tab = components['schemas']['Tab'];
+type MeasureT = components['schemas']['Measure'];
 type Note = components['schemas']['Note'];
 
-// Layout constants
+// Layout constants — preserved verbatim from Phase 1 (PATTERNS.md lines 748-753)
 const STRING_SPACING = 20;
 const BEAT_WIDTH = 48;
 const LEFT_MARGIN = 30;
 const TOP_PADDING = 20;
 const STRINGS = 6;
 
+// Phase 3: measure width = left margin + 4 beats wide + 8px right-pad between measures.
+// Assumes 4 beats per measure (4/4 time is the overwhelming majority; 3/4 uses 3 × BEAT_WIDTH).
+const MEASURE_WIDTH = LEFT_MARGIN + 4 * BEAT_WIDTH + 8;
+
+// ---------------------------------------------------------------------------
+// Measure component — memoized to prevent re-renders on parent state change
+// ---------------------------------------------------------------------------
+
+interface MeasureProps {
+  measure: MeasureT;
+  offsetX: number;
+  measureIndex: number;
+}
+
+const Measure = React.memo(function Measure({ measure, offsetX, measureIndex }: MeasureProps) {
+  const beats = measure.beats ?? [];
+  return (
+    <G>
+      {/* Barline at the start of each measure (x = offsetX) */}
+      {measureIndex > 0 && (
+        <Line
+          x1={offsetX + LEFT_MARGIN - 2}
+          y1={0}
+          x2={offsetX + LEFT_MARGIN - 2}
+          y2={(STRINGS - 1) * STRING_SPACING}
+          stroke="#555"
+          strokeWidth={1}
+        />
+      )}
+      {/* Fret numbers for each beat */}
+      {beats.map((beat, beatIndex) => {
+        const beatX = offsetX + LEFT_MARGIN + beatIndex * BEAT_WIDTH + BEAT_WIDTH / 2;
+        return beat.notes.map((note: Note, noteIndex: number) => {
+          // string 1 = high e = top line (y=0), string 6 = low E = bottom (y=5*STRING_SPACING)
+          const y = (note.string - 1) * STRING_SPACING;
+          const fretLabel = note.fret === -1 ? 'x' : String(note.fret);
+          const rectWidth = fretLabel.length > 1 ? 16 : 12;
+
+          return (
+            <G key={`m${measureIndex}-b${beatIndex}-n${noteIndex}`}>
+              {/* Background rect to occlude the string line behind the fret number */}
+              <Rect
+                x={beatX - rectWidth / 2}
+                y={y - 7}
+                width={rectWidth}
+                height={13}
+                fill="#1A1A1A"
+              />
+              <SvgText
+                x={beatX}
+                y={y + 4}
+                textAnchor="middle"
+                fontSize={12}
+                fill="#F5F5F5"
+                fontWeight="600"
+              >
+                {fretLabel}
+              </SvgText>
+            </G>
+          );
+        });
+      })}
+    </G>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// TabNotation — outer component with horizontal ScrollView
+// ---------------------------------------------------------------------------
+
 export function TabNotation({ tab }: { tab: Tab }) {
-  // Render measures[0] only in Phase 1; guard against empty measures
-  const measure = tab.measures?.[0];
-  const beats = measure?.beats ?? [];
   const tuning = tab.tuning ?? ['E', 'A', 'D', 'G', 'B', 'e'];
 
   // String labels: tuning is low-to-high [E, A, D, G, B, e].
@@ -28,76 +103,57 @@ export function TabNotation({ tab }: { tab: Tab }) {
   const stringLabels = [...tuning].reverse();
 
   const staffHeight = (STRINGS - 1) * STRING_SPACING;
-  const staffWidth = LEFT_MARGIN + beats.length * BEAT_WIDTH + 20;
-  const svgWidth = staffWidth;
   const svgHeight = staffHeight + TOP_PADDING * 2;
+  const totalWidth = LEFT_MARGIN + (tab.measures?.length ?? 0) * MEASURE_WIDTH + 16;
 
   return (
     <View style={styles.wrapper}>
-      <Svg width={svgWidth} height={svgHeight}>
-        <G translateX={0} translateY={TOP_PADDING}>
-          {/* Six horizontal string lines */}
-          {Array.from({ length: STRINGS }).map((_, i) => (
-            <Line
-              key={`str-${i}`}
-              x1={LEFT_MARGIN - 4}
-              y1={i * STRING_SPACING}
-              x2={staffWidth - 4}
-              y2={i * STRING_SPACING}
-              stroke="#999"
-              strokeWidth={1}
-            />
-          ))}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={true}
+        contentContainerStyle={styles.scrollContent}
+      >
+        <Svg width={totalWidth} height={svgHeight}>
+          <G translateY={TOP_PADDING}>
+            {/* String lines drawn ONCE for the full staff width (RESEARCH §2 recommendation) */}
+            {Array.from({ length: STRINGS }).map((_, i) => (
+              <Line
+                key={`str-${i}`}
+                x1={LEFT_MARGIN - 4}
+                y1={i * STRING_SPACING}
+                x2={totalWidth - 8}
+                y2={i * STRING_SPACING}
+                stroke="#999"
+                strokeWidth={1}
+              />
+            ))}
 
-          {/* String name labels on the left */}
-          {stringLabels.map((label, i) => (
-            <Text
-              key={`label-${i}`}
-              x={LEFT_MARGIN - 8}
-              y={i * STRING_SPACING + 4}
-              textAnchor="end"
-              fontSize={10}
-              fill="#999"
-            >
-              {label}
-            </Text>
-          ))}
+            {/* String name labels on the left (tuning high-to-low) */}
+            {stringLabels.map((label, i) => (
+              <SvgText
+                key={`label-${i}`}
+                x={LEFT_MARGIN - 8}
+                y={i * STRING_SPACING + 4}
+                textAnchor="end"
+                fontSize={10}
+                fill="#999"
+              >
+                {label}
+              </SvgText>
+            ))}
 
-          {/* Fret numbers for each beat */}
-          {beats.map((beat, beatIndex) => {
-            const beatX = LEFT_MARGIN + beatIndex * BEAT_WIDTH + BEAT_WIDTH / 2;
-            return beat.notes.map((note: Note, noteIndex: number) => {
-              // string 1 = high e = top line (y=0), string 6 = low E = bottom (y=5*STRING_SPACING)
-              const y = (note.string - 1) * STRING_SPACING;
-              const fretLabel = String(note.fret);
-              const rectWidth = fretLabel.length > 1 ? 16 : 12;
-
-              return (
-                <G key={`beat-${beatIndex}-note-${noteIndex}`}>
-                  {/* White background rect to occlude the string line behind the number */}
-                  <Rect
-                    x={beatX - rectWidth / 2}
-                    y={y - 7}
-                    width={rectWidth}
-                    height={13}
-                    fill="#1A1A1A"
-                  />
-                  <Text
-                    x={beatX}
-                    y={y + 4}
-                    textAnchor="middle"
-                    fontSize={12}
-                    fill="#F5F5F5"
-                    fontWeight="600"
-                  >
-                    {fretLabel}
-                  </Text>
-                </G>
-              );
-            });
-          })}
-        </G>
-      </Svg>
+            {/* Measures — memoized per React.memo(Measure); tab.measures.map loops ALL measures */}
+            {tab.measures.map((measure, i) => (
+              <Measure
+                key={i}
+                measure={measure}
+                offsetX={i * MEASURE_WIDTH}
+                measureIndex={i}
+              />
+            ))}
+          </G>
+        </Svg>
+      </ScrollView>
     </View>
   );
 }
@@ -105,5 +161,8 @@ export function TabNotation({ tab }: { tab: Tab }) {
 const styles = StyleSheet.create({
   wrapper: {
     marginVertical: 4,
+  },
+  scrollContent: {
+    flexGrow: 0,
   },
 });
