@@ -237,6 +237,8 @@ export interface components {
             rerolled: boolean;
             /** Rated — populated when user has rated today's song; null otherwise */
             rated?: components["schemas"]["TodayRatingInfo"] | null;
+            /** Rerolls Left — 0 if the user has already rerolled today, 1 otherwise (D-05) */
+            rerolls_left: number;
         };
         /**
          * Beat

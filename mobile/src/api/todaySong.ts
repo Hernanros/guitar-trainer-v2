@@ -1,5 +1,6 @@
 // mobile/src/api/todaySong.ts
 // TanStack Query hook for GET /api/v1/song-of-day (Phase 3 per-user selector).
+// useReroll mutation for POST /api/v1/today-song/reroll (Phase 3 gap-closure 03-04).
 //
 // Query key: ['today-song', userId, localCalendarDay()]
 //   - userId: stable device UUID (D-04 contract)
@@ -10,7 +11,7 @@
 // the new date in the key causes a cache miss and a fresh fetch.
 //
 // localCalendarDay() is exported so useSubmitRating can patch the same key.
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { components } from './generated/schema';
 import { apiFetch } from './apiClient';
 import { getOrCreateUserId } from './mmkv';
@@ -47,5 +48,52 @@ export function useTodaySong() {
     queryKey: ['today-song', userId, day],
     queryFn: () => fetchTodaySong(userId),
     // staleTime: Infinity — inherited from queryClient defaults; per-day key causes natural refresh
+  });
+}
+
+/**
+ * Mutation for POST /api/v1/today-song/reroll — swaps today's song once per day.
+ *
+ * Mirrors useSubmitRating pattern from sessions.ts — setQueryData replace on success,
+ * 409-silent-invalidate on error.
+ *
+ * onSuccess: replaces the cached today-song entry with the reroll response so Today
+ *   re-renders immediately without an extra network round-trip (rerolls_left becomes 0).
+ *
+ * onError (409): UI-SPEC §10 — a 409 means the user already rerolled today. Invalidate
+ *   the today-song cache so it resyncs from the server and the reroll button disappears.
+ *   Do NOT re-throw; no error card surfaced. Any other error propagates to mutation.error.
+ *
+ * The server enforces one-per-day via the DB partial-unique index (D-05). The client
+ * mirrors this by passing onReroll=undefined when rerolled=true (index.tsx contract).
+ */
+export function useReroll() {
+  const qc = useQueryClient();
+  const userId = getOrCreateUserId();
+
+  return useMutation<TodaySongResponse, Error, void>({
+    mutationFn: () =>
+      apiFetch<TodaySongResponse>('/api/v1/today-song/reroll', { method: 'POST' }),
+
+    onSuccess: (response) => {
+      // Replace the cached today-song with the reroll response — immediate re-render,
+      // no extra network round-trip (Revision A pattern from sessions.ts::useSubmitRating).
+      qc.setQueryData<TodaySongResponse>(
+        ['today-song', userId, localCalendarDay()],
+        (old) => (old ? response : response),
+      );
+    },
+
+    onError: async (err: Error) => {
+      // UI-SPEC §10: HTTP 409 means "already rerolled today" — treat as state-sync signal.
+      // Invalidate today-song so the cached rerolled=true + rerolls_left=0 repopulates
+      // from the server and the ghost reroll button disappears. Swallow — no error card.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('HTTP 409')) {
+        await qc.invalidateQueries({ queryKey: ['today-song', userId, localCalendarDay()] });
+        return;
+      }
+      // Other errors (500/network): propagate to mutation.error state naturally.
+    },
   });
 }
