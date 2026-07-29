@@ -6,7 +6,7 @@
 //   Body: "Pick a session length. Fletcher will size lessons to fit."
 //   Section 2 heading: "How should Fletcher mark the wins?" (D-13)
 //   CTA: "Complete" — moment of commitment; no exclamation point.
-//   Loader rotation (during isPending):
+//   Loader rotation (during isPending): delegated to FletcherLoader with onboarding messages.
 //     0-3s:  "Fletcher is listening..."
 //     3-8s:  "Working on your first lesson plan..."
 //     8+s:   "Almost there..."
@@ -15,6 +15,11 @@
 //     Auto-navigates to /(tabs) after 2 seconds.
 //   Error: "Fletcher lost the thread. Try that again."
 //   No emojis.
+//
+// Phase 3 (03-01): FletcherLoader extracted into a shared component.
+//   The inline LOADER_MESSAGES const + loaderMessageIndex useEffect have been
+//   moved into FletcherLoader.tsx. This component now uses FletcherLoader
+//   with the onboarding-specific messages. Behavior is identical.
 //
 // Re-run branch (Option A MMKV flag):
 //   On mount, reads getReRunPending() into a ref (stable across renders).
@@ -29,6 +34,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { FletcherIntroCard } from '../../components/FletcherIntroCard';
+import { FletcherLoader } from '../../components/FletcherLoader';
 import { SessionLengthChips } from '../../components/SessionLengthChips';
 import { RetentionFormatRadio } from '../../components/RetentionFormatRadio';
 import { useUserBootstrap, useUserReonboard, type UserBootstrapRequest } from '../../api/users';
@@ -42,18 +48,12 @@ import {
   setReRunPending,
   setWizardPreferences,
 } from '../../api/mmkv';
-import { useUIStore } from '../../store/uiStore';
 
 type LengthValue = 15 | 30 | 45 | 60;
 type RetentionFormat = 'streak' | 'weekly_digest' | 'monthly_milestone';
 
-// Fletcher loader rotation copy — index matches loaderMessageIndex in uiStore.
-// Exact strings per 02-04 <voice_contract>.
-const LOADER_MESSAGES = [
-  'Fletcher is listening...',
-  'Working on your first lesson plan...',
-  'Almost there...',
-] as const;
+// Note: Loader messages are passed inline to FletcherLoader at the call site below.
+// Per 02-04 <voice_contract>: 'Fletcher is listening...' / 'Working on your first lesson plan...' / 'Almost there...'
 
 export default function OnboardingPreferences() {
   // D-03: prefill from MMKV on mount.
@@ -67,39 +67,17 @@ export default function OnboardingPreferences() {
   const [showFailOpenCard, setShowFailOpenCard] = useState(false);
 
   // Re-run flag: read once on mount (stable ref — does not change during this render cycle).
-  // getReRunPending() reads MMKV synchronously.
   const isReRun = useRef<boolean>(getReRunPending()).current;
 
   // Mutation hooks: both initialized, but only the active one is called.
   const bootstrap = useUserBootstrap();
   const reonboard = useUserReonboard();
-  // active points to whichever mutation handles this wizard flow.
   const active = isReRun ? reonboard : bootstrap;
-
-  // Loader rotation state from Zustand.
-  const loaderMessageIndex = useUIStore((s) => s.loaderMessageIndex);
-  const setLoaderMessageIndex = useUIStore((s) => s.setLoaderMessageIndex);
-  const resetLoader = useUIStore((s) => s.resetLoader);
 
   // D-03: persist preference selections to MMKV on every change.
   useEffect(() => {
     setWizardPreferences({ session_length_min: sessionLength, retention_format: retention });
   }, [sessionLength, retention]);
-
-  // Fletcher loader rotation: setTimeout at 3s and 8s while active.isPending.
-  // Cleanup clears both timeouts on unmount or when isPending flips to false.
-  useEffect(() => {
-    if (!active.isPending) {
-      resetLoader();
-      return;
-    }
-    const t1 = setTimeout(() => setLoaderMessageIndex(1), 3000);
-    const t2 = setTimeout(() => setLoaderMessageIndex(2), 8000);
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, [active.isPending, setLoaderMessageIndex, resetLoader]);
 
   // Fail-open transition + navigation on mutation success.
   // mode='bootstrap': show fail-open card for 2s, then navigate.
@@ -109,7 +87,6 @@ export default function OnboardingPreferences() {
     if (!active.data) return;
 
     if (active.data.mode === 'bootstrap' && !showFailOpenCard) {
-      // Show the D-07 fail-open card.
       setShowFailOpenCard(true);
       const t = setTimeout(() => {
         if (isReRun) setReRunPending(false);
@@ -119,7 +96,6 @@ export default function OnboardingPreferences() {
     }
 
     if ((active.data.mode === 'full' || active.data.mode === 'existing') && !showFailOpenCard) {
-      // Full success: navigate immediately without showing the fail-open card.
       if (isReRun) setReRunPending(false);
       router.replace('/(tabs)');
     }
@@ -160,10 +136,10 @@ export default function OnboardingPreferences() {
     active.mutate(body);
   };
 
-  // D-12: Complete disabled until session length is selected (force intentional choice).
+  // D-12: Complete disabled until session length is selected.
   const canComplete = sessionLength !== null && !active.isPending;
 
-  // Fail-open card: D-07 copy, 2-second auto-transition (timer managed in useEffect above).
+  // Fail-open card: D-07 copy, 2-second auto-transition.
   if (showFailOpenCard) {
     return (
       <View style={styles.loader}>
@@ -175,13 +151,18 @@ export default function OnboardingPreferences() {
     );
   }
 
-  // Loader with Fletcher rotation during pending.
+  // Fletcher loader during pending — uses shared FletcherLoader component (Phase 3 extract).
+  // Messages are per 02-04 <voice_contract>: listening / first lesson plan / almost there.
   if (active.isPending) {
     return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#E07B39" />
-        <Text style={styles.loaderText}>{LOADER_MESSAGES[loaderMessageIndex]}</Text>
-      </View>
+      <FletcherLoader
+        messages={[
+          'Fletcher is listening...',
+          'Working on your first lesson plan...',
+          'Almost there...',
+        ] as const}
+        isPending={true}
+      />
     );
   }
 
@@ -215,11 +196,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
-  },
-  loaderText: {
-    color: '#F5F5F5',
-    marginTop: 12,
-    fontSize: 14,
   },
   failOpenText: {
     color: '#F5F5F5',
