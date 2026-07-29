@@ -1,0 +1,61 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-07-29T09:20:00Z",
+  "phase": "03",
+  "phase_name": "AI Teacher & Song of the Day",
+  "phase_dir": ".planning/phases/03-ai-teacher-song-of-the-day",
+  "status": "executed_with_gaps",
+  "completed_tasks": [
+    {"id": "03-01-task-1", "name": "Alembic 0003 + ORM + Pydantic scaffolds", "status": "done", "commit": "97396d0"},
+    {"id": "03-01-task-2-partial", "name": "song_of_day.py refactor + apiFetch tz header + selectors/today_song.py (298 lines) written", "status": "partial", "commit": "c52fd2b", "note": "SELECTOR CTE FILE EXISTS BUT NOT IMPORTED anywhere. Endpoint uses fallback stub SELECT LIMIT 1."},
+    {"id": "03-01-task-3", "name": "Mobile hooks + SongOfDayCard + FromTheBankTag + FletcherLoader + Today tab", "status": "partial", "commit": "6a28e11", "note": "useReroll hook lost in Wave 3 rebase --theirs"},
+    {"id": "03-02-schema-spike", "name": "Sonnet Breakdown $ref schema accepted", "status": "done", "commit": "ad86b46"},
+    {"id": "03-02-server", "name": "server/app/ai/breakdown.py + GET /songs/{id}/breakdown", "status": "done", "commit": "4627a92"},
+    {"id": "03-02-mobile", "name": "useBreakdown + TabNotation React.memo/scroll + BreakdownErrorCard + /breakdown/[songId] route", "status": "done", "commit": "0ae01d8"},
+    {"id": "03-03-server", "name": "POST /api/v1/sessions (atomic INSERT+UPDATE, LEAST/GREATEST clamp, explicit updated_at)", "status": "done", "commit": "5a4538a"},
+    {"id": "03-03-mobile", "name": "useSubmitRating (setQueryData patch) + RatingPills + AlreadyRatedCard + SongOfDayCard already-rated variant", "status": "done", "commit": "5c2bb51"}
+  ],
+  "known_gaps": [
+    {
+      "gap": "Selector CTE not wired",
+      "file": "server/app/api/v1/song_of_day.py",
+      "problem": "Imports fall back to trivial SELECT * FROM songs WHERE user_id=X LIMIT 1. server/app/selectors/today_song.py (298 lines with full 75/25 CTE + setseed + bank filter) exists but nothing imports it.",
+      "d_decisions_broken": ["D-01 argmin(mastery) over working_on", "D-02 25% bank override", "D-03 player-level bank filter", "D-04 empty working_on → bank fallback"],
+      "fix": "Import from app.selectors.today_song and call it from get_song_of_day endpoint. Handle bank_source persistence read-back."
+    },
+    {
+      "gap": "POST /api/v1/today-song/reroll endpoint missing",
+      "file": "server/app/api/v1/song_of_day.py (would live here)",
+      "problem": "Wave 1 SUMMARY claimed the endpoint but it was never added. Prod OpenAPI confirms absence.",
+      "d_decisions_broken": ["D-05 one re-roll per day"],
+      "fix": "Add POST route: check for existing reroll marker for user+day (409 if exists), else compute new pick via selector CTE, INSERT is_reroll_marker=true with bank_source, return new TodaySongResponse."
+    },
+    {
+      "gap": "useReroll hook missing on mobile",
+      "file": "mobile/src/api/todaySong.ts",
+      "problem": "Wave 3 rebase took --theirs on todaySong.ts, dropping Wave 1's useReroll addition. SongOfDayCard has the reroll button visible but no handler wired.",
+      "d_decisions_broken": ["D-05 UI"],
+      "fix": "Add useReroll mutation hook via apiFetch to POST /api/v1/today-song/reroll. onSuccess: qc.setQueryData([today-song, ...]) with new response. Handle 409 as silent no-op."
+    },
+    {
+      "gap": "Bank source hardcoded",
+      "file": "server/app/api/v1/song_of_day.py",
+      "problem": "Returns from_bank=false, bank_source=None unconditionally in the fallback stub. Wave 1 Revision B (persist + read back bank_source on reroll marker) not exercised.",
+      "d_decisions_broken": ["D-04 discovery signal"],
+      "fix": "Once selector CTE is wired, propagate its from_bank/bank_source outputs to the response; on subsequent same-day GET after a reroll, read bank_source from the reroll marker row."
+    }
+  ],
+  "gaps_working": [
+    "Sonnet breakdown Wave 2 pipeline (backend + frontend) fully functional",
+    "Rating write Wave 3 pipeline (backend + frontend) fully functional",
+    "Migration 0003 fully applied on prod",
+    "X-Timezone-Offset header injection works",
+    "TypeScript clean (only pre-existing app-tabs.web.tsx template error)",
+    "Phase-level invariants pass (no SongSkill.weight, no from app.ai in sessions.py)"
+  ],
+  "blockers": [],
+  "next_action": "/gsd-plan-phase 3 --gaps (fresh session recommended — this session at 65% context)",
+  "context_notes": "Wave 1's original executor hit socket-close after Task 1. Continuation executor was based on 35196c6 (pre-Task-1) instead of 72c7871 (post-Task-1 merge) — same issue for Wave 2 and Wave 3. Every wave required rebase --onto. During rebase, --theirs was taken for merge conflicts which may have lost some Wave 1 additions (useReroll being the confirmed loss). ROOT CAUSE: `Agent(isolation='worktree')` picks a base commit from an earlier snapshot, not current main HEAD at spawn time. Workaround for next session: verify worktree base BEFORE running executor, or spawn plans sequentially with explicit rebase strategy. Executor SUMMARY files are UNRELIABLE — verify with actual grep against the code before trusting SUMMARY claims.",
+  "device_verify_deferred": "Batched per EAS quota memory — combined Wave 2 breakdown + Wave 3 rating device tests will happen after gap-closure lands.",
+  "uncommitted_files": ["mobile/tsconfig.json (fixed but committed), .planning/STATE.md (should already be committed)"]
+}
