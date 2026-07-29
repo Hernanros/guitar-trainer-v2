@@ -57,9 +57,11 @@ WITH
   -- 1. Seed the RNG deterministically per (user, day, optional reroll).
   --    hashtext() returns int4; setseed expects -1..1 double.
   --    '|' delimiter prevents (user_id='AB' | day='CD') == (user_id='A' | day='BCD').
+  --    Note: CAST() used instead of ::type because asyncpg cannot parse :param::type syntax
+  --    (named-param colon is ambiguous with Postgres cast double-colon at the lexer level).
   seed AS (
     SELECT setseed(
-      hashtext(:user_id::text || '|' || :local_calendar_day::text || :reroll_suffix::text)
+      hashtext(CAST(:user_id AS text) || '|' || CAST(:local_calendar_day AS text) || CAST(:reroll_suffix AS text))
       / 2147483647.0
     )
   ),
@@ -67,31 +69,35 @@ WITH
   player_level_cte AS (
     SELECT COALESCE(AVG(mastery), 0.5)::numeric(4,3) AS player_level
     FROM skill_nodes
-    WHERE user_id = :user_id::uuid
+    WHERE user_id = CAST(:user_id AS uuid)
       AND level = 'leaf'
   ),
   -- 3. Deterministic pick: argmin(mastery) over working_on songs for this user.
+  --    song_id cast to text for CASE expression compatibility with bank_pick (also text).
   working_on_pick AS (
-    SELECT s.id AS song_id
+    SELECT s.id::text AS song_id
     FROM songs s
     JOIN song_skills ss ON ss.song_id = s.id
     JOIN skill_nodes sn ON sn.id = ss.skill_node_id
-    WHERE s.user_id = :user_id::uuid
+    WHERE s.user_id = CAST(:user_id AS uuid)
       AND s.category = 'working_on'
     ORDER BY sn.mastery ASC, sn.updated_at ASC
     LIMIT 1
   ),
   -- 4. Bank branch A: user's own songs (all three categories), drawn randomly.
+  --    song_id cast to text so the UNION with catalog_pick (uuid) is type-compatible.
+  --    The Python caller detects uuid-shaped strings to identify catalog IDs.
   user_bench_pick AS (
-    SELECT s.id AS song_id, 'user_bench'::text AS src
+    SELECT s.id::text AS song_id, 'user_bench'::text AS src
     FROM songs s
-    WHERE s.user_id = :user_id::uuid
+    WHERE s.user_id = CAST(:user_id AS uuid)
     ORDER BY random()
     LIMIT 1
   ),
   -- 5. Bank branch B: seed catalog filtered by player_level ±0.15.
+  --    song_id cast to text for UNION compatibility with user_bench_pick.
   catalog_pick AS (
-    SELECT sc.id AS song_id, 'seed_catalog'::text AS src
+    SELECT sc.id::text AS song_id, 'seed_catalog'::text AS src
     FROM song_catalog sc, player_level_cte pl
     WHERE ABS(sc.difficulty - pl.player_level) <= 0.15
     ORDER BY random()
@@ -182,7 +188,7 @@ async def _ensure_catalog_song_as_user_song(
             INSERT INTO songs
               (title, artist, genre, difficulty, breakdown, user_id, category)
             VALUES
-              (:title, :artist, :genre, :difficulty, :breakdown::jsonb, :user_id::uuid, 'aspirational')
+              (:title, :artist, :genre, :difficulty, CAST(:breakdown AS jsonb), CAST(:user_id AS uuid), 'aspirational')
             ON CONFLICT (user_id, lower(title), lower(artist)) DO NOTHING
             RETURNING id
             """

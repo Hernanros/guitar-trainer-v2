@@ -7,6 +7,7 @@
 # category is Optional to accommodate system-user seed row (which has can_play backfilled).
 # user_id is Optional per D-14 step 1; Phase 3 will tighten.
 # Phase 3: TodayRatingInfo + TodaySongResponse (Slice A payload shape; rated field added in Slice C).
+# Phase 3 gap-closure (03-04): TodaySongResponse gains rerolls_left: int (0 or 1 per D-05).
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -122,6 +123,7 @@ class TodaySongResponse(BaseModel):
     bank_source: "user_bench" if from user's own non-working_on songs; "seed_catalog" if from song_catalog.
     rerolled: True if the user used their one daily re-roll.
     rated: populated with TodayRatingInfo when the user has rated today's song; null otherwise.
+    rerolls_left: 0 if the user has already rerolled today, 1 otherwise (D-05 one-per-day).
     """
     song: SongResponse
     breakdown_available: bool
@@ -129,5 +131,6 @@ class TodaySongResponse(BaseModel):
     bank_source: Optional[Literal["user_bench", "seed_catalog"]] = None
     rerolled: bool
     rated: Optional[TodayRatingInfo] = None
+    rerolls_left: int  # 0 or 1 — always populated (never null)
 
     model_config = {"from_attributes": False}
