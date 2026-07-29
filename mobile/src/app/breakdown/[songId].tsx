@@ -1,104 +1,161 @@
 // mobile/src/app/breakdown/[songId].tsx
-// Breakdown detail screen — Expo Router v57 dynamic route.
-// Docs: https://docs.expo.dev/versions/v57.0.0/router/
-// Navigated to via: router.push(`/breakdown/${song.id}`) from the Today tab.
+// Breakdown detail screen — shows tab/chords/technique notes for today's song.
+// Slice C: Adds RatingPills below the breakdown stack + AlreadyRatedCard overlay.
 //
-// States (UI-SPEC §5 states 6, 7, 8):
-//   6. isPending  → FletcherLoader with breakdown-specific messages (UI-SPEC §3)
-//   7. isError    → BreakdownErrorCard with Try again + Back to today's song
-//   8. data       → Full breakdown: HOW TO PLAY IT / TAB / CHORDS sections
+// Rating flow:
+//   1. User taps a RatingPill → selectedRating set (confirmed visual + POST fires)
+//   2. POST succeeds → submitRating.isSuccess + AlreadyRatedCard overlay slides in
+//   3. After 2s (or tap-anywhere) → router.replace('/(tabs)') — back to Today
 //
-// Cache semantics: useBreakdown has staleTime:Infinity so second visit returns
-// cached data immediately without re-fetching (D-11 cache-forever).
+// Read-only mode (already rated today):
+//   When today.rated is set AND today.song.id === songId, the RatingPills row
+//   is replaced by a static "Rated: {label}" line. User can still see breakdown.
 //
-// No RefreshControl (UI-SPEC §6 — pull-to-refresh forbidden on breakdown screen).
-// No ClipPath in TabNotation (RESEARCH §8 landmine 9 — enforced in TabNotation.tsx).
-//
-// Voice contract: no emojis, no exclamation points.
-// Section eyebrows from UI-SPEC §4 (unchanged from Phase 1): HOW TO PLAY IT / TAB / CHORDS.
-import { router, useLocalSearchParams } from 'expo-router';
-import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { BreakdownErrorCard } from '../../components/BreakdownErrorCard';
+// router.replace (not router.push) so tapping back on Today tab does not re-enter breakdown.
+import { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  ScrollView,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { RatingPills } from '../../components/RatingPills';
+import { AlreadyRatedCard } from '../../components/AlreadyRatedCard';
 import { ChordDiagram } from '../../components/ChordDiagram';
-import { FletcherLoader } from '../../components/FletcherLoader';
 import { TabNotation } from '../../components/TabNotation';
-import { useBreakdown } from '../../api/todaySong';
+import { useTodaySong } from '../../api/todaySong';
+import { useSubmitRating, type RatingLiteral } from '../../api/sessions';
 import type { components } from '../../api/generated/schema';
 
-type TechniqueNote = components['schemas']['TechniqueNote'];
 type Chord = components['schemas']['Chord'];
+type TechniqueNote = components['schemas']['TechniqueNote'];
 
-// Fletcher loader copy for breakdown fetch (UI-SPEC §3)
-const BREAKDOWN_LOADER_MESSAGES = [
-  'Fletcher is listening...',
-  'Working out the fingering...',
-  'Almost there...',
-] as const;
+const LABELS: Record<RatingLiteral, string> = {
+  not_my_tempo: 'Not my tempo',
+  getting_closer: 'Getting closer',
+  thats_what_im_looking_for: "That's what I'm looking for",
+};
 
 export default function BreakdownScreen() {
-  // useLocalSearchParams: Expo Router v57 hook for dynamic segment extraction.
-  // Docs: https://docs.expo.dev/versions/v57.0.0/router/navigating-pages/
   const { songId: songIdParam } = useLocalSearchParams<{ songId: string }>();
-  const songId = songIdParam ? parseInt(songIdParam, 10) : undefined;
+  const songId = songIdParam ? parseInt(songIdParam, 10) : null;
+  const router = useRouter();
 
-  const { data: breakdown, isPending, isError, refetch } = useBreakdown(songId);
+  const { data: today, isLoading, isError, error } = useTodaySong();
+  const submitRating = useSubmitRating();
+  const [submittedRating, setSubmittedRating] = useState<RatingLiteral | null>(null);
 
-  // State 6: loading
-  if (isPending) {
+  if (isLoading) {
     return (
-      <FletcherLoader
-        messages={BREAKDOWN_LOADER_MESSAGES}
-        isPending={true}
-      />
-    );
-  }
-
-  // State 7: error
-  if (isError || !breakdown) {
-    return (
-      <BreakdownErrorCard
-        onRetry={() => refetch()}
-        onBack={() => router.back()}
-      />
-    );
-  }
-
-  // State 8: data — full breakdown render
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      // No RefreshControl per UI-SPEC §6
-    >
-      {/* HOW TO PLAY IT — technique notes section (UI-SPEC §4) */}
-      <Text style={styles.sectionEyebrow}>HOW TO PLAY IT</Text>
-      {breakdown.technique_notes.map((note: TechniqueNote, i: number) => (
-        <View key={i} style={styles.techniqueCard}>
-          <Text style={styles.techniqueHeading}>{note.heading}</Text>
-          <Text style={styles.techniqueBody}>{note.body}</Text>
-        </View>
-      ))}
-
-      {/* TAB — multi-measure horizontal scroll (UI-SPEC §4, RESEARCH §2) */}
-      <Text style={styles.sectionEyebrow}>TAB</Text>
-      <View style={styles.tabContainer}>
-        <TabNotation tab={breakdown.tab} />
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#E07B39" />
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
+    );
+  }
 
-      {/* CHORDS — horizontally scrollable chord diagrams (UI-SPEC §4) */}
-      <Text style={styles.sectionEyebrow}>CHORDS</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.chordScroll}
-        contentContainerStyle={styles.chordScrollContent}
-      >
-        {breakdown.chords.map((chord: Chord, i: number) => (
-          <ChordDiagram key={i} chord={chord} />
-        ))}
+  if (isError || !today) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>Could not load breakdown</Text>
+        {error instanceof Error && (
+          <Text style={styles.errorDetail}>{error.message}</Text>
+        )}
+      </View>
+    );
+  }
+
+  const { song } = today;
+
+  // Already-rated read-only mode: server says rated, AND this is today's song
+  const alreadyRated = today.rated?.rating ?? null;
+  const isAlreadyRatedSong = alreadyRated !== null && today.song.id === songId;
+
+  const handleRatingSelect = (rating: RatingLiteral) => {
+    setSubmittedRating(rating);
+    submitRating.mutate(
+      { song_id: songId!, rating },
+      {
+        onError: () => {
+          // 409 is handled silently by the hook (invalidates today-song).
+          // Other errors: reset UI so user can retry.
+          setSubmittedRating(null);
+        },
+      },
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.content}>
+        {/* Song header */}
+        <View style={styles.header}>
+          <Text style={styles.label}>BREAKDOWN</Text>
+          <Text style={styles.title}>{song.title}</Text>
+          <Text style={styles.artist}>{song.artist}</Text>
+          <Text style={styles.meta}>
+            {song.genre} · {song.bpm} BPM · Key of {song.key}
+          </Text>
+        </View>
+
+        {/* Technique Notes */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>How to play it</Text>
+          {song.breakdown.technique_notes.map((note: TechniqueNote, i: number) => (
+            <View key={i} style={styles.techniqueCard}>
+              <Text style={styles.techniqueHeading}>{note.heading}</Text>
+              <Text style={styles.techniqueBody}>{note.body}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Tab Notation */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Tab</Text>
+          <View style={styles.tabContainer}>
+            <TabNotation tab={song.breakdown.tab} />
+          </View>
+        </View>
+
+        {/* Chord Diagrams */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Chords</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chordScroll}
+            contentContainerStyle={styles.chordScrollContent}
+          >
+            {song.breakdown.chords.map((chord: Chord) => (
+              <ChordDiagram key={chord.name} chord={chord} />
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* Rating area — RatingPills or read-only rated line */}
+        {isAlreadyRatedSong ? (
+          <Text style={styles.ratedLine}>Rated: {LABELS[alreadyRated]}</Text>
+        ) : (
+          <RatingPills
+            onSelect={handleRatingSelect}
+            selectedRating={submittedRating}
+            disabled={submitRating.isPending}
+          />
+        )}
       </ScrollView>
-    </ScrollView>
+
+      {/* Full-screen post-rating overlay — appears on success */}
+      {submitRating.isSuccess && submittedRating && (
+        <View style={StyleSheet.absoluteFill}>
+          <AlreadyRatedCard
+            rating={submittedRating}
+            onDismiss={() => router.replace('/(tabs)')}
+          />
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -111,37 +168,93 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
-  sectionEyebrow: {
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: '#1A1A1A',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#999',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#c0392b',
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  errorDetail: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+  },
+  header: {
+    marginBottom: 28,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    color: '#E07B39',
+    marginBottom: 6,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#F5F5F5',
+    marginBottom: 4,
+  },
+  artist: {
+    fontSize: 16,
+    color: '#999',
+    marginBottom: 6,
+  },
+  meta: {
+    fontSize: 13,
+    color: '#666',
+  },
+  section: {
+    marginBottom: 28,
+  },
+  sectionTitle: {
     fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 1,
-    color: '#E07B39',
-    marginTop: 24,
+    color: '#999',
     marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   techniqueCard: {
     backgroundColor: '#242424',
-    padding: 12,
-    borderRadius: 8,
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 10,
     borderLeftWidth: 3,
     borderLeftColor: '#E07B39',
-    marginBottom: 12,
   },
   techniqueHeading: {
-    color: '#F5F5F5',
     fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontWeight: '700',
+    color: '#F5F5F5',
+    marginBottom: 6,
   },
   techniqueBody: {
-    color: '#AAA',
     fontSize: 14,
+    color: '#AAA',
     lineHeight: 21,
   },
   tabContainer: {
     backgroundColor: '#242424',
-    borderRadius: 8,
+    borderRadius: 10,
     padding: 12,
+    overflow: 'hidden',
   },
   chordScroll: {
     flexGrow: 0,
@@ -153,5 +266,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     backgroundColor: '#242424',
     borderRadius: 10,
+  },
+  ratedLine: {
+    fontSize: 14,
+    color: '#E07B39',
+    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 24,
   },
 });

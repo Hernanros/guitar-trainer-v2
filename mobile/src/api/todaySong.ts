@@ -1,37 +1,51 @@
 // mobile/src/api/todaySong.ts
-// TanStack Query hooks for Phase 3 song-of-day + breakdown flow.
+// TanStack Query hook for GET /api/v1/song-of-day (Phase 3 per-user selector).
 //
-// Slice B (this file): useBreakdown(songId) — staleTime: Infinity (cache-forever per D-11).
-// Slice A adds: useTodaySong, useReroll — wired to GET /api/v1/today-song (03-01 scope).
+// Query key: ['today-song', userId, localCalendarDay()]
+//   - userId: stable device UUID (D-04 contract)
+//   - localCalendarDay: YYYY-MM-DD in device's local timezone
 //
-// Pattern: mirrors useSkillGraph from users.ts; routes through apiFetch (D-04).
-// Generated types: run 'npm run codegen:local' to regenerate schema.d.ts after server changes.
+// The per-day cache key ensures fresh fetch on calendar-day boundary:
+// staleTime=Infinity holds the response for the day; on next day open,
+// the new date in the key causes a cache miss and a fresh fetch.
+//
+// localCalendarDay() is exported so useSubmitRating can patch the same key.
 import { useQuery } from '@tanstack/react-query';
 import type { components } from './generated/schema';
 import { apiFetch } from './apiClient';
+import { getOrCreateUserId } from './mmkv';
 
-// Type from generated schema (Pydantic Breakdown → OpenAPI → openapi-typescript).
-export type Breakdown = components['schemas']['Breakdown'];
+// Phase 3 response type — includes song + rated + rerolled + from_bank + bank_source.
+export type TodaySongResponse = components['schemas']['TodaySongResponse'];
+export type SongResponse = components['schemas']['SongResponse'];
 
 /**
- * Fetch and cache the Sonnet technique breakdown for a given song.
- *
- * Cache semantics (D-11 cache-forever):
- *   - staleTime: Infinity — result never considered stale; no background refetch
- *   - gcTime: 30 days — retain in memory even if all subscribers unmount
- *   - retry: 0 — T-03-02-05: no auto-retry storm; user-driven retry via "Try again" button
- *   - enabled: songId !== undefined — disables query entirely if no song selected
- *
- * @param songId - The integer song ID from TodaySongResponse.song.id
+ * Returns the current date as YYYY-MM-DD in the device's local timezone.
+ * Used as the third segment of the ['today-song', userId, localCalendarDay()] cache key.
+ * Exported so useSubmitRating.onSuccess can patch the exact same cache key.
  */
-export function useBreakdown(songId: number | undefined) {
+export function localCalendarDay(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+async function fetchTodaySong(userId: string): Promise<TodaySongResponse> {
+  return apiFetch<TodaySongResponse>('/api/v1/song-of-day');
+}
+
+/**
+ * Fetches and caches today's Song of the Day per the per-user, per-day cache key.
+ * Returns TodaySongResponse which includes rated, rerolled, from_bank, bank_source.
+ */
+export function useTodaySong() {
+  const userId = getOrCreateUserId();
+  const day = localCalendarDay();
   return useQuery({
-    queryKey: ['breakdown', songId],
-    queryFn: () => apiFetch<Breakdown>(`/api/v1/songs/${songId}/breakdown`),
-    staleTime: Infinity,
-    gcTime: 1000 * 60 * 60 * 24 * 30, // 30 days
-    enabled: songId !== undefined,
-    refetchOnWindowFocus: false,
-    retry: 0, // T-03-02-05: no auto-retry; Try Again button is user-driven intent
+    queryKey: ['today-song', userId, day],
+    queryFn: () => fetchTodaySong(userId),
+    // staleTime: Infinity — inherited from queryClient defaults; per-day key causes natural refresh
   });
 }

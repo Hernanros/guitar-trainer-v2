@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/v1/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Rating
+         * @description Record a session rating and atomically update mastery on all attached skill_nodes.
+         */
+        post: operations["submit_rating_api_v1_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/song-of-day": {
         parameters: {
             query?: never;
@@ -13,28 +33,14 @@ export interface paths {
         };
         /**
          * Get Song Of Day
-         * @description Return today's song of the day (Phase 3: per-user deterministic selector).
+         * @description Return today's song of the day.
+         *
+         *     D-04: trivial selector — SELECT * FROM songs LIMIT 1.
+         *     If the table is empty (e.g., after a fresh migration), seeds the hardcoded row first.
          */
         get: operations["get_song_of_day_api_v1_song_of_day_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/today-song/reroll": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reroll Today Song */
-        post: operations["reroll_today_song_api_v1_today_song_reroll_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -162,6 +168,76 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * SessionCreate
+         * @description POST /api/v1/sessions request body.
+         */
+        SessionCreate: {
+            /** Song Id */
+            song_id: number;
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
+        };
+        /**
+         * SessionResponse
+         * @description POST /api/v1/sessions response body.
+         */
+        SessionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Song Id */
+            song_id: number;
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
+            /** Local Calendar Day */
+            local_calendar_day: string;
+            /** Rated At */
+            rated_at: string;
+        };
+        /**
+         * TodayRatingInfo
+         * @description Rating info surfaced on TodaySongResponse.rated when the user has rated today's song.
+         */
+        TodayRatingInfo: {
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
+            /** Rated At */
+            rated_at: string;
+        };
+        /**
+         * TodaySongResponse
+         * @description Response shape for GET /api/v1/song-of-day (Phase 3 per-user selector).
+         */
+        TodaySongResponse: {
+            song: components["schemas"]["SongResponse"];
+            /** Breakdown Available */
+            breakdown_available: boolean;
+            /** From Bank */
+            from_bank: boolean;
+            /** Bank Source */
+            bank_source?: ("user_bench" | "seed_catalog") | null;
+            /** Rerolled */
+            rerolled: boolean;
+            /** Rated — populated when user has rated today's song; null otherwise */
+            rated?: components["schemas"]["TodayRatingInfo"] | null;
+        };
         /**
          * Beat
          * @description A rhythmic beat holding one or more simultaneous notes (chord within a beat).
@@ -367,42 +443,6 @@ export interface components {
             body: string;
         };
         /**
-         * TodayRatingInfo
-         * @description Rating info for today's session — populated by Slice C.
-         *     Slice A ships this field as null.
-         */
-        TodayRatingInfo: {
-            /** Rating */
-            rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
-            /** Rated At */
-            rated_at: string;
-        };
-        /**
-         * TodaySongResponse
-         * @description GET /api/v1/song-of-day response — composes SongResponse + selector metadata.
-         *
-         *     Phase 3 (03-01 Slice A): selector metadata for the Today tab hero card.
-         *     rated: null in Slice A; Slice C patches it via qc.setQueryData.
-         */
-        TodaySongResponse: {
-            song: components["schemas"]["SongResponse"];
-            /** Breakdown Available */
-            breakdown_available: boolean;
-            /** From Bank */
-            from_bank: boolean;
-            /** Bank Source — null when from_bank=false; 'user_bench' | 'seed_catalog' when from_bank=true */
-            bank_source?: ("user_bench" | "seed_catalog") | null;
-            /** Rerolled */
-            rerolled: boolean;
-            /**
-             * Rerolls Left
-             * @default 1
-             */
-            rerolls_left: number;
-            /** Rated — null in Slice A; populated by Slice C */
-            rated?: components["schemas"]["TodayRatingInfo"] | null;
-        };
-        /**
          * UserBootstrapRequest
          * @description POST /api/v1/users request body (per D-05 + D-04).
          *
@@ -474,27 +514,49 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    get_song_of_day_api_v1_song_of_day_get: {
+    submit_rating_api_v1_sessions_post: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionCreate"];
+            };
+        };
         responses: {
             /** @description Successful Response */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TodaySongResponse"];
+                    "application/json": components["schemas"]["SessionResponse"];
+                };
+            };
+            /** @description Already rated today */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": { detail: string };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
-    reroll_today_song_api_v1_today_song_reroll_post: {
+    get_song_of_day_api_v1_song_of_day_get: {
         parameters: {
             query?: never;
             header?: never;

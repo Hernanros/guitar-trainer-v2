@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.breakdowns import router as breakdowns_router
+from app.api.v1.sessions import router as sessions_router
 from app.api.v1.song_of_day import router as song_router
 from app.api.v1.users import router as users_router
 from app.db.seed import seed_songs
@@ -33,9 +34,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(breakdowns_router, prefix="/api/v1")
+app.include_router(sessions_router, prefix="/api/v1")
 app.include_router(song_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
-app.include_router(breakdowns_router, prefix="/api/v1")
 
 
 @app.get("/healthz", tags=["ops"])

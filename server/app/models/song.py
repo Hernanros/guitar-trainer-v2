@@ -6,14 +6,11 @@
 # Phase 2: SongResponse extended with optional category + user_id (D-14).
 # category is Optional to accommodate system-user seed row (which has can_play backfilled).
 # user_id is Optional per D-14 step 1; Phase 3 will tighten.
-#
-# Phase 3 (03-01): TodaySongResponse added — composes SongResponse + selector metadata.
-# TodaySongResponse.rated is Optional[TodayRatingInfo] = None in this slice (Slice A).
-# Slice C will patch it via qc.setQueryData.
+# Phase 3: TodayRatingInfo + TodaySongResponse (Slice A payload shape; rated field added in Slice C).
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class Note(BaseModel):
@@ -85,45 +82,52 @@ class SongResponse(BaseModel):
     user_id: Optional[UUID] = None
     category: Optional[Literal["can_play", "working_on", "aspirational"]] = None
 
+    @field_validator("category", mode="before")
+    @classmethod
+    def coerce_category_enum(cls, v):
+        """Coerce SongCategory enum to its .value string (mirrors SkillNodeResponse pattern).
+
+        SQLAlchemy ORM returns the Python enum instance from SAEnum columns on read-back.
+        The Literal constraint requires a plain string. Extract .value to satisfy both.
+        """
+        if hasattr(v, "value"):
+            return v.value
+        return v
+
     model_config = {"from_attributes": True}
 
 
-# Phase 3 — bank source discriminator (used in TodaySongResponse + mobile FromTheBankTag chip)
-BankSource = Literal["user_bench", "seed_catalog"]
-
+# ---------------------------------------------------------------------------
+# Phase 3 — Today song payload with rating signal (Slice A + Slice C addition)
+# ---------------------------------------------------------------------------
 
 class TodayRatingInfo(BaseModel):
-    """Rating info for today's session — populated by Slice C (POST /api/v1/sessions).
+    """Rating info surfaced on TodaySongResponse.rated when the user has rated today's song.
 
-    Slice A ships this field as Optional[TodayRatingInfo] = None.
-    Slice C patches it via qc.setQueryData after rating submission.
+    Populated in Slice C (POST /api/v1/sessions) and read back via GET /api/v1/song-of-day.
+    The `rated` field is null when the user has not yet rated today's song.
     """
     rating: Literal["not_my_tempo", "getting_closer", "thats_what_im_looking_for"]
-    rated_at: str  # ISO timestamp string
+    rated_at: str  # ISO datetime string
+
+    model_config = {"from_attributes": False}
 
 
 class TodaySongResponse(BaseModel):
-    """GET /api/v1/song-of-day response — composes SongResponse + selector metadata.
+    """Response shape for GET /api/v1/song-of-day (Phase 3 per-user selector).
 
-    Selector metadata lets the mobile client:
-    - Show the correct Fletcher line variant (UI-SPEC §1) based on from_bank + bank_source
-    - Render FromTheBankTag chip when from_bank=True (UI-SPEC §2)
-    - Disable/hide the re-roll button when rerolled=True
-    - Show breakdown CTA immediately if breakdown_available=True (cache hit)
-
-    rated: Optional[TodayRatingInfo] — Slice A leaves this None.
-    Slice C's POST /api/v1/sessions writes the session, then the mobile client updates
-    the cache via qc.setQueryData with the rated field populated.
-
-    model_config from_attributes=False — constructed by hand from selector + song row,
-    not ORM-coerced directly.
+    song: the selected song.
+    breakdown_available: True if songs.breakdown_generated_at is not None (cache-forever per D-11).
+    from_bank: True when the 25% random override / empty-working_on path fired.
+    bank_source: "user_bench" if from user's own non-working_on songs; "seed_catalog" if from song_catalog.
+    rerolled: True if the user used their one daily re-roll.
+    rated: populated with TodayRatingInfo when the user has rated today's song; null otherwise.
     """
     song: SongResponse
-    breakdown_available: bool         # True if songs.breakdown_generated_at IS NOT NULL
-    from_bank: bool                   # True if 25% override / empty working_on / reroll fired
-    bank_source: Optional[BankSource] = None  # None when from_bank=False; chip variant when True
-    rerolled: bool                    # True if the user has already used today's reroll
-    rerolls_left: int = 1             # 0 or 1 — Slice A: 1 initially, 0 after reroll
-    rated: Optional[TodayRatingInfo] = None  # Revision A: Slice C patches this via setQueryData
+    breakdown_available: bool
+    from_bank: bool
+    bank_source: Optional[Literal["user_bench", "seed_catalog"]] = None
+    rerolled: bool
+    rated: Optional[TodayRatingInfo] = None
 
     model_config = {"from_attributes": False}

@@ -3,7 +3,8 @@
 # Phase 1: Song table with JSONB breakdown column.
 # Phase 2: User table, Song extended with user_id + category, enums for song category and skill level.
 # Phase 2 (02-03): SkillNode + SongSkill ORM classes added (tables already exist per migration 0002).
-# Phase 3 (03-01): SongCatalog + UserSession ORM classes added (migration 0003).
+# Phase 3 (03-01): SongCatalog + UserSession ORM classes, RatingLevel + PrimarySkillRoot enums,
+#                  Song.breakdown_generated_at column.
 import enum
 import uuid
 from datetime import date, datetime
@@ -37,25 +38,21 @@ class SkillLevel(str, enum.Enum):
     LEAF = "leaf"
 
 
+class RatingLevel(str, enum.Enum):
+    """Phase 3 session rating — D-06 Fletcher-voiced 3-tier."""
+    NOT_MY_TEMPO = "not_my_tempo"
+    GETTING_CLOSER = "getting_closer"
+    THATS_WHAT_IM_LOOKING_FOR = "thats_what_im_looking_for"
+
+
 class PrimarySkillRoot(str, enum.Enum):
-    """Root taxonomy for the song catalog (mirrors fixed D-08 root nodes in skill_nodes).
-    Used by song_catalog.primary_skill_root for the D-03 difficulty ±0.15 bank filter.
-    """
+    """Root taxonomy for song_catalog primary skill (D-08 fixed roots)."""
     RHYTHM = "rhythm"
     LEAD = "lead"
     CHORD_VOICINGS = "chord_voicings"
     FINGERSTYLE = "fingerstyle"
     MUSIC_THEORY = "music_theory"
     TIMING = "timing"
-
-
-class RatingLevel(str, enum.Enum):
-    """3-tier Fletcher-voiced rating (per D-06). Stored on user_sessions.rating.
-    Labels surface in Slice C's RatingPills component via UI-SPEC §5.
-    """
-    NOT_MY_TEMPO = "not_my_tempo"
-    GETTING_CLOSER = "getting_closer"
-    THATS_WHAT_IM_LOOKING_FOR = "thats_what_im_looking_for"
 
 
 # -------------------------------------------------------------------------
@@ -99,7 +96,7 @@ class Song(Base):
     difficulty: Mapped[str] = mapped_column(String(50), nullable=True)
     bpm: Mapped[int] = mapped_column(Integer, nullable=True)
     key: Mapped[str] = mapped_column(String(10), nullable=True)
-    breakdown: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    breakdown: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -113,8 +110,7 @@ class Song(Base):
         SAEnum(SongCategory, name="song_category", values_callable=lambda x: [e.value for e in x]),
         nullable=True,
     )
-    # Phase 3 addition — null = "no breakdown yet" (cache-miss signal for lazy-on-tap).
-    # No server_default — the null itself is the signal per RESEARCH anti-patterns.
+    # Phase 3 addition: cache signal for breakdown — if not None, serve from JSONB without Sonnet call.
     breakdown_generated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -187,7 +183,7 @@ class SongSkill(Base):
     Composite primary key: (song_id, skill_node_id).
     weight: relative importance of the skill for the song (default 1.0).
     Used in Phase 3's per-user song-of-day selector and mastery queries.
-    NOTE: Phase 3 selector uses EQUAL weights per D-07 — do NOT read weight column in selector.
+    D-07: weight column exists in schema but is NOT USED — all skills weighted equally.
     """
     __tablename__ = "song_skills"
 
@@ -203,67 +199,56 @@ class SongSkill(Base):
 
 
 # -------------------------------------------------------------------------
-# SongCatalog ORM model (Phase 3 — global seed catalog of ~10 hand-curated songs)
+# SongCatalog ORM model (Phase 3 — seed songs global to all users)
 # -------------------------------------------------------------------------
 
 class SongCatalog(Base):
-    """Global seed song catalog. Not per-user — all users draw from this for bank-random picks.
+    """Global seed song catalog — 10 hand-curated songs shipped with Fletcher.
 
-    primary_skill_root: the root-level skill focus for this catalog song (D-02, D-03).
-    difficulty: numeric [0,1] where 0=beginner, 1=highly advanced. Used for the D-03 ±0.15
-    bank filter against player_level (mean mastery across user's leaf skill_nodes).
-
-    dual-default on difficulty (Phase 2 hotfix 5076789):
-    - Python-side default: new in-memory rows have difficulty=0.0 before flush.
-    - DB-side server_default: direct-SQL inserts and seeding tools get 0.0.
-    Both are required to avoid None-after-INSERT 500 errors in response serialization.
+    Provides a bank for new users with empty working_on and for the 25% random override.
+    difficulty: [0, 1] on the same scale as skill_nodes.mastery for direct comparison.
     """
     __tablename__ = "song_catalog"
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    title: Mapped[str] = mapped_column(String, nullable=False)
-    artist: Mapped[str] = mapped_column(String, nullable=False)
-    genre: Mapped[str] = mapped_column(String, nullable=False)
-    primary_skill_root: Mapped[PrimarySkillRoot] = mapped_column(
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    artist: Mapped[str] = mapped_column(String(255), nullable=False)
+    genre: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    primary_skill_root: Mapped[str] = mapped_column(
         SAEnum(
             PrimarySkillRoot,
             name="primary_skill_root",
             values_callable=lambda x: [e.value for e in x],
-            create_type=False,  # already created by migration 0003 raw SQL
+            create_type=False,  # created by migration 0003 raw SQL
         ),
         nullable=False,
     )
     difficulty: Mapped[Decimal] = mapped_column(
-        Numeric(4, 3),
-        nullable=False,
-        default=Decimal("0.0"),          # Python-side default (hotfix 5076789)
-        server_default=text("0.0"),      # DB-side default for direct-SQL inserts
+        Numeric(4, 3), nullable=False
     )
+    breakdown: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
 # -------------------------------------------------------------------------
-# UserSession ORM model (Phase 3 — session rating log + reroll markers)
+# UserSession ORM model (Phase 3 — session rating log)
 # -------------------------------------------------------------------------
 
 class UserSession(Base):
-    """Session table: rating rows AND reroll markers share this table (per D-05 decision).
+    """User session table — one row per practice session rating.
 
-    is_reroll_marker=false: real rating row (rating NOT NULL, bank_source NULL).
-    is_reroll_marker=true: reroll marker (rating NULL, bank_source='user_bench'|'seed_catalog').
+    is_reroll_marker=True rows record daily re-roll events (rating=NULL).
+    is_reroll_marker=False rows record real ratings (rating not NULL).
 
-    Two partial-unique indexes enforced by migration 0003 (Revision C):
-      uq_user_sessions_daily_reroll: UNIQUE(user_id, local_calendar_day) WHERE is_reroll_marker=true
-        — one reroll per user per day at DB level.
-      uq_user_sessions_daily_rating: UNIQUE(user_id, song_id, local_calendar_day) WHERE is_reroll_marker=false
-        — one rating per (user, song, day); allows reroll marker to coexist with a rating.
-
-    bank_source (Revision B): persisted on reroll INSERT so GET /song-of-day can read it back
-    without hardcoding. NULL for rating rows.
+    Partial-unique indexes (from migration 0003):
+      - uq_user_sessions_daily_reroll: (user_id, local_calendar_day) WHERE is_reroll_marker=true
+        (one re-roll per day)
+      - uq_user_sessions_daily_rating: (user_id, song_id, local_calendar_day) WHERE is_reroll_marker=false
+        (one rating per song per day — allows reroll marker + rating coexist for same song+day)
     """
     __tablename__ = "user_sessions"
 
@@ -273,30 +258,23 @@ class UserSession(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
-    song_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("songs.id"), nullable=False
+    song_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("songs.id"), nullable=True  # nullable for reroll markers with no song_id
     )
-    # Nullable — reroll markers have no rating
-    rating: Mapped[Optional[RatingLevel]] = mapped_column(
+    rating: Mapped[Optional[str]] = mapped_column(
         SAEnum(
             RatingLevel,
             name="rating_level",
             values_callable=lambda x: [e.value for e in x],
-            create_type=False,  # already created by migration 0003 raw SQL
+            create_type=False,  # created by migration 0003 raw SQL
         ),
-        nullable=True,
+        nullable=True,  # NULL for reroll markers
     )
     local_calendar_day: Mapped[date] = mapped_column(Date, nullable=False)
-    tz_offset_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    tz_offset_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     rated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    # Dual-default on boolean for legibility (mirrors hotfix pattern)
     is_reroll_marker: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=False,
-        server_default=text("false"),
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
-    # Revision B: 'user_bench' | 'seed_catalog' for reroll markers; NULL for rating rows.
-    bank_source: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
