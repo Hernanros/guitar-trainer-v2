@@ -5,6 +5,11 @@
 //   - rated == null:     SongOfDayCard shows primary CTA + optional re-roll ghost
 //   - rated != null:     SongOfDayCard shows "Rated: {label}" static row; no CTA; no re-roll
 //
+// Phase 3 gap-closure (03-04):
+//   - useReroll wired: onReroll passed to SongOfDayCard iff user has NOT rated AND NOT rerolled.
+//   - FromTheBankTag chip rendered above SongOfDayCard when today.from_bank && today.bank_source.
+//   - bankChipLabel: "From your bench" (user_bench) / "From the bank" (seed_catalog) — UI-SPEC §2 verbatim.
+//
 // The song title/metadata region wraps in a Pressable (onTitlePress) so the user can
 // re-open the breakdown in read-only mode even after rating (UI-SPEC §8).
 import React from 'react';
@@ -16,8 +21,9 @@ import {
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useTodaySong } from '../../api/todaySong';
+import { useTodaySong, useReroll } from '../../api/todaySong';
 import { SongOfDayCard } from '../../components/SongOfDayCard';
+import { FromTheBankTag } from '../../components/FromTheBankTag';
 import type { RatingLiteral } from '../../api/sessions';
 
 const LABELS: Record<RatingLiteral, string> = {
@@ -28,6 +34,7 @@ const LABELS: Record<RatingLiteral, string> = {
 
 export default function TodayScreen() {
   const { data: today, isLoading, isError, error } = useTodaySong();
+  const reroll = useReroll();
   const router = useRouter();
 
   if (isLoading) {
@@ -53,8 +60,31 @@ export default function TodayScreen() {
   // Derive already-rated label for SongOfDayCard variant (UI-SPEC §8)
   const ratedLabel = today.rated ? LABELS[today.rated.rating as RatingLiteral] : null;
 
+  // Derive rerolls remaining from the server-authoritative rerolled field (D-05).
+  // Contract per index.test.tsx assertRerollsLeft: 0 when rerolled=true, 1 when rerolled=false.
+  const rerollsLeft = today.rerolled ? 0 : 1;
+
+  // Pass onReroll iff the user has NOT already rated AND has NOT spent their reroll.
+  // When undefined, SongOfDayCard hides the ghost button (SongOfDayCard.tsx lines 72-75).
+  // No error-card handling for reroll failures — 409 is swallowed inside useReroll.onError.
+  const onReroll = ratedLabel || rerollsLeft === 0 ? undefined : () => reroll.mutate();
+
+  // Bank-source chip visibility (index.test.tsx shouldRenderBankChip contract).
+  const showBankChip = Boolean(today.from_bank && today.bank_source);
+
+  // Bank chip copy — UI-SPEC §2 verbatim (DO NOT paraphrase).
+  const bankChipLabel =
+    today.bank_source === 'user_bench'
+      ? 'From your bench'
+      : today.bank_source === 'seed_catalog'
+        ? 'From the bank'
+        : null;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {showBankChip && today.bank_source && (
+        <FromTheBankTag variant={today.bank_source} />
+      )}
       <SongOfDayCard
         song={today.song}
         ratedLabel={ratedLabel}
@@ -62,6 +92,7 @@ export default function TodayScreen() {
         onSeekBreakdown={
           ratedLabel ? undefined : () => router.push(`/breakdown/${today.song.id}`)
         }
+        onReroll={onReroll}
       />
     </ScrollView>
   );
