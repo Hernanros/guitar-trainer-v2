@@ -10,7 +10,7 @@
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class Note(BaseModel):
@@ -81,6 +81,18 @@ class SongResponse(BaseModel):
     # Phase 2 additions (Optional per D-14 — backfilled on existing row, nullable for new)
     user_id: Optional[UUID] = None
     category: Optional[Literal["can_play", "working_on", "aspirational"]] = None
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def coerce_category_enum(cls, v):
+        """Coerce SongCategory enum to its .value string (mirrors SkillNodeResponse pattern).
+
+        SQLAlchemy ORM returns the Python enum instance from SAEnum columns on read-back.
+        The Literal constraint requires a plain string. Extract .value to satisfy both.
+        """
+        if hasattr(v, "value"):
+            return v.value
+        return v
 
     model_config = {"from_attributes": True}
 

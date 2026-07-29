@@ -91,19 +91,50 @@ async def _seed_user_song_skills(
 
     Returns (song_id, [skill_node_id_1, skill_node_id_2]).
     """
-    # User
-    await db.execute(text(
-        f"INSERT INTO users (id, preferences) VALUES ('{user_id}', '{{}}'::jsonb) "
-        f"ON CONFLICT (id) DO NOTHING"
-    ))
+    # User — use ORM to avoid asyncpg `::jsonb` cast syntax issue
+    import uuid as _uuid_mod
+    from app.models.db import User as UserModel
+    from sqlalchemy.dialects.postgresql import insert as _pg_insert
+    await db.execute(
+        _pg_insert(UserModel).values(
+            id=_uuid_mod.UUID(user_id),
+            preferences={},
+        ).on_conflict_do_nothing(index_elements=["id"])
+    )
 
-    # Song
-    song_id_row = (await db.execute(text(
-        f"INSERT INTO songs (title, artist, genre, difficulty, bpm, key, breakdown, user_id, category) "
-        f"VALUES ('Test Song', 'Test Artist', 'Blues', 'intermediate', 120, 'E', "
-        f"'{{}}'::jsonb, '{user_id}', 'working_on') RETURNING id"
-    ))).fetchone()
-    song_id = song_id_row[0]
+    # Song (with complete breakdown so SongResponse validation passes on GET /song-of-day)
+    import json
+    breakdown_data = {
+        "tab": {
+            "measures": [
+                {
+                    "beats": [{"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]}],
+                    "time_signature": "4/4",
+                }
+            ],
+            "tuning": ["E", "A", "D", "G", "B", "e"],
+        },
+        "chords": [],
+        "technique_notes": [],
+    }
+    from sqlalchemy import insert as sa_insert
+    from sqlalchemy.dialects.postgresql import insert as pg_insert_songs
+    import uuid as _uuid
+    from app.models.db import Song as SongModel
+    song_obj = SongModel(
+        title="Test Song",
+        artist="Test Artist",
+        genre="Blues",
+        difficulty="intermediate",
+        bpm=120,
+        key="E",
+        breakdown=breakdown_data,
+        user_id=_uuid.UUID(user_id),
+        category="working_on",
+    )
+    db.add(song_obj)
+    await db.flush()
+    song_id = song_obj.id
 
     # Skill nodes
     node_ids = []
