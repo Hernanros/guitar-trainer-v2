@@ -103,7 +103,30 @@ Plans:
   5. After practicing, the user submits a self-report rating in one tap and the skill graph is updated via deterministic rules (no LLM in the write path)
   6. Tomorrow's Song of the Day reflects yesterday's rating (verified by rating a session and checking the next day's selection)
 
-**Plans**: TBD
+**Plans**: 3 plans in 3 waves (vertical slices under MVP mode)
+
+Plans:
+
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — Slice A · Deterministic Song of the Day: Alembic 0003 (song_catalog seeded with 10 hand-curated songs + user_sessions + breakdown_generated_at) + 75/25 CTE selector with setseed hashtext + reroll endpoint (one per day, DB-enforced) + X-Timezone-Offset header + SongOfDayCard + FromTheBankTag + FletcherLoader + Today tab wired to real selector
+
+**Wave 2** *(blocked on Wave 1 — shares Song.breakdown_generated_at, extends TodaySongResponse)*
+
+- [ ] 03-02-PLAN.md — Slice B · Sonnet Breakdown + Rendering: schema spike test (Q1) + run_technique_breakdown (mirrors run_onboarding_parse) + GET /songs/{id}/breakdown with cache-forever short-circuit + TabNotation multi-measure horizontal-scroll refactor with React.memo + BreakdownErrorCard + /breakdown/[songId] expo-router route + Today CTA navigation
+
+**Wave 3** *(blocked on Wave 1 for user_sessions schema; independent of Wave 2 rendering but sequential in user flow)*
+
+- [ ] 03-03-PLAN.md — Slice C · Rating write + mastery + already-rated states: POST /api/v1/sessions atomic write (single AsyncSession.begin, LEAST/GREATEST SQL clamp, explicit updated_at bump, IntegrityError→409, no LLM) + useSubmitRating mutation with skill-graph invalidation only + RatingPills + AlreadyRatedCard + SongOfDayCard already-rated variant + tomorrow's-pick reflects yesterday's rating
+
+**Cross-cutting constraints:**
+
+- SKILL-03 (no LLM in write path) — grep-verified in Slice C (`server/app/api/v1/sessions.py` contains no import from `server/app/ai/`)
+- D-07 equal-weight — grep-verified in Slice A CTE + Slice C UPDATE (no `SongSkill.weight` reference)
+- Phase 4 governor interception boundary — grep-verified across all 3 slices (`grep -rn "messages.create" server/app | grep -v "server/app/ai/"` returns empty)
+- Fletcher voice contract — every user-facing string in Slice A/B/C is grep-verified against UI-SPEC.md verbatim
+- Zero new packages across all 3 slices
+
 **UI hint**: yes
 
 ### Phase 4: Cost Governor & Node Verification
@@ -150,6 +173,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Foundation & Empty Loop | 4/4 executed (Android build deferred) | Substantially complete (PLAT-02 pending) | 2026-07-19 |
 | 2. Onboarding & Initial Skill Graph | 4/4 | Complete    | 2026-07-28 |
-| 3. AI Teacher & Song of the Day | 0/TBD | Not started | - |
+| 3. AI Teacher & Song of the Day | 0/3 | Planned — 3 vertical slices (A/B/C) in 3 waves | - |
 | 4. Cost Governor & Node Verification | 0/TBD | Not started | - |
 | 5. Library, Toolkit & Polish | 0/TBD | Not started | - |
