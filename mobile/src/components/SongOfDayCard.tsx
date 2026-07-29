@@ -1,141 +1,87 @@
 // mobile/src/components/SongOfDayCard.tsx
-// Today tab hero card.
+// Song of the Day card — used on the Today tab (Slice C).
 //
-// Design contract (UI-SPEC §1, §2, §4, §8, §10):
-//   Eyebrow: "TODAY'S SONG" — all-caps, orange, 11pt 700 letterSpacing 1.5.
-//   Fletcher line: dynamic per selector path (see FLETCHER_LINE map).
-//   Song title: 24pt 800 #F5F5F5. Artist: 16pt #999. Meta: 13pt #666.
-//   Difficulty badge: #2A2A2A bg, orange 1px border, 12pt 700 orange uppercase text.
-//   FromTheBankTag rendered below difficulty badge when passed as a child or via prop.
-//   Primary CTA: "See the breakdown" — orange fill, 14pt white 700, minHeight 48.
-//   Re-roll ghost button: right-aligned, "Not this one? Give me another. (N left today)"
-//     hitSlop 8px all sides (Apple HIG 44pt minimum effective target).
-//     Disabled state (rerollsLeft=0): text color #666.
+// Two variants per UI-SPEC §8:
+//   default:      Shows song metadata + primary CTA "See the breakdown" + re-roll ghost (optional).
+//   already-rated: When ratedLabel is set — replaces CTA with "Rated: {label}" static line;
+//                  hides re-roll ghost button entirely.
 //
-// Voice contract (fletcher-identity.md, UI-SPEC §1, §10):
-//   FLETCHER_LINE map is the canonical source — values are verbatim UI-SPEC copy.
-//   No emojis. No exclamation points. All strings terse-direct second-person.
-//
-// ratedLabel prop (UI-SPEC §8):
-//   When set, replaces primary CTA + re-roll row with a static "Rated: {label}" line.
-//   Used when the user has already submitted a rating today.
+// onTitlePress: optional prop — wraps the header/metadata region in a Pressable so the user can
+//   re-open the breakdown in read-only mode even after rating.
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { components } from '../api/generated/schema';
 
 type SongResponse = components['schemas']['SongResponse'];
 
-/** Selector path → Fletcher line mapping (UI-SPEC §1, §10). */
-export type FletcherLineVariant =
-  | 'deterministic'  // "You're leaning on this one. Play it today."
-  | 'user_bench'     // "Something different today. Loosen up."
-  | 'seed_catalog'   // (no line — chip carries the signal)
-  | 'rerolled'       // "Different song. Same work."
-  | 'already_rated'; // "You already rated this today. See you tomorrow."
-
-const FLETCHER_LINE: Record<FletcherLineVariant, string | null> = {
-  deterministic: "You're leaning on this one. Play it today.",
-  user_bench: 'Something different today. Loosen up.',
-  seed_catalog: null,
-  rerolled: 'Different song. Same work.',
-  already_rated: 'You already rated this today. See you tomorrow.',
-};
-
 interface SongOfDayCardProps {
   song: SongResponse;
-  fletcherLineVariant: FletcherLineVariant;
-  /** 0 = re-roll spent (disabled button, #666 text); 1 = re-roll available. */
-  rerollsLeft: 0 | 1;
-  /** Fired when the primary "See the breakdown" CTA is pressed. */
-  onTapBreakdown: () => void;
-  /** Fired when the re-roll ghost button is pressed (only when rerollsLeft=1). */
-  onReroll: () => void;
-  /**
-   * When set, primary CTA + re-roll button are replaced by "Rated: {label}" static row.
-   * Used for the UI-SPEC §8 post-rating same-day return state.
-   */
   ratedLabel?: string | null;
-  /** Optional chip rendered below the difficulty badge (pass <FromTheBankTag /> here). */
-  bankChip?: React.ReactNode;
+  onTitlePress?: () => void;
+  onSeekBreakdown?: () => void;
+  onReroll?: () => void;
 }
 
 export function SongOfDayCard({
   song,
-  fletcherLineVariant,
-  rerollsLeft,
-  onTapBreakdown,
-  onReroll,
   ratedLabel,
-  bankChip,
+  onTitlePress,
+  onSeekBreakdown,
+  onReroll,
 }: SongOfDayCardProps) {
-  const line = FLETCHER_LINE[fletcherLineVariant];
-
-  return (
-    <View style={styles.card}>
-      {/* Eyebrow — "TODAY'S SONG" */}
-      <Text style={styles.label}>TODAY'S SONG</Text>
-
-      {/* Fletcher line (optional — null for seed_catalog path) */}
-      {line ? <Text style={styles.fletcherLine}>{line}</Text> : null}
-
-      {/* Song title */}
+  const HeaderContent = (
+    <View style={styles.header}>
+      <Text style={styles.label}>SONG OF THE DAY</Text>
       <Text style={styles.title}>{song.title}</Text>
-
-      {/* Artist */}
-      <Text style={styles.artist}>{song.artist ?? ''}</Text>
-
-      {/* Meta line */}
+      <Text style={styles.artist}>{song.artist}</Text>
       <Text style={styles.meta}>
         {song.genre} · {song.bpm} BPM · Key of {song.key}
       </Text>
+      <View style={styles.difficultyBadge}>
+        <Text style={styles.difficultyText}>{song.difficulty}</Text>
+      </View>
+    </View>
+  );
 
-      {/* Difficulty badge */}
-      {song.difficulty ? (
-        <View style={styles.difficultyBadge}>
-          <Text style={styles.difficultyText}>{song.difficulty}</Text>
-        </View>
-      ) : null}
-
-      {/* Bank chip (FromTheBankTag) rendered below difficulty badge (UI-SPEC §4) */}
-      {bankChip ?? null}
-
-      {/* Divider */}
-      <View style={styles.divider} />
-
-      {/* CTA area: either rated state or interactive CTA + re-roll */}
-      {ratedLabel != null ? (
-        <Text style={styles.ratedLine}>Rated: {ratedLabel}</Text>
+  return (
+    <View style={styles.card}>
+      {onTitlePress ? (
+        <Pressable onPress={onTitlePress} accessibilityRole="button" accessibilityLabel="Open breakdown">
+          {HeaderContent}
+        </Pressable>
       ) : (
-        <>
-          {/* Primary CTA */}
-          <Pressable
-            style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-            onPress={onTapBreakdown}
-            accessibilityRole="button"
-            accessibilityLabel="See the breakdown"
-          >
-            <Text style={styles.ctaText}>See the breakdown</Text>
-          </Pressable>
-
-          {/* Re-roll ghost button */}
-          <Pressable
-            style={styles.rerollGhost}
-            onPress={rerollsLeft > 0 ? onReroll : undefined}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            disabled={rerollsLeft === 0}
-            accessibilityRole="button"
-            accessibilityLabel={`Give me another. ${rerollsLeft} left today.`}
-          >
-            <Text
-              style={[
-                styles.rerollText,
-                rerollsLeft === 0 && styles.rerollTextDisabled,
-              ]}
-            >
-              Not this one? Give me another. ({rerollsLeft} left today)
-            </Text>
-          </Pressable>
-        </>
+        HeaderContent
       )}
+
+      <View style={styles.footer}>
+        {ratedLabel ? (
+          // Already-rated variant (UI-SPEC §8): static "Rated: {label}" — no CTA, no re-roll
+          <Text style={styles.ratedLine}>Rated: {ratedLabel}</Text>
+        ) : (
+          // Default variant: primary CTA + optional re-roll ghost
+          <View>
+            {onSeekBreakdown && (
+              <Pressable
+                style={styles.ctaButton}
+                onPress={onSeekBreakdown}
+                accessibilityRole="button"
+                accessibilityLabel="See the breakdown"
+              >
+                <Text style={styles.ctaText}>See the breakdown</Text>
+              </Pressable>
+            )}
+            {onReroll && (
+              <Pressable
+                style={styles.rerollGhost}
+                onPress={onReroll}
+                accessibilityRole="button"
+                accessibilityLabel="Try a different song"
+              >
+                <Text style={styles.rerollText}>Try a different song</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -145,7 +91,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#242424',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 20,
+  },
+  header: {
+    marginBottom: 16,
   },
   label: {
     fontSize: 11,
@@ -154,20 +103,14 @@ const styles = StyleSheet.create({
     color: '#E07B39',
     marginBottom: 6,
   },
-  fletcherLine: {
-    fontSize: 16,
-    lineHeight: 22,
-    color: '#A0A0A0',
-    marginBottom: 12,
-  },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
     color: '#F5F5F5',
     marginBottom: 4,
   },
   artist: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#999',
     marginBottom: 6,
   },
@@ -178,7 +121,7 @@ const styles = StyleSheet.create({
   },
   difficultyBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#1A1A1A',
     borderRadius: 6,
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -186,48 +129,38 @@ const styles = StyleSheet.create({
     borderColor: '#E07B39',
   },
   difficultyText: {
-    color: '#E07B39',
     fontSize: 12,
-    fontWeight: '700',
+    color: '#E07B39',
+    fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#333',
-    marginVertical: 16,
-  },
-  cta: {
-    backgroundColor: '#E07B39',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    minHeight: 48,
-    justifyContent: 'center',
-  },
-  ctaPressed: {
-    opacity: 0.8,
-  },
-  ctaText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  rerollGhost: {
-    marginTop: 12,
-    alignItems: 'flex-end',
-  },
-  rerollText: {
-    color: '#999',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  rerollTextDisabled: {
-    color: '#666',
+  footer: {
+    marginTop: 4,
   },
   ratedLine: {
-    color: '#E07B39',
     fontSize: 14,
+    color: '#E07B39',
     fontWeight: '600',
+  },
+  ctaButton: {
+    backgroundColor: '#E07B39',
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  ctaText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A1A',
+  },
+  rerollGhost: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  rerollText: {
+    fontSize: 14,
+    color: '#666',
   },
 });
