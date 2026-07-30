@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 04-01-PLAN.md complete — ready for 04-02 (Slice B quota UI)
-last_updated: "2026-07-30T11:30:00.000Z"
-last_activity: 2026-07-30 -- Phase 04 Slice A (governor + breakdown cap) executed
+stopped_at: 04-02-PLAN.md Tasks 1-3 complete — Task 4 awaiting human Console cap confirmation before Slice C
+last_updated: "2026-07-30T13:21:33.000Z"
+last_activity: 2026-07-30 -- Phase 04 Slice B (quota UI + RUNBOOK) executed; checkpoint reached at Task 4
 progress:
   total_phases: 5
   completed_phases: 3
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 ## Current Position
 
 Phase: 04 (Cost Governor & Node Verification) — IN PROGRESS
-Plan: 2 of 4 (Slice A complete — executing Slice B next)
-Status: Executing
-Last activity: 2026-07-30 -- 04-01 governor + breakdown cap shipped (3 commits: ece7957, d739330, 614c081)
+Plan: 2 of 4 (Slice B Tasks 1-3 complete — Task 4 pending human Console cap confirmation)
+Status: Checkpoint — awaiting human action (Console cap set confirmation)
+Last activity: 2026-07-30 -- 04-02 quota UI + error cards + RUNBOOK shipped (3 commits: c2335e9, 3494f2d, 459d338); Task 4 human-verify checkpoint reached
 
 Progress: [████████████░░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 in progress
 
@@ -70,6 +70,9 @@ Recent decisions affecting current work:
 - Phase 4 Slice A (2026-07-30): Cap counts ALL views (cache-hit and cache-miss) against 3/7d limit — cap-check runs before cache read in breakdowns endpoint; record governor_calls row even for cache hits so the rolling window is accurate
 - Phase 4 Slice A (2026-07-30): ContextVar approach for call_id passthrough — single-worker (uvicorn --workers 1) means each async task inherits its own ContextVar copy at creation time, no cross-task leakage; simpler than explicit kwarg threading
 - Phase 4 Slice A (2026-07-30): record_estimate / record_actuals open a fresh AsyncSessionLocal() session — avoids cross-session state with the endpoint's session; isolated UPDATE commits are safe under single-worker posture
+- Phase 4 Slice B (2026-07-30): COUNT + MIN queries (not now()+7d shortcut) for breakdown_quota — test_breakdown_quota_resets_at_matches_oldest_plus_7d enforces this
+- Phase 4 Slice B (2026-07-30): schema.d.ts manually updated (server not running locally for codegen); BreakdownQuota typed correctly from Pydantic model
+- Phase 4 Slice B (2026-07-30): today-song invalidation in breakdown screen uses useEffect on data-availability change to avoid side effects in render body
 
 ### Pending Todos
 
@@ -89,6 +92,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-30T11:30:00.000Z
-Stopped at: 04-01-PLAN.md complete — Slice A (governor + breakdown cap) shipped
-Resume file: .planning/phases/04-cost-governor-node-verification/04-02-PLAN.md
+Last session: 2026-07-30T13:21:33.000Z
+Stopped at: 04-02-PLAN.md Task 4 checkpoint — awaiting human confirmation that $20/mo Anthropic Console cap is set with billing alerts (see CHECKPOINT REACHED message and RUNBOOK.md)
+Resume file: .planning/phases/04-cost-governor-node-verification/04-03-PLAN.md (Slice C — do NOT start until Task 4 confirmed)
