@@ -154,7 +154,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — Slice A · Governor + breakdown cap: Alembic 0004 (governor_calls + skill_node_proposals + skill_node_rejections + decay_runs + skill_nodes.canonical_node_id + skill_nodes.last_decayed_at) + governor.py (BudgetExceededError + AnthropicQuotaExceededError + @governed decorator) + @governed applied to run_technique_breakdown + BudgetExceededError→429 BREAKDOWN_CAPPED + AnthropicQuotaExceededError→503 FLETCHER_OUT + BreakdownQuota Pydantic + TodaySongResponse.breakdown_quota field + rapidfuzz + apscheduler pinned + test_governor + test_alembic_0004 [COST-01, COST-02]
+- [x] 04-01-PLAN.md — Slice A · Governor + breakdown cap: Alembic 0004 (governor_calls + skill_node_proposals + skill_node_rejections + decay_runs + skill_nodes.canonical_node_id + skill_nodes.last_decayed_at) + governor.py (BudgetExceededError + AnthropicQuotaExceededError + @governed decorator) + @governed applied to run_technique_breakdown + BudgetExceededError→429 BREAKDOWN_CAPPED + AnthropicQuotaExceededError→503 FLETCHER_OUT + BreakdownQuota Pydantic + TodaySongResponse.breakdown_quota field + rapidfuzz + apscheduler pinned + test_governor + test_alembic_0004 [COST-01, COST-02] *(2026-07-30)*
 
 **Wave 2** *(blocked on Wave 1 — populates BreakdownQuota field declared in Slice A; requires governor_calls table)*
 
@@ -206,6 +206,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Foundation & Empty Loop | 4/4 executed (Android build deferred) | Substantially complete (PLAT-02 pending) | 2026-07-19 |
 | 2. Onboarding & Initial Skill Graph | 4/4 | Complete    | 2026-07-28 |
-| 3. AI Teacher & Song of the Day | 0/3 | Planned — 3 vertical slices (A/B/C) in 3 waves | - |
-| 4. Cost Governor & Node Verification | 0/4 | Planned — 4 vertical slices (A/B/C/D) in 4 waves | - |
+| 3. AI Teacher & Song of the Day | 4/4 | Complete | 2026-07-29 |
+| 4. Cost Governor & Node Verification | 1/4 | In progress — Slice A complete, Slice B next | - |
 | 5. Library, Toolkit & Polish | 0/TBD | Not started | - |

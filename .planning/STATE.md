@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-07-30T10:27:28.283Z"
-last_activity: 2026-07-30 -- Phase 04 planning complete
+stopped_at: 04-01-PLAN.md complete — ready for 04-02 (Slice B quota UI)
+last_updated: "2026-07-30T11:30:00.000Z"
+last_activity: 2026-07-30 -- Phase 04 Slice A (governor + breakdown cap) executed
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 16
-  completed_plans: 12
-  percent: 60
+  completed_plans: 13
+  percent: 63
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 
 ## Current Position
 
-Phase: 03 (AI Teacher & Song of the Day) — GAPS CLOSED
-Plan: 4 of 4 (gap-closure plan complete)
-Status: Ready to execute
-Last activity: 2026-07-30 -- Phase 04 planning complete
+Phase: 04 (Cost Governor & Node Verification) — IN PROGRESS
+Plan: 2 of 4 (Slice A complete — executing Slice B next)
+Status: Executing
+Last activity: 2026-07-30 -- 04-01 governor + breakdown cap shipped (3 commits: ece7957, d739330, 614c081)
 
-Progress: [██████████░░░░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 next
+Progress: [████████████░░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 in progress
 
 ## Performance Metrics
 
@@ -67,6 +67,9 @@ Recent decisions affecting current work:
 - Phase 1 context (2026-07-15): Full Phase 3-ready payload shape from day one (dummy content), Pydantic → OpenAPI → generated TS types, semantic music JSON for tab/chords, DB-backed trivial selector at `GET /api/v1/song-of-day`
 - Fletcher product identity (2026-07-19): Product named Fletcher (JK Simmons / Whiplash reference); "the teacher Fletcher should have been" positioning — reinforcing not critical, celebrates hard-won achievements by grinders (not savants). Fletcher-vocabulary ("Rushing", "Dragging", "Not my tempo") used as diagnosis + coaching (sharp word + next step). Design brief at `.planning/design/fletcher-identity.md`.
 - Phase 2 context (2026-07-20): 5-section wizard (Welcome/Play/Working/Aspire/Preferences), MMKV wizard state + device UUID identity (resolves multi-user seams — users table + X-User-ID header, no auth), free-text + Sonnet batch parse on Complete (~$0.02–$0.05/user), fixed root taxonomy, normalized per-user tree schema, all mastery starts at 0 (deterministic writes principle preserved)
+- Phase 4 Slice A (2026-07-30): Cap counts ALL views (cache-hit and cache-miss) against 3/7d limit — cap-check runs before cache read in breakdowns endpoint; record governor_calls row even for cache hits so the rolling window is accurate
+- Phase 4 Slice A (2026-07-30): ContextVar approach for call_id passthrough — single-worker (uvicorn --workers 1) means each async task inherits its own ContextVar copy at creation time, no cross-task leakage; simpler than explicit kwarg threading
+- Phase 4 Slice A (2026-07-30): record_estimate / record_actuals open a fresh AsyncSessionLocal() session — avoids cross-session state with the endpoint's session; isolated UPDATE commits are safe under single-worker posture
 
 ### Pending Todos
 
@@ -86,6 +89,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-30T09:27:18.485Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-cost-governor-node-verification/04-CONTEXT.md
+Last session: 2026-07-30T11:30:00.000Z
+Stopped at: 04-01-PLAN.md complete — Slice A (governor + breakdown cap) shipped
+Resume file: .planning/phases/04-cost-governor-node-verification/04-02-PLAN.md
