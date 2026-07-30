@@ -114,6 +114,20 @@ class TodayRatingInfo(BaseModel):
     model_config = {"from_attributes": False}
 
 
+class BreakdownQuota(BaseModel):
+    """Phase 4 quota snapshot embedded in TodaySongResponse (D-06).
+
+    remaining: calls left in the current 7-day rolling window (0..cap).
+    cap: per-user cap (always 3 for the breakdown feature per D-01).
+    resets_at: ISO datetime string — oldest_call_in_window + 7 days, server-authoritative.
+    """
+    remaining: int
+    cap: int
+    resets_at: str  # ISO datetime string
+
+    model_config = {"from_attributes": False}
+
+
 class TodaySongResponse(BaseModel):
     """Response shape for GET /api/v1/song-of-day (Phase 3 per-user selector).
 
@@ -124,6 +138,7 @@ class TodaySongResponse(BaseModel):
     rerolled: True if the user used their one daily re-roll.
     rated: populated with TodayRatingInfo when the user has rated today's song; null otherwise.
     rerolls_left: 0 if the user has already rerolled today, 1 otherwise (D-05 one-per-day).
+    breakdown_quota: Phase 4 — always populated; carries remaining/cap/resets_at for the quota chip (D-06).
     """
     song: SongResponse
     breakdown_available: bool
@@ -132,5 +147,6 @@ class TodaySongResponse(BaseModel):
     rerolled: bool
     rated: Optional[TodayRatingInfo] = None
     rerolls_left: int  # 0 or 1 — always populated (never null)
+    breakdown_quota: BreakdownQuota  # Phase 4 addition — always populated
 
     model_config = {"from_attributes": False}

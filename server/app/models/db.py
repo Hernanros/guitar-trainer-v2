@@ -5,6 +5,8 @@
 # Phase 2 (02-03): SkillNode + SongSkill ORM classes added (tables already exist per migration 0002).
 # Phase 3 (03-01): SongCatalog + UserSession ORM classes, RatingLevel + PrimarySkillRoot enums,
 #                  Song.breakdown_generated_at column.
+# Phase 4 (04-01): GovernorCall, SkillNodeProposal, SkillNodeRejection, DecayRun ORM classes;
+#                  SkillNode gains canonical_node_id + last_decayed_at (migration 0004).
 import enum
 import uuid
 from datetime import date, datetime
@@ -171,6 +173,15 @@ class SkillNode(Base):
     updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    # Phase 4 additions (migration 0004)
+    canonical_node_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("skill_nodes.id"),
+        nullable=True,
+    )
+    last_decayed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 # -------------------------------------------------------------------------
@@ -278,3 +289,121 @@ class UserSession(Base):
     is_reroll_marker: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+
+
+# -------------------------------------------------------------------------
+# GovernorCall ORM model (Phase 4 — cost governor audit ledger)
+# -------------------------------------------------------------------------
+
+class GovernorCall(Base):
+    """Governor calls table — one row per Sonnet call attempt, append-only ledger.
+
+    prompt_tokens_estimated: populated pre-dispatch via count_tokens API (D-03).
+    prompt_tokens_actual/output_tokens_actual: populated post-dispatch from resp.usage.
+    dollars_estimated/dollars_actual: computed from token counts (optional, nullable).
+    error_code: type(exc).__name__ on failure; NULL on success.
+    created_at: row inserted BEFORE Sonnet dispatch (cap-check precedes insert).
+    """
+    __tablename__ = "governor_calls"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    feature: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_tokens_estimated: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    prompt_tokens_actual: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    output_tokens_actual: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    dollars_estimated: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
+    dollars_actual: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+# -------------------------------------------------------------------------
+# SkillNodeProposal ORM model (Phase 4 — node verification pipeline input)
+# -------------------------------------------------------------------------
+
+class SkillNodeProposal(Base):
+    """Skill node proposal — one row per node proposed by onboarding-Sonnet.
+
+    Flows through: dedupe_score → verifier → status ('pending'|'approved'|'rejected'|'merged').
+    canonical_id: set when proposal is matched to an existing canonical node (D-12).
+    verifier_verdict/verifier_reason: from run_skill_node_verify response (Slice C).
+    """
+    __tablename__ = "skill_node_proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    proposed_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    fuzzy_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default=text("'pending'")
+    )
+    canonical_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("skill_nodes.id"), nullable=True
+    )
+    verifier_verdict: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    verifier_reason: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+# -------------------------------------------------------------------------
+# SkillNodeRejection ORM model (Phase 4 — node verification pipeline rejections)
+# -------------------------------------------------------------------------
+
+class SkillNodeRejection(Base):
+    """Rejected skill node proposal — D-14 graceful drop + audit record.
+
+    No FK to users — rejections are global audit records (proposed_name is the key).
+    verifier_response: full JSON from run_skill_node_verify (nullable — may be absent
+    if rejected at fuzzy-score stage before verifier ran).
+    """
+    __tablename__ = "skill_node_rejections"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    proposed_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    reason: Mapped[str] = mapped_column(String(1024), nullable=False)
+    verifier_response: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+# -------------------------------------------------------------------------
+# DecayRun ORM model (Phase 4 — nightly mastery decay job audit)
+# -------------------------------------------------------------------------
+
+class DecayRun(Base):
+    """Decay run — one row per nightly APScheduler decay job execution (D-Claude-decay).
+
+    finished_at: NULL until job completes (or fails).
+    nodes_affected: count of skill_nodes rows updated by the decay UPDATE.
+    error: exception message if the job failed; NULL on success.
+    """
+    __tablename__ = "decay_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    nodes_affected: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
