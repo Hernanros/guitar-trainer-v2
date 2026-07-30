@@ -8,10 +8,12 @@
 # Phase 3 (03-04 gap-closure): Wires select_today_song CTE; adds POST /today-song/reroll;
 #   propagates bank_source from selector on fresh picks and reads it back from the reroll
 #   marker row on same-day GETs; adds rerolls_left field (D-05 one-per-day contract).
+# Phase 4 (Slice B): TodaySongResponse extended with .breakdown_quota (D-06).
 #
 # Design decisions: D-01 through D-05, D-10, Revision B (bank_source persistence + read-back).
 # Threat mitigations: T-03-04-01 (user_id from dep, never body), T-03-04-02 (DB index + app
 # pre-check), T-03-04-04 (cross-user marker read filter), T-03-04-05 (bank_source server-computed).
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import sqlalchemy.exc
@@ -22,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_tz_offset_minutes, get_user_id
 from app.db.session import get_db
 from app.models.db import Song
-from app.models.song import SongResponse, TodayRatingInfo, TodaySongResponse
+from app.models.song import BreakdownQuota, SongResponse, TodayRatingInfo, TodaySongResponse
 from app.selectors.today_song import select_today_song
 
 router = APIRouter()
@@ -123,6 +125,34 @@ async def get_song_of_day(
             rated_at=rating_row["rated_at"].isoformat(),
         )
 
+    # Phase 4 (D-06): breakdown_quota — COUNT + MIN(created_at) from governor_calls.
+    # Uses indexed query (ix_governor_calls_user_feature_created) — O(log n) per user.
+    quota_count = await db.scalar(
+        text(
+            "SELECT COUNT(*) FROM governor_calls "
+            "WHERE user_id = :user_id AND feature = 'breakdown' "
+            "AND created_at > now() - interval '7 days'"
+        ),
+        {"user_id": str(user_id)},
+    )
+    oldest_call = await db.scalar(
+        text(
+            "SELECT MIN(created_at) FROM governor_calls "
+            "WHERE user_id = :user_id AND feature = 'breakdown' "
+            "AND created_at > now() - interval '7 days'"
+        ),
+        {"user_id": str(user_id)},
+    )
+    if oldest_call is None:
+        resets_at_dt = datetime.now(timezone.utc) + timedelta(days=7)
+    else:
+        resets_at_dt = oldest_call + timedelta(days=7)
+    breakdown_quota = BreakdownQuota(
+        remaining=max(0, 3 - (quota_count or 0)),
+        cap=3,
+        resets_at=resets_at_dt.isoformat(),
+    )
+
     return TodaySongResponse(
         song=SongResponse.model_validate(row),
         breakdown_available=(row.breakdown_generated_at is not None),
@@ -131,6 +161,7 @@ async def get_song_of_day(
         rerolled=rerolled,
         rated=rated_info,
         rerolls_left=rerolls_left,
+        breakdown_quota=breakdown_quota,
     )
 
 
@@ -214,6 +245,33 @@ async def reroll_today_song(
     if row is None:
         raise HTTPException(status_code=404, detail="Reroll song not found.")
 
+    # Phase 4 (D-06): breakdown_quota — same COUNT + MIN pattern as get_song_of_day.
+    reroll_quota_count = await db.scalar(
+        text(
+            "SELECT COUNT(*) FROM governor_calls "
+            "WHERE user_id = :user_id AND feature = 'breakdown' "
+            "AND created_at > now() - interval '7 days'"
+        ),
+        {"user_id": str(user_id)},
+    )
+    reroll_oldest_call = await db.scalar(
+        text(
+            "SELECT MIN(created_at) FROM governor_calls "
+            "WHERE user_id = :user_id AND feature = 'breakdown' "
+            "AND created_at > now() - interval '7 days'"
+        ),
+        {"user_id": str(user_id)},
+    )
+    if reroll_oldest_call is None:
+        reroll_resets_at_dt = datetime.now(timezone.utc) + timedelta(days=7)
+    else:
+        reroll_resets_at_dt = reroll_oldest_call + timedelta(days=7)
+    reroll_breakdown_quota = BreakdownQuota(
+        remaining=max(0, 3 - (reroll_quota_count or 0)),
+        cap=3,
+        resets_at=reroll_resets_at_dt.isoformat(),
+    )
+
     return TodaySongResponse(
         song=SongResponse.model_validate(row),
         breakdown_available=(row.breakdown_generated_at is not None),
@@ -222,4 +280,5 @@ async def reroll_today_song(
         rerolled=True,
         rated=None,  # reroll marker and rating row are distinct (db.py lines 244-251)
         rerolls_left=0,  # spent the one daily reroll
+        breakdown_quota=reroll_breakdown_quota,
     )
