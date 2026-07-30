@@ -53,3 +53,4 @@ async def on_startup() -> None:
     async with AsyncSessionLocal() as db:
         await seed_songs(db)
     logger.info("Startup: seed check complete.")
+    logger.info("REMINDER: verify $20/mo Anthropic Console cap is set at anthropic.com/console (COST-04, D-07). See .planning/RUNBOOK.md.")
