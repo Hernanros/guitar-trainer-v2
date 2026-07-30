@@ -1,6 +1,8 @@
 // mobile/src/app/breakdown/[songId].tsx
 // Breakdown detail screen — shows tab/chords/technique notes for today's song.
 // Slice C: Adds RatingPills below the breakdown stack + AlreadyRatedCard overlay.
+// Phase 4 Slice B: Error parsing for BREAKDOWN_CAPPED (429) and FLETCHER_OUT (503);
+//   today-song cache invalidation on success so the quota chip decrements.
 //
 // Rating flow:
 //   1. User taps a RatingPill → selectedRating set (confirmed visual + POST fires)
@@ -12,7 +14,7 @@
 //   is replaced by a static "Rated: {label}" line. User can still see breakdown.
 //
 // router.replace (not router.push) so tapping back on Today tab does not re-enter breakdown.
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -21,11 +23,14 @@ import {
   ScrollView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { RatingPills } from '../../components/RatingPills';
 import { AlreadyRatedCard } from '../../components/AlreadyRatedCard';
+import { BreakdownErrorCard } from '../../components/BreakdownErrorCard';
 import { ChordDiagram } from '../../components/ChordDiagram';
 import { TabNotation } from '../../components/TabNotation';
-import { useTodaySong } from '../../api/todaySong';
+import { useTodaySong, localCalendarDay } from '../../api/todaySong';
+import { getOrCreateUserId } from '../../api/mmkv';
 import { useSubmitRating, type RatingLiteral } from '../../api/sessions';
 import type { components } from '../../api/generated/schema';
 
@@ -42,10 +47,50 @@ export default function BreakdownScreen() {
   const { songId: songIdParam } = useLocalSearchParams<{ songId: string }>();
   const songId = songIdParam ? parseInt(songIdParam, 10) : null;
   const router = useRouter();
+  const qc = useQueryClient();
+  const userId = getOrCreateUserId();
 
   const { data: today, isLoading, isError, error } = useTodaySong();
   const submitRating = useSubmitRating();
   const [submittedRating, setSubmittedRating] = useState<RatingLiteral | null>(null);
+  // Phase 4 Slice B: error code state for BREAKDOWN_CAPPED / FLETCHER_OUT variants.
+  const [errorCode, setErrorCode] = useState<'BREAKDOWN_CAPPED' | 'FLETCHER_OUT' | null>(null);
+  const [errorResetsAt, setErrorResetsAt] = useState<string | null>(null);
+
+  // Phase 4 Slice B: invalidate today-song when the breakdown loads successfully so
+  // the quota chip on the Today tab reflects the latest governor_calls count.
+  // Runs once when today data becomes available (data transitions from undefined to truthy).
+  useEffect(() => {
+    if (today) {
+      qc.invalidateQueries({ queryKey: ['today-song', userId, localCalendarDay()] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Boolean(today)]);
+
+  // Phase 4 Slice B: invalidate today-song on a successful breakdown view so the
+  // quota chip decrements on next Today-tab open. The chip reads from
+  // TodaySongResponse.breakdown_quota which is server-authoritative (D-06).
+  // We trigger invalidation here rather than in sessions.ts to avoid touching
+  // Slice C's rating logic (sessions.ts is explicitly excluded from files_modified).
+  const invalidateTodaySong = () => {
+    qc.invalidateQueries({ queryKey: ['today-song', userId, localCalendarDay()] });
+  };
+
+  // Helper: parse error from breakdown fetch (HTTP 429/503 body shape from Slice A).
+  // If a future refactor adds a direct breakdown endpoint call, this function handles it.
+  const handleBreakdownError = (err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('BREAKDOWN_CAPPED') || msg.includes('429')) {
+      // Try to extract resets_at from error message if available
+      const resetsAtMatch = msg.match(/"resets_at"\s*:\s*"([^"]+)"/);
+      setErrorCode('BREAKDOWN_CAPPED');
+      setErrorResetsAt(resetsAtMatch ? resetsAtMatch[1] : null);
+    } else if (msg.includes('FLETCHER_OUT') || msg.includes('503')) {
+      setErrorCode('FLETCHER_OUT');
+    } else {
+      setErrorCode(null);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -57,13 +102,24 @@ export default function BreakdownScreen() {
   }
 
   if (isError || !today) {
+    // Parse error code from the useTodaySong error for code-based rendering
+    const parsedCode = (() => {
+      const msg = error instanceof Error ? error.message : String(error ?? '');
+      if (msg.includes('BREAKDOWN_CAPPED')) return 'BREAKDOWN_CAPPED' as const;
+      if (msg.includes('FLETCHER_OUT')) return 'FLETCHER_OUT' as const;
+      return errorCode;
+    })();
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>Could not load breakdown</Text>
-        {error instanceof Error && (
-          <Text style={styles.errorDetail}>{error.message}</Text>
-        )}
-      </View>
+      <BreakdownErrorCard
+        code={parsedCode}
+        resets_at={errorResetsAt}
+        onRetry={() => {
+          setErrorCode(null);
+          setErrorResetsAt(null);
+          invalidateTodaySong();
+        }}
+        onBack={() => router.back()}
+      />
     );
   }
 

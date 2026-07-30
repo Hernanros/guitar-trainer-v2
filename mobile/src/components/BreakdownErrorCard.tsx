@@ -1,41 +1,69 @@
 // mobile/src/components/BreakdownErrorCard.tsx
 // Fletcher-voiced error card for Sonnet breakdown failure (UI-SPEC §7).
 //
-// Shows when GET /api/v1/songs/{id}/breakdown returns 503 (Sonnet failed after retry).
+// Three variants (Phase 4 Slice B extension):
+//
+//   default (no code):    "Fletcher lost the thread." + connection-dropped copy + Try again button.
+//   BREAKDOWN_CAPPED:     "Not my tempo." + per-user cap body (no Try again — cap is not retryable).
+//   FLETCHER_OUT:         "Fletcher's on a break." + org-level quota body + Try again button.
+//
 // Background: dark red tint #3A1F1F — the ONLY red on the entire breakdown screen.
-// Copy is locked verbatim from UI-SPEC §7 — do not alter these strings.
+// Default copy is locked verbatim from UI-SPEC §7 — do not alter existing strings.
 //
 // Voice contract (fletcher-identity.md):
-//   Heading: "Fletcher lost the thread."
-//   Body: "The connection dropped mid-thought. Give it a minute — try again."
-//   Primary CTA: "Try again"
-//   Secondary link: "Back to today's song"
+//   default heading: "Fletcher lost the thread."
+//   BREAKDOWN_CAPPED heading: "Not my tempo."
+//   FLETCHER_OUT heading: "Fletcher's on a break."
+//   Secondary link: "Back to today's song" (all variants)
 // No emojis. No exclamation points.
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { daysUntilReset } from '../utils/quota';
 
 interface BreakdownErrorCardProps {
-  /** Called when the user taps "Try again" — should trigger refetch(). */
+  /** Called when the user taps "Try again" — should trigger refetch(). Not shown for BREAKDOWN_CAPPED. */
   onRetry: () => void;
   /** Called when the user taps "Back to today's song" — should trigger router.back(). */
   onBack: () => void;
+  /** Error code from server HTTP 429/503 body. Null/undefined → default variant. */
+  code?: 'BREAKDOWN_CAPPED' | 'FLETCHER_OUT' | null;
+  /** resets_at ISO string from HTTP 429 body — used by BREAKDOWN_CAPPED variant to compute days. */
+  resets_at?: string | null;
 }
 
-export function BreakdownErrorCard({ onRetry, onBack }: BreakdownErrorCardProps) {
+export function BreakdownErrorCard({ onRetry, onBack, code, resets_at }: BreakdownErrorCardProps) {
+  let heading: string;
+  let body: string;
+  let showRetry: boolean;
+
+  if (code === 'BREAKDOWN_CAPPED') {
+    heading = 'Not my tempo.';
+    body = `You've had 3 breakdowns this week. Come back in ${daysUntilReset(resets_at)} days.`;
+    showRetry = false;  // cap is not retryable (D-02)
+  } else if (code === 'FLETCHER_OUT') {
+    heading = "Fletcher's on a break.";
+    body = 'Try again in an hour.';
+    showRetry = true;
+  } else {
+    heading = 'Fletcher lost the thread.';
+    body = 'The connection dropped mid-thought. Give it a minute — try again.';
+    showRetry = true;
+  }
+
   return (
     <View style={styles.card}>
-      <Text style={styles.heading}>Fletcher lost the thread.</Text>
-      <Text style={styles.body}>
-        The connection dropped mid-thought. Give it a minute — try again.
-      </Text>
-      <Pressable
-        style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-        onPress={onRetry}
-        accessibilityRole="button"
-        accessibilityLabel="Try again"
-      >
-        <Text style={styles.ctaText}>Try again</Text>
-      </Pressable>
+      <Text style={styles.heading}>{heading}</Text>
+      <Text style={styles.body}>{body}</Text>
+      {showRetry && (
+        <Pressable
+          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+          onPress={onRetry}
+          accessibilityRole="button"
+          accessibilityLabel="Try again"
+        >
+          <Text style={styles.ctaText}>Try again</Text>
+        </Pressable>
+      )}
       <Pressable
         style={styles.backLink}
         onPress={onBack}

@@ -6,16 +6,23 @@
 //   already-rated: When ratedLabel is set — replaces CTA with "Rated: {label}" static line;
 //                  hides re-roll ghost button entirely.
 //
+// Phase 4 (D-05, D-06): breakdown_quota prop adds inline chip + disabled CTA state.
+//   - remaining >= 1: chip "{N} left this week" renders below CTA
+//   - remaining === 0: CTA disabled, label "Come back in {N} days" (derived from resets_at)
+//
 // onTitlePress: optional prop — wraps the header/metadata region in a Pressable so the user can
 //   re-open the breakdown in read-only mode even after rating.
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { BreakdownQuota } from '../api/todaySong';
 import type { components } from '../api/generated/schema';
+import { daysUntilReset } from '../utils/quota';
 
 type SongResponse = components['schemas']['SongResponse'];
 
 interface SongOfDayCardProps {
   song: SongResponse;
   ratedLabel?: string | null;
+  breakdown_quota?: BreakdownQuota | null;
   onTitlePress?: () => void;
   onSeekBreakdown?: () => void;
   onReroll?: () => void;
@@ -24,6 +31,7 @@ interface SongOfDayCardProps {
 export function SongOfDayCard({
   song,
   ratedLabel,
+  breakdown_quota,
   onTitlePress,
   onSeekBreakdown,
   onReroll,
@@ -57,17 +65,32 @@ export function SongOfDayCard({
           // Already-rated variant (UI-SPEC §8): static "Rated: {label}" — no CTA, no re-roll
           <Text style={styles.ratedLine}>Rated: {ratedLabel}</Text>
         ) : (
-          // Default variant: primary CTA + optional re-roll ghost
+          // Default variant: primary CTA (with quota-aware state) + optional re-roll ghost
           <View>
             {onSeekBreakdown && (
               <Pressable
-                style={styles.ctaButton}
-                onPress={onSeekBreakdown}
+                style={[
+                  styles.ctaButton,
+                  breakdown_quota?.remaining === 0 && styles.ctaDisabled,
+                ]}
+                onPress={breakdown_quota?.remaining === 0 ? undefined : onSeekBreakdown}
+                disabled={breakdown_quota?.remaining === 0}
                 accessibilityRole="button"
-                accessibilityLabel="See the breakdown"
+                accessibilityLabel={
+                  breakdown_quota?.remaining === 0
+                    ? `Come back in ${daysUntilReset(breakdown_quota?.resets_at)} days`
+                    : 'See the breakdown'
+                }
               >
-                <Text style={styles.ctaText}>See the breakdown</Text>
+                <Text style={styles.ctaText}>
+                  {breakdown_quota?.remaining === 0
+                    ? `Come back in ${daysUntilReset(breakdown_quota?.resets_at)} days`
+                    : 'See the breakdown'}
+                </Text>
               </Pressable>
+            )}
+            {breakdown_quota && breakdown_quota.remaining >= 1 && (
+              <Text style={styles.quotaChip}>{breakdown_quota.remaining} left this week</Text>
             )}
             {onReroll && (
               <Pressable
@@ -150,10 +173,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
+  ctaDisabled: {
+    backgroundColor: '#555',
+    opacity: 0.6,
+  },
   ctaText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#1A1A1A',
+  },
+  quotaChip: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 4,
   },
   rerollGhost: {
     alignItems: 'center',

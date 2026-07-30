@@ -222,6 +222,18 @@ export interface components {
             rated_at: string;
         };
         /**
+         * BreakdownQuota
+         * @description Phase 4 quota snapshot embedded in TodaySongResponse (D-06).
+         */
+        BreakdownQuota: {
+            /** Remaining — calls left in the current 7-day rolling window (0..cap) */
+            remaining: number;
+            /** Cap — per-user cap (always 3 for the breakdown feature per D-01) */
+            cap: number;
+            /** Resets At — ISO datetime string: oldest_call_in_window + 7 days, server-authoritative */
+            resets_at: string;
+        };
+        /**
          * TodaySongResponse
          * @description Response shape for GET /api/v1/song-of-day (Phase 3 per-user selector).
          */
@@ -239,6 +251,8 @@ export interface components {
             rated?: components["schemas"]["TodayRatingInfo"] | null;
             /** Rerolls Left — 0 if the user has already rerolled today, 1 otherwise (D-05) */
             rerolls_left: number;
+            /** Breakdown Quota — Phase 4: remaining/cap/resets_at for the quota chip (D-06) */
+            breakdown_quota: components["schemas"]["BreakdownQuota"];
         };
         /**
          * Beat

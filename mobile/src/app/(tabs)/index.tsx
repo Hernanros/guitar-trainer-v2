@@ -88,6 +88,7 @@ export default function TodayScreen() {
       <SongOfDayCard
         song={today.song}
         ratedLabel={ratedLabel}
+        breakdown_quota={today.breakdown_quota}
         onTitlePress={() => router.push(`/breakdown/${today.song.id}`)}
         onSeekBreakdown={
           ratedLabel ? undefined : () => router.push(`/breakdown/${today.song.id}`)

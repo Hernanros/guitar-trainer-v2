@@ -17,8 +17,10 @@ import { apiFetch } from './apiClient';
 import { getOrCreateUserId } from './mmkv';
 
 // Phase 3 response type — includes song + rated + rerolled + from_bank + bank_source.
+// Phase 4 addition: TodaySongResponse.breakdown_quota + BreakdownQuota convenience re-export (D-06).
 export type TodaySongResponse = components['schemas']['TodaySongResponse'];
 export type SongResponse = components['schemas']['SongResponse'];
+export type BreakdownQuota = components['schemas']['BreakdownQuota'];
 
 /**
  * Returns the current date as YYYY-MM-DD in the device's local timezone.
