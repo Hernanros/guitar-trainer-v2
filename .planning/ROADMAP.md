@@ -148,7 +148,36 @@ Plans:
   5. New skill-graph node proposals (user or AI) run through embedded-dedup + a Sonnet verifier; confident proposals join the canonical graph, uncertain ones land in a curator queue
   6. A nightly job decays every node untouched for more than 7 days by 5%, and the decay run is auditable in the backend
 
-**Plans**: TBD
+**Plans**: 4 plans in 4 waves (vertical slices under MVP mode)
+
+Plans:
+
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Slice A · Governor + breakdown cap: Alembic 0004 (governor_calls + skill_node_proposals + skill_node_rejections + decay_runs + skill_nodes.canonical_node_id + skill_nodes.last_decayed_at) + governor.py (BudgetExceededError + AnthropicQuotaExceededError + @governed decorator) + @governed applied to run_technique_breakdown + BudgetExceededError→429 BREAKDOWN_CAPPED + AnthropicQuotaExceededError→503 FLETCHER_OUT + BreakdownQuota Pydantic + TodaySongResponse.breakdown_quota field + rapidfuzz + apscheduler pinned + test_governor + test_alembic_0004 [COST-01, COST-02]
+
+**Wave 2** *(blocked on Wave 1 — populates BreakdownQuota field declared in Slice A; requires governor_calls table)*
+
+- [ ] 04-02-PLAN.md — Slice B · Quota UI + Console cap: TodaySongResponse.breakdown_quota populated from governor_calls COUNT + inline chip on SongOfDayCard + disabled CTA at 0 + BreakdownErrorCard variants for BREAKDOWN_CAPPED and FLETCHER_OUT + daysUntilReset utility + RUNBOOK.md ($20/mo Console cap + FLETCHER_ADMIN_TOKEN generation) + startup log reminder + human checkpoint confirming Console cap set [COST-03, COST-04]
+
+**Wave 3** *(blocked on Wave 1 for skill_node_proposals/skill_node_rejections + @governed; blocked on Wave 2 for RUNBOOK token generation)*
+
+- [ ] 04-03-PLAN.md — Slice C · Skill-node verification: skill_dedupe.py (rapidfuzz.token_set_ratio + thresholds 85/70) + skill_verifier.py (SkillNodeVerifyOutput + run_skill_node_verify with @governed cap=None) + verifier pipeline hooked into run_onboarding_parse inside SAVEPOINT + @governed applied to run_onboarding_parse + get_admin_token dep (hmac.compare_digest) + admin.py router (GET curator HTML + POST action) + skill_node_rejections drop path + test_skill_dedupe + test_skill_verifier + test_onboarding_verifier_pipeline + test_admin_curator [SKILL-04]
+
+**Wave 4** *(blocked on Wave 1 for decay_runs + skill_nodes.last_decayed_at; sequential w/ Slice B and C for main.py on_startup edits)*
+
+- [ ] 04-04-PLAN.md — Slice D · Decay scheduler: scheduler.py (AsyncIOScheduler singleton + decay_all_nodes UPDATE with GREATEST clamp + last_decayed_at 6h debounce + decay_runs audit row on success AND failure via fresh session) + main.py startup registers cron hour=3 minute=0 timezone=UTC + test_scheduler_decay [SKILL-05]
+
+**Cross-cutting constraints:**
+
+- Every AI call site wrapped by @governed (grep-verified: `grep -c "@governed" server/app/ai/*.py` == 3 lines — breakdown, onboarding, skill_verifier)
+- Single AsyncAnthropic invariant (grep-verified: `grep -rn "AsyncAnthropic(" server/app | grep -v "server/app/ai/client.py"` empty)
+- Fletcher voice for cap errors — BREAKDOWN_CAPPED "Not my tempo." + FLETCHER_OUT "Fletcher's on a break." locked verbatim from D-02 + D-08
+- rapidfuzz-only dedup (no external embeddings vendor) per D-09
+- APScheduler in-process safe under `uvicorn --workers 1`; multi-worker migration documented in scheduler.py docstring for future
+- Alembic 0004 consolidated in Slice A (all 4 new tables + 2 new columns) so Slices B/C/D touch no migration
+- EAS device-verify batched with Phase 3 pending EAS build per user memory `eas-budget`
+
 **UI hint**: yes
 
 ### Phase 5: Library, Toolkit & Polish
@@ -178,5 +207,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Foundation & Empty Loop | 4/4 executed (Android build deferred) | Substantially complete (PLAT-02 pending) | 2026-07-19 |
 | 2. Onboarding & Initial Skill Graph | 4/4 | Complete    | 2026-07-28 |
 | 3. AI Teacher & Song of the Day | 0/3 | Planned — 3 vertical slices (A/B/C) in 3 waves | - |
-| 4. Cost Governor & Node Verification | 0/TBD | Not started | - |
+| 4. Cost Governor & Node Verification | 0/4 | Planned — 4 vertical slices (A/B/C/D) in 4 waves | - |
 | 5. Library, Toolkit & Polish | 0/TBD | Not started | - |
