@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 3 plan 04 complete — all 4 Wave 1 gaps closed (selector CTE wired, /reroll endpoint, useReroll hook, bank_source propagation). HANDOFF.json no longer authoritative.
-last_updated: "2026-07-29T17:30:00.000Z"
+status: Phase 3 gaps closed — SOTD-01 now functional at runtime
+stopped_at: Phase 4 context gathered
+last_updated: "2026-07-30T09:27:18.497Z"
 last_activity: 2026-07-29 -- Phase 03 gap-closure (03-04) complete
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
   completed_plans: 12
-  percent: 45
+  percent: 60
 ---
 
 # Project State
@@ -86,6 +86,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-29
-Stopped at: Phase 3 gap-closure complete (03-04 executed + verified `human_needed` with 4 device items batched for next EAS build — see memory `eas-batch-phase3-device-verify`). User chose to advance to Phase 4 planning and picked `discuss-phase first` for the Cost Governor & Node Verification design surface.
-Resume file: `.planning/phases/04-cost-governor-node-verification/` (created; awaiting CONTEXT.md via `/gsd:discuss-phase 4`)
+Last session: 2026-07-30T09:27:18.485Z
+Stopped at: Phase 4 context gathered
+Resume file: .planning/phases/04-cost-governor-node-verification/04-CONTEXT.md
