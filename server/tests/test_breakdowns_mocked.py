@@ -189,6 +189,8 @@ async def _seed_user_and_song(
 
 
 async def _cleanup(db: AsyncSession, user_id: str) -> None:
+    # Phase 4: delete governor_calls first (FK references users)
+    await db.execute(text(f"DELETE FROM governor_calls WHERE user_id='{user_id}'"))
     await db.execute(
         text(f"DELETE FROM song_skills WHERE song_id IN (SELECT id FROM songs WHERE user_id='{user_id}')")
     )
@@ -360,8 +362,14 @@ async def test_get_client_called_inside_call_closure(monkeypatch):
     that if the key is missing at first attempt but present on retry, it's picked up.
     More critically: it prevents the pre-843e226 bug where a cached None client from
     a missing-key environment would bypass the RuntimeError check.
+
+    Phase 4 update: run_technique_breakdown now requires db + user_id kwargs (for @governed).
+    The test provides a real DB session with a seeded user to let the governor's pre-cap-check
+    run, then verifies that get_client() is still called inside _call (not at decoration time).
     """
+    import uuid
     call_count = {"n": 0}
+    user_id = str(uuid.uuid4())
 
     import app.ai.breakdown as breakdown_module
 
@@ -373,19 +381,39 @@ async def test_get_client_called_inside_call_closure(monkeypatch):
 
     monkeypatch.setattr(breakdown_module, "get_client", counting_get_client)
 
+    # Seed a user so the governor's INSERT succeeds
+    async with _make_session() as db:
+        from sqlalchemy import text as _text
+        await db.execute(
+            _text(
+                "INSERT INTO users (id, preferences) VALUES (:uid, '{}'::jsonb) ON CONFLICT DO NOTHING"
+            ),
+            {"uid": user_id},
+        )
+        await db.commit()
+
     # We expect get_client() to be called at least once when run_technique_breakdown runs.
     # Since ANTHROPIC_API_KEY is unset, get_client() will raise RuntimeError on first call,
     # which the outer try/except wraps as AIBreakdownError.
-    with pytest.raises(AIBreakdownError):
-        await breakdown_module.run_technique_breakdown(
-            "Sweet Home Chicago", "Robert Johnson", ["Blues Shuffle Rhythm"], 0.3
-        )
+    async with _make_session() as db:
+        with pytest.raises(AIBreakdownError):
+            await breakdown_module.run_technique_breakdown(
+                "Sweet Home Chicago", "Robert Johnson", ["Blues Shuffle Rhythm"], 0.3,
+                db=db, user_id=uuid.UUID(user_id),
+            )
 
     # get_client() must have been invoked (proves it's inside the closure)
     assert call_count["n"] >= 1, (
         "get_client() was never called — it must be inside the _call closure "
         "per hotfix 843e226 pattern"
     )
+
+    # Cleanup
+    async with _make_session() as db:
+        from sqlalchemy import text as _text2
+        await db.execute(_text2(f"DELETE FROM governor_calls WHERE user_id='{user_id}'"))
+        await db.execute(_text2(f"DELETE FROM users WHERE id='{user_id}'"))
+        await db.commit()
 
 
 @pytest.mark.asyncio

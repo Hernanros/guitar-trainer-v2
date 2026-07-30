@@ -8,6 +8,13 @@ On AIBreakdownError (Sonnet failure after retry):
   - Return HTTP 503 with Fletcher-voiced detail
   - breakdown_generated_at stays NULL — next user tap retries
 
+On BudgetExceededError (Phase 4 — per-user 3/7d cap hit):
+  - Return HTTP 429 with BREAKDOWN_CAPPED body (D-02 Fletcher voice)
+  - No Sonnet dispatch occurred
+
+On AnthropicQuotaExceededError (Phase 4 — org-level Anthropic 429):
+  - Return HTTP 503 with FLETCHER_OUT body (D-08)
+
 Access control (T-03-02-04): song MUST be owned by X-User-ID; 404 otherwise.
 """
 import logging
@@ -18,6 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.breakdown import AIBreakdownError, run_technique_breakdown
+from app.ai.governor import BudgetExceededError, AnthropicQuotaExceededError
 from app.api.deps import get_user_id
 from app.db.session import get_db
 from app.models.db import SkillNode, Song, SongSkill
@@ -54,11 +62,54 @@ async def get_breakdown(
             status_code=404, detail="Song not found or not owned by user."
         )
 
-    # 2. Cache hit — short-circuit without Sonnet call (T-03-02-02, D-11)
+    # 2. Phase 4: cap-check BEFORE cache hit (D-02 / COST-02).
+    # The cap limits "how many times you view/request a breakdown" not just
+    # "how many times Sonnet is called". Checking before cache ensures the
+    # governor blocks access on call 4+ regardless of cache state.
+    # BudgetExceededError → 429 BREAKDOWN_CAPPED
+    from app.ai.governor import _check_cap
+    from sqlalchemy import text as _text
+
+    try:
+        await _check_cap(db, user_id, "breakdown", 3)
+    except BudgetExceededError as exc:
+        resets_at_dt = datetime.fromisoformat(exc.resets_at)
+        if resets_at_dt.tzinfo is None:
+            resets_at_dt = resets_at_dt.replace(tzinfo=timezone.utc)
+        days_remaining = max(0, (resets_at_dt - datetime.now(timezone.utc)).days + 1)
+        message = (
+            f"Not my tempo. You've had 3 breakdowns this week. "
+            f"Come back in {days_remaining} days."
+        )
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "BREAKDOWN_CAPPED",
+                "message": message,
+                "resets_at": exc.resets_at,
+            },
+        )
+
+    # 3. Cache hit — short-circuit without Sonnet call (T-03-02-02, D-11)
+    # Insert a governor_calls row to record the cached view (cap tracking for all views).
     if song.breakdown_generated_at is not None:
+        # Record cached breakdown access in governor_calls (so the cap correctly
+        # counts cache-hit views against the 3/7d limit)
+        import uuid as _uuid
+        from app.ai.client import SONNET_MODEL as _SONNET_MODEL
+        cached_call_id = str(_uuid.uuid4())
+        await db.execute(
+            _text(
+                "INSERT INTO governor_calls "
+                "  (id, user_id, feature, model, prompt_tokens_estimated, created_at) "
+                "VALUES (:id, :uid, 'breakdown', :model, 0, now())"
+            ),
+            {"id": cached_call_id, "uid": str(user_id), "model": _SONNET_MODEL},
+        )
+        await db.commit()
         return Breakdown.model_validate(song.breakdown)
 
-    # 3. Cache miss — resolve target skills for this song + user_level
+    # 4. Cache miss — resolve target skills for this song + user_level
     skill_rows = (
         await db.execute(
             select(SkillNode.name)
@@ -75,11 +126,45 @@ async def get_breakdown(
     )
     user_level = float(user_level_scalar) if user_level_scalar is not None else 0.5
 
-    # 4. Sonnet call — NO SAVEPOINT (RESEARCH §5, plain transaction on cache write)
-    # On AIBreakdownError: return 503; breakdown_generated_at stays NULL (retry ok)
+    # 5. Sonnet call — NO SAVEPOINT (RESEARCH §5, plain transaction on cache write)
+    # Phase 4: pass db + user_id to run_technique_breakdown for @governed decorator.
+    # The @governed decorator handles: INSERT governor_calls row → count_tokens → dispatch.
+    # Exception priority: AnthropicQuotaExceededError → 503 FLETCHER_OUT (D-08)
+    #                     AIBreakdownError → 503 generic Fletcher message
+    # (BudgetExceededError is caught upstream in step 2 — cap-check fires before this)
     try:
         breakdown = await run_technique_breakdown(
-            song.title, song.artist or "", target_skill_names, user_level
+            song.title, song.artist or "", target_skill_names, user_level,
+            db=db, user_id=user_id,
+        )
+    except BudgetExceededError as exc:
+        # Defensive catch — should not reach here since step 2 already checked;
+        # but handle it gracefully if concurrent requests race past step 2.
+        resets_at_dt = datetime.fromisoformat(exc.resets_at)
+        if resets_at_dt.tzinfo is None:
+            resets_at_dt = resets_at_dt.replace(tzinfo=timezone.utc)
+        days_remaining = max(0, (resets_at_dt - datetime.now(timezone.utc)).days + 1)
+        message = (
+            f"Not my tempo. You've had 3 breakdowns this week. "
+            f"Come back in {days_remaining} days."
+        )
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "BREAKDOWN_CAPPED",
+                "message": message,
+                "resets_at": exc.resets_at,
+            },
+        )
+    except AnthropicQuotaExceededError:
+        # Phase 4 D-08: org-level Anthropic quota hit — FLETCHER_OUT
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "FLETCHER_OUT",
+                "message": "Fletcher's on a break. Try again in an hour.",
+                "retry_after_hint": "1h",
+            },
         )
     except AIBreakdownError as exc:
         logger.warning(
@@ -90,7 +175,7 @@ async def get_breakdown(
             detail="Fletcher stepped away from the desk. Give me another second and try again.",
         )
 
-    # 5. Persist atomically — write both fields + commit in one shot.
+    # 6. Persist atomically — write both fields + commit in one shot.
     # SQLAlchemy autobegin means the session already has a transaction open from
     # the SELECT above. We set values and commit directly (same as users.py pattern).
     # On DB failure here, breakdown_generated_at stays NULL so next tap retries.

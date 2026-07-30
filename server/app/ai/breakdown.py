@@ -3,16 +3,18 @@ guitar breakdown (tab + chord diagrams + technique notes) for a given song.
 
 Phase 4 cost-governor interception point: this is the ONLY function that calls
 Sonnet during breakdown fetch. Do not sprinkle client.messages.create() calls
-anywhere else. Phase 4 will wrap run_technique_breakdown at this module boundary
-to track usage + enforce per-user daily caps.
+anywhere else. Wrapped with @governed(feature='breakdown', cap=3, window='7d').
 """
 import asyncio
 import logging
 from typing import Any
+from uuid import UUID
 
 from anthropic import APIError, APITimeoutError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.client import SONNET_MODEL, get_client
+from app.ai.governor import governed, current_call_id, record_estimate, record_actuals
 from app.models.song import Breakdown
 
 logger = logging.getLogger(__name__)
@@ -108,18 +110,23 @@ def _format_user_message(
 # Main call
 # ---------------------------------------------------------------------------
 
+@governed(feature="breakdown", cap=3, window="7d")
 async def run_technique_breakdown(
     song_title: str,
     song_artist: str,
     target_skill_names: list[str],
     user_level: float,
     *,
+    db: AsyncSession,
+    user_id: UUID,
     timeout_seconds: float = 30.0,
 ) -> Breakdown:
     """Single Sonnet 4.6 call. Mirrors run_onboarding_parse structure exactly.
 
-    Phase 4 governor interception point — the ONLY function that calls Sonnet
-    for breakdowns. Phase 4 will wrap this at this boundary.
+    Phase 4: wrapped with @governed(feature='breakdown', cap=3, window='7d').
+    The decorator handles pre-cap-check → INSERT governor_calls row → set call_id ContextVar.
+    This function retrieves call_id from the ContextVar, calls count_tokens + record_estimate
+    BEFORE dispatch, then record_actuals AFTER dispatch for the full audit trail (D-03 / SC-1).
 
     Failure handling (D-07): one retry with widened timeout, then raise AIBreakdownError.
     Caller (GET /api/v1/songs/{id}/breakdown) catches AIBreakdownError and returns 503.
@@ -130,6 +137,8 @@ async def run_technique_breakdown(
         song_artist: Artist name.
         target_skill_names: Leaf skill node names associated with this song for this user.
         user_level: Mean mastery across user's leaf nodes, 0.0 (beginner) to 1.0 (expert).
+        db: AsyncSession — required by @governed for cap-check + audit row.
+        user_id: UUID — required by @governed for row attribution.
         timeout_seconds: Sonnet call timeout (doubled on retry per D-07).
 
     Returns:
@@ -137,27 +146,66 @@ async def run_technique_breakdown(
 
     Raises:
         AIBreakdownError: If both Sonnet call attempts fail for any reason.
+        BudgetExceededError: Raised by @governed decorator if cap is hit (before this body).
     """
     user_content = _format_user_message(
         song_title, song_artist, target_skill_names, user_level
     )
+    messages = [{"role": "user", "content": user_content}]
+
+    # Retrieve call_id set by @governed decorator via ContextVar (D-03 two-step protocol)
+    call_id = current_call_id()
 
     async def _call(timeout: float) -> Breakdown:
         # get_client() MUST be called inside _call (hotfix 843e226 pattern from Phase 2).
         # If ANTHROPIC_API_KEY is missing, get_client() raises RuntimeError here —
         # the outer try/except below wraps it as AIBreakdownError instead of a raw 500.
         client = get_client()
+
+        # D-03 pre-dispatch: estimate token count + record estimate in governor_calls row.
+        # This must happen BEFORE client.messages.create() so the audit row is populated
+        # even if the create() call fails (SC-1 requirement).
+        if call_id is not None:
+            try:
+                estimate = await client.messages.count_tokens(
+                    model=SONNET_MODEL,
+                    messages=messages,
+                )
+                await record_estimate(call_id, estimate.input_tokens)
+            except Exception as est_exc:
+                # count_tokens failure is non-fatal — log and continue dispatch
+                logger.warning(
+                    "count_tokens failed for breakdown call_id=%s: %s",
+                    call_id, est_exc,
+                )
+
         resp = await asyncio.wait_for(
             client.messages.create(
                 model=SONNET_MODEL,
                 max_tokens=8192,
                 system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_content}],
+                messages=messages,
                 tools=[_TOOL_DEF],
                 tool_choice={"type": "tool", "name": _TOOL_NAME},
             ),
             timeout=timeout,
         )
+
+        # Post-dispatch: record actual token usage in governor_calls row.
+        if call_id is not None:
+            try:
+                await record_actuals(
+                    call_id,
+                    resp.usage.input_tokens,
+                    resp.usage.output_tokens,
+                )
+            except Exception as act_exc:
+                # record_actuals failure is non-fatal — log and continue
+                logger.warning(
+                    "record_actuals failed for breakdown call_id=%s: %s",
+                    call_id, act_exc,
+                )
+
         tool_use = next(
             (b for b in resp.content if getattr(b, "type", None) == "tool_use"), None
         )
@@ -171,11 +219,20 @@ async def run_technique_breakdown(
         try:
             return await _call(timeout_seconds)
         except (APITimeoutError, asyncio.TimeoutError, APIError) as e:
+            # Anthropic 429 (quota exceeded) is NOT retryable — propagate immediately.
+            # The @governed decorator upstream catches APIError with status_code==429
+            # and converts it to AnthropicQuotaExceededError (D-08).
+            if isinstance(e, APIError) and getattr(e, "status_code", None) == 429:
+                raise
             logger.warning(
                 "Sonnet breakdown call failed once (%s). Retrying with widened timeout.",
                 type(e).__name__,
             )
             return await _call(timeout_seconds * 2)
+    except APIError as e:
+        # Let Anthropic APIErrors (including 429) propagate to the @governed decorator
+        # without wrapping — the decorator handles AnthropicQuotaExceededError mapping (D-08).
+        raise
     except Exception as e:
         raise AIBreakdownError(
             f"Sonnet breakdown failed: {type(e).__name__}: {e}"
