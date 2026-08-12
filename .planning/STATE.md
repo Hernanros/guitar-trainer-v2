@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 04-03-PLAN.md complete — Slice C (skill-node verification pipeline + admin curator) shipped
-last_updated: "2026-08-12T15:18:45.000Z"
-last_activity: 2026-08-12 -- Phase 04 Slice C (dedup + verifier pipeline + admin curator + get_admin_token) executed; 37 tests pass
+stopped_at: 04-04-PLAN.md complete — Slice D (nightly decay scheduler + APScheduler + decay_runs audit) shipped; Phase 4 COMPLETE
+last_updated: "2026-08-12T15:35:00.000Z"
+last_activity: 2026-08-12 -- Phase 04 Slice D (scheduler.py + decay_all_nodes + main.py startup hook + 12 tests) executed; Phase 4 all 4 slices complete
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 16
-  completed_plans: 14
-  percent: 69
+  completed_plans: 15
+  percent: 75
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 
 ## Current Position
 
-Phase: 04 (Cost Governor & Node Verification) — IN PROGRESS
-Plan: 3 of 4 complete (Slice C shipped — skill-node dedup + Sonnet verifier + admin curator)
-Status: Executing — Slice D (nightly decay scheduler) next
-Last activity: 2026-08-12 -- 04-03 skill_dedupe + skill_verifier + verifier pipeline + get_admin_token + admin.py shipped (commits: 0b5766b, bd60c90, d59e770); 37 new tests pass
+Phase: 04 (Cost Governor & Node Verification) — COMPLETE
+Plan: 4 of 4 complete (Slice D shipped — nightly decay scheduler + decay_runs audit)
+Status: Phase 4 complete — all 6 req IDs satisfied (COST-01/02/03/04, SKILL-04, SKILL-05)
+Last activity: 2026-08-12 -- 04-04 scheduler.py + decay_all_nodes + startup hook + 12 tests shipped (commit: a635d40); Phase 4 DONE
 
-Progress: [█████████████░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 (3/4) in progress
+Progress: [██████████████░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 ✓, Phase 5 next
 
 ## Performance Metrics
 
@@ -76,6 +76,10 @@ Recent decisions affecting current work:
 - Phase 4 Slice C (2026-08-12): Form-encoded POST body for /admin/curator/action (not JSON) — matches D-11 browser-tool posture; CuratorActionBody Pydantic model kept as JSON contract documentation
 - Phase 4 Slice C (2026-08-12): Fresh AsyncSessionLocal() per verifier call in _bounded_verify — avoids @governed db.commit() closing SAVEPOINT prematurely (critical architectural fix)
 - Phase 4 Slice C (2026-08-12): @governed proven at 3 call sites (breakdown, onboarding, skill_verify) — Slice A abstraction generalizes correctly
+- Phase 4 Slice D (2026-08-12): 20h debounce guard chosen over 6h for APScheduler catch-up window (T-04-04-02 mitigation)
+- Phase 4 Slice D (2026-08-12): decay_all_nodes does NOT re-raise on exception — APScheduler continues; fresh-session error path commits audit row
+- Phase 4 Slice D (2026-08-12): scheduler.add_job uses id='decay_all_nodes' + replace_existing=True — idempotent startup (safe for test contexts)
+- Phase 4 Slice D (2026-08-12): Phase 4 COMPLETE — all 6 req IDs (COST-01/02/03/04, SKILL-04, SKILL-05) satisfied
 
 ### Pending Todos
 
@@ -96,5 +100,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-08-12T15:18:45.000Z
-Stopped at: Completed 04-03-PLAN.md (Slice C — skill-node verification pipeline + admin curator endpoints)
-Resume file: .planning/phases/04-cost-governor-node-verification/04-04-PLAN.md (Slice D — nightly decay scheduler)
+Stopped at: Completed 04-04-PLAN.md (Slice D — nightly decay scheduler + APScheduler + decay_runs audit); Phase 4 complete
+Resume file: .planning/phases/05-library-toolkit-polish/ (Phase 5 — Library tab, Toolkit, shareability)

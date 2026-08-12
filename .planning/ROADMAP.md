@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Foundation & Empty Loop** - Expo/RN + EAS on iOS + Android, FastAPI on Railway + Postgres, MMKV cache, three-tab shell wired to a hardcoded "today" song
 - [x] **Phase 2: Onboarding & Initial Skill Graph** - 5–8 min onboarding, Settings re-run, 3-level DAG skill graph with 5-bpm bins seeded from onboarding answers (completed 2026-07-28)
 - [ ] **Phase 3: AI Teacher & Song of the Day** - Sonnet 4.6 breakdown, react-native-svg tab + chord diagrams, deterministic song selection, self-report rating writes back to graph
-- [ ] **Phase 4: Cost Governor & Node Verification** - Single-module LLM governor, per-user rate caps, quota UI, $20 Console cap, embed-dedup + Sonnet verifier for new nodes + curator queue, nightly 5% decay
+- [x] **Phase 4: Cost Governor & Node Verification** - Single-module LLM governor, per-user rate caps, quota UI, $20 Console cap, embed-dedup + Sonnet verifier for new nodes + curator queue, nightly 5% decay (completed 2026-08-12)
 - [ ] **Phase 5: Library, Toolkit & Polish** - Library tab (search/add/remove), Toolkit (metronome + chromatic tuner), shareability polish
 
 ## Phase Details
@@ -166,7 +166,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 1 for decay_runs + skill_nodes.last_decayed_at; sequential w/ Slice B and C for main.py on_startup edits)*
 
-- [ ] 04-04-PLAN.md — Slice D · Decay scheduler: scheduler.py (AsyncIOScheduler singleton + decay_all_nodes UPDATE with GREATEST clamp + last_decayed_at 6h debounce + decay_runs audit row on success AND failure via fresh session) + main.py startup registers cron hour=3 minute=0 timezone=UTC + test_scheduler_decay [SKILL-05]
+- [x] 04-04-PLAN.md — Slice D · Decay scheduler: scheduler.py (AsyncIOScheduler singleton + decay_all_nodes UPDATE with GREATEST clamp + last_decayed_at 20h debounce + decay_runs audit row on success AND failure via fresh session) + main.py startup registers cron hour=3 minute=0 timezone=UTC + test_scheduler_decay [SKILL-05] *(2026-08-12; 12 tests pass)*
 
 **Cross-cutting constraints:**
 
@@ -207,5 +207,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Foundation & Empty Loop | 4/4 executed (Android build deferred) | Substantially complete (PLAT-02 pending) | 2026-07-19 |
 | 2. Onboarding & Initial Skill Graph | 4/4 | Complete    | 2026-07-28 |
 | 3. AI Teacher & Song of the Day | 4/4 | Complete | 2026-07-29 |
-| 4. Cost Governor & Node Verification | 3/4 | In progress — Slices A/B/C complete, Slice D (decay scheduler) next | - |
+| 4. Cost Governor & Node Verification | 4/4 | Complete — all 6 req IDs satisfied (COST-01/02/03/04, SKILL-04, SKILL-05) | 2026-08-12 |
 | 5. Library, Toolkit & Polish | 0/TBD | Not started | - |

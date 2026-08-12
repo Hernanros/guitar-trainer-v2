@@ -27,7 +27,7 @@ Requirements for the "Prove the loop" MVP. Each maps to exactly one roadmap phas
 - [x] **SKILL-02**: Leaf skills carry tempo-band data split into 5-bpm bins
 - [ ] **SKILL-03**: Session ratings update the graph via deterministic rules (no LLM in the write path)
 - [ ] **SKILL-04**: New node proposals (from user or AI) pass an embedded-dedup + Sonnet-verifier gate before joining the canonical graph; uncertain proposals queue for curator review
-- [ ] **SKILL-05**: Nightly job decays nodes untouched >7 days by 5%
+- [x] **SKILL-05**: Nightly job decays nodes untouched >7 days by 5%
 
 ### Song of the Day
 
@@ -122,7 +122,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SKILL-02 | Phase 2 | Complete |
 | SKILL-03 | Phase 3 | Pending |
 | SKILL-04 | Phase 4 | Pending |
-| SKILL-05 | Phase 4 | Pending |
+| SKILL-05 | Phase 4 | Complete |
 | SOTD-01 | Phase 3 | Pending |
 | SOTD-02 | Phase 3 | Pending |
 | SOTD-03 | Phase 3 | Pending |
