@@ -14,6 +14,7 @@ from app.api.v1.song_of_day import router as song_router
 from app.api.v1.users import router as users_router
 from app.db.seed import seed_songs
 from app.db.session import AsyncSessionLocal
+from app.scheduler import decay_all_nodes, get_scheduler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -56,3 +57,15 @@ async def on_startup() -> None:
         await seed_songs(db)
     logger.info("Startup: seed check complete.")
     logger.info("REMINDER: verify $20/mo Anthropic Console cap is set at anthropic.com/console (COST-04, D-07). See .planning/RUNBOOK.md.")
+    scheduler = get_scheduler()
+    scheduler.add_job(
+        decay_all_nodes,
+        trigger="cron",
+        hour=3,
+        minute=0,
+        timezone="UTC",
+        id="decay_all_nodes",
+        replace_existing=True,
+    )
+    scheduler.start()
+    logger.info("Startup: APScheduler started. decay_all_nodes scheduled nightly at 03:00 UTC (SKILL-05).")
