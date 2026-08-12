@@ -9,3 +9,4 @@ greenlet==3.2.3
 anthropic==0.117.0
 rapidfuzz==3.9.7
 apscheduler==3.10.4
+python-multipart==0.0.20
