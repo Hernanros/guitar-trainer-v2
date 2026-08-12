@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 04-02-PLAN.md Tasks 1-3 complete — Task 4 awaiting human Console cap confirmation before Slice C
-last_updated: "2026-07-30T13:21:33.000Z"
-last_activity: 2026-07-30 -- Phase 04 Slice B (quota UI + RUNBOOK) executed; checkpoint reached at Task 4
+stopped_at: 04-03-PLAN.md complete — Slice C (skill-node verification pipeline + admin curator) shipped
+last_updated: "2026-08-12T15:18:45.000Z"
+last_activity: 2026-08-12 -- Phase 04 Slice C (dedup + verifier pipeline + admin curator + get_admin_token) executed; 37 tests pass
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 16
-  completed_plans: 13
-  percent: 63
+  completed_plans: 14
+  percent: 69
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 ## Current Position
 
 Phase: 04 (Cost Governor & Node Verification) — IN PROGRESS
-Plan: 2 of 4 (Slice B Tasks 1-3 complete — Task 4 pending human Console cap confirmation)
-Status: Checkpoint — awaiting human action (Console cap set confirmation)
-Last activity: 2026-07-30 -- 04-02 quota UI + error cards + RUNBOOK shipped (3 commits: c2335e9, 3494f2d, 459d338); Task 4 human-verify checkpoint reached
+Plan: 3 of 4 complete (Slice C shipped — skill-node dedup + Sonnet verifier + admin curator)
+Status: Executing — Slice D (nightly decay scheduler) next
+Last activity: 2026-08-12 -- 04-03 skill_dedupe + skill_verifier + verifier pipeline + get_admin_token + admin.py shipped (commits: 0b5766b, bd60c90, d59e770); 37 new tests pass
 
-Progress: [████████████░░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 in progress
+Progress: [█████████████░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 (3/4) in progress
 
 ## Performance Metrics
 
@@ -73,6 +73,9 @@ Recent decisions affecting current work:
 - Phase 4 Slice B (2026-07-30): COUNT + MIN queries (not now()+7d shortcut) for breakdown_quota — test_breakdown_quota_resets_at_matches_oldest_plus_7d enforces this
 - Phase 4 Slice B (2026-07-30): schema.d.ts manually updated (server not running locally for codegen); BreakdownQuota typed correctly from Pydantic model
 - Phase 4 Slice B (2026-07-30): today-song invalidation in breakdown screen uses useEffect on data-availability change to avoid side effects in render body
+- Phase 4 Slice C (2026-08-12): Form-encoded POST body for /admin/curator/action (not JSON) — matches D-11 browser-tool posture; CuratorActionBody Pydantic model kept as JSON contract documentation
+- Phase 4 Slice C (2026-08-12): Fresh AsyncSessionLocal() per verifier call in _bounded_verify — avoids @governed db.commit() closing SAVEPOINT prematurely (critical architectural fix)
+- Phase 4 Slice C (2026-08-12): @governed proven at 3 call sites (breakdown, onboarding, skill_verify) — Slice A abstraction generalizes correctly
 
 ### Pending Todos
 
@@ -92,6 +95,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-30T13:21:33.000Z
-Stopped at: 04-02-PLAN.md Task 4 checkpoint — awaiting human confirmation that $20/mo Anthropic Console cap is set with billing alerts (see CHECKPOINT REACHED message and RUNBOOK.md)
-Resume file: .planning/phases/04-cost-governor-node-verification/04-03-PLAN.md (Slice C — do NOT start until Task 4 confirmed)
+Last session: 2026-08-12T15:18:45.000Z
+Stopped at: Completed 04-03-PLAN.md (Slice C — skill-node verification pipeline + admin curator endpoints)
+Resume file: .planning/phases/04-cost-governor-node-verification/04-04-PLAN.md (Slice D — nightly decay scheduler)

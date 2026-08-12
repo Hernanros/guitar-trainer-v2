@@ -158,11 +158,11 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — populates BreakdownQuota field declared in Slice A; requires governor_calls table)*
 
-- [ ] 04-02-PLAN.md — Slice B · Quota UI + Console cap: TodaySongResponse.breakdown_quota populated from governor_calls COUNT + inline chip on SongOfDayCard + disabled CTA at 0 + BreakdownErrorCard variants for BREAKDOWN_CAPPED and FLETCHER_OUT + daysUntilReset utility + RUNBOOK.md ($20/mo Console cap + FLETCHER_ADMIN_TOKEN generation) + startup log reminder + human checkpoint confirming Console cap set [COST-03, COST-04]
+- [x] 04-02-PLAN.md — Slice B · Quota UI + Console cap: TodaySongResponse.breakdown_quota populated from governor_calls COUNT + inline chip on SongOfDayCard + disabled CTA at 0 + BreakdownErrorCard variants for BREAKDOWN_CAPPED and FLETCHER_OUT + daysUntilReset utility + RUNBOOK.md ($20/mo Console cap + FLETCHER_ADMIN_TOKEN generation) + startup log reminder + human checkpoint confirming Console cap set [COST-03, COST-04] *(2026-07-30; human-verified Console cap 2026-07-30)*
 
 **Wave 3** *(blocked on Wave 1 for skill_node_proposals/skill_node_rejections + @governed; blocked on Wave 2 for RUNBOOK token generation)*
 
-- [ ] 04-03-PLAN.md — Slice C · Skill-node verification: skill_dedupe.py (rapidfuzz.token_set_ratio + thresholds 85/70) + skill_verifier.py (SkillNodeVerifyOutput + run_skill_node_verify with @governed cap=None) + verifier pipeline hooked into run_onboarding_parse inside SAVEPOINT + @governed applied to run_onboarding_parse + get_admin_token dep (hmac.compare_digest) + admin.py router (GET curator HTML + POST action) + skill_node_rejections drop path + test_skill_dedupe + test_skill_verifier + test_onboarding_verifier_pipeline + test_admin_curator [SKILL-04]
+- [x] 04-03-PLAN.md — Slice C · Skill-node verification: skill_dedupe.py (rapidfuzz.token_set_ratio + thresholds 85/70) + skill_verifier.py (SkillNodeVerifyOutput + run_skill_node_verify with @governed cap=None) + verifier pipeline hooked into run_onboarding_parse inside SAVEPOINT + @governed applied to run_onboarding_parse + get_admin_token dep (hmac.compare_digest) + admin.py router (GET curator HTML + POST action) + skill_node_rejections drop path + test_skill_dedupe + test_skill_verifier + test_onboarding_verifier_pipeline + test_admin_curator [SKILL-04] *(2026-08-12; 37 tests pass)*
 
 **Wave 4** *(blocked on Wave 1 for decay_runs + skill_nodes.last_decayed_at; sequential w/ Slice B and C for main.py on_startup edits)*
 
@@ -207,5 +207,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Foundation & Empty Loop | 4/4 executed (Android build deferred) | Substantially complete (PLAT-02 pending) | 2026-07-19 |
 | 2. Onboarding & Initial Skill Graph | 4/4 | Complete    | 2026-07-28 |
 | 3. AI Teacher & Song of the Day | 4/4 | Complete | 2026-07-29 |
-| 4. Cost Governor & Node Verification | 1/4 | In progress — Slice A complete, Slice B next | - |
+| 4. Cost Governor & Node Verification | 3/4 | In progress — Slices A/B/C complete, Slice D (decay scheduler) next | - |
 | 5. Library, Toolkit & Polish | 0/TBD | Not started | - |
