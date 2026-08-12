@@ -7,10 +7,13 @@ Sonnet during onboarding. Do not sprinkle client.messages.create() calls anywher
 import asyncio
 import logging
 from typing import Any
+from uuid import UUID
 
 from anthropic import APITimeoutError, APIError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.client import get_client, SONNET_MODEL
+from app.ai.governor import governed, current_call_id, record_estimate, record_actuals
 from app.models.skill_node import SonnetOnboardingOutput
 
 logger = logging.getLogger(__name__)
@@ -60,9 +63,12 @@ _TOOL_DEF: dict[str, Any] = {
 }
 
 
+@governed(feature="onboarding", cap=None)
 async def run_onboarding_parse(
     raw_input: dict,
     *,
+    db: AsyncSession,
+    user_id: UUID,
     timeout_seconds: float = 30.0,
 ) -> SonnetOnboardingOutput:
     """
@@ -80,6 +86,10 @@ async def run_onboarding_parse(
     Raises AIParseError if both attempts fail.
     """
     user_content = _format_user_message(raw_input)
+    messages = [{"role": "user", "content": user_content}]
+
+    # Retrieve call_id set by @governed decorator via ContextVar (D-03 two-step protocol)
+    call_id = current_call_id()
 
     async def _call(timeout: float) -> SonnetOnboardingOutput:
         # get_client() may raise RuntimeError if ANTHROPIC_API_KEY is unset.
@@ -87,17 +97,50 @@ async def run_onboarding_parse(
         # means the RuntimeError gets wrapped as AIParseError and triggers the
         # D-07 fail-open path — instead of a raw 500 to the client.
         client = get_client()
+
+        # D-03 pre-dispatch: estimate token count + record in governor_calls row.
+        if call_id is not None:
+            try:
+                estimate = await client.messages.count_tokens(
+                    model=SONNET_MODEL,
+                    messages=messages,
+                )
+                await record_estimate(call_id, estimate.input_tokens)
+            except Exception as est_exc:
+                # count_tokens failure is non-fatal — log and continue dispatch
+                logger.warning(
+                    "count_tokens failed for onboarding call_id=%s: %s",
+                    call_id,
+                    est_exc,
+                )
+
         resp = await asyncio.wait_for(
             client.messages.create(
                 model=SONNET_MODEL,
                 max_tokens=4096,
                 system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_content}],
+                messages=messages,
                 tools=[_TOOL_DEF],
                 tool_choice={"type": "tool", "name": _TOOL_NAME},
             ),
             timeout=timeout,
         )
+
+        # Post-dispatch: record actual token usage in governor_calls row.
+        if call_id is not None:
+            try:
+                await record_actuals(
+                    call_id,
+                    resp.usage.input_tokens,
+                    resp.usage.output_tokens,
+                )
+            except Exception as act_exc:
+                logger.warning(
+                    "record_actuals failed for onboarding call_id=%s: %s",
+                    call_id,
+                    act_exc,
+                )
+
         tool_use = next(
             (b for b in resp.content if getattr(b, "type", None) == "tool_use"), None
         )

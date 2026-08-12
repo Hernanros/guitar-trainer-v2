@@ -239,7 +239,11 @@ async def bootstrap_user(
     skill_rows: List[SkillNode]
     try:
         async with db.begin_nested():
-            sonnet_output = await run_onboarding_parse(body.raw_input)
+            sonnet_output = await run_onboarding_parse(
+                body.raw_input,
+                db=db,
+                user_id=body.user_id,
+            )
             skill_rows = await _persist_bootstrap(
                 db, body.user_id, sonnet_output, mode="full"
             )
@@ -369,7 +373,11 @@ async def re_run_onboarding(
     skill_rows: List[SkillNode]
     try:
         async with db.begin_nested():
-            sonnet_output = await run_onboarding_parse(body.raw_input)
+            sonnet_output = await run_onboarding_parse(
+                body.raw_input,
+                db=db,
+                user_id=user_id,
+            )
             skill_rows = await _persist_bootstrap(
                 db, user_id, sonnet_output, mode="full"
             )
