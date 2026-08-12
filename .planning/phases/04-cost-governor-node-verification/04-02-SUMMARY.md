@@ -40,12 +40,12 @@ decisions:
   - schema.d.ts manually updated (server not running locally for codegen:local); BreakdownQuota and TodaySongResponse.breakdown_quota typed correctly
   - today-song invalidation in breakdown screen uses useEffect on data-availability change (not render body)
   - Mobile Jest tests skipped: jest not installed in node_modules (incomplete install, pre-existing infrastructure gap); tsc --noEmit passes
-  - Task 4 (Console cap human-verify) status: PENDING HUMAN CONFIRMATION — Slice C must not start until confirmed
+  - Task 4 (Console cap human-verify) status: APPROVED 2026-08-12 — Hernan confirmed $20/mo Anthropic Console cap is set with billing alerts wired to hernan.rosenblum89@gmail.com. Slice C cleared to proceed.
 metrics:
   duration_minutes: 40
-  completed_date: "2026-07-30"
-  tasks_completed: 3
-  tasks_pending: 1
+  completed_date: "2026-08-12"
+  tasks_completed: 4
+  tasks_pending: 0
   files_created: 3
   files_modified: 8
 ---
