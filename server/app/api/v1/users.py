@@ -2,22 +2,28 @@
 # User bootstrap + skill-graph endpoints (Phase 2, upgraded in 02-03).
 # Pattern: follows server/app/api/v1/song_of_day.py — AsyncSession dep injection,
 # Pydantic response models, HTTPException error handling.
+# Phase 4 (04-03): verifier pipeline (_run_verifier_pipeline) added to _persist_bootstrap.
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import List, Literal, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy import func as sqlfunc
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.session import AsyncSessionLocal
+
 from app.db.session import get_db
-from app.models.db import SkillLevel, SkillNode, Song, SongSkill, User
-from app.models.skill_node import SkillNodeResponse, SonnetOnboardingOutput
+from app.models.db import SkillLevel, SkillNode, SkillNodeProposal, SkillNodeRejection, Song, SongSkill, User
+from app.models.skill_node import SkillNodeResponse, SonnetOnboardingOutput, SonnetSkillNodeProposal
 from app.models.user import SkillGraphResponse, UserBootstrapRequest, UserResponse
 from app.ai.onboarding import AIParseError, FIXED_ROOTS, run_onboarding_parse
+from app.ai.skill_dedupe import best_match, SCORE_AUTO_DEDUPE, SCORE_CURATOR_QUEUE
+from app.ai.skill_verifier import AISkillVerifierError, run_skill_node_verify
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -29,6 +35,13 @@ router = APIRouter()
 
 # Soft cap on raw_input size — DoS mitigation (T-02-03-DOS).
 _RAW_INPUT_MAX_CHARS_PER_CATEGORY = 10_000
+
+# Fan-out cap: max Sonnet verifier calls per onboarding run (T-04-03-11).
+# Proposals beyond this limit are queued as 'deferred_overflow' for curator triage.
+_VERIFIER_FANOUT_CAP = 10
+
+# Concurrency bound: max concurrent Sonnet verifier calls (T-04-03-11 semaphore).
+_VERIFIER_SEMAPHORE_LIMIT = 5
 
 
 def _check_raw_input_size(raw_input: dict) -> None:
@@ -45,6 +58,265 @@ def _check_raw_input_size(raw_input: dict) -> None:
             )
 
 
+# ---------------------------------------------------------------------------
+# Verifier pipeline (Phase 4 — D-09, D-10, D-13, D-14, T-04-03-11)
+# ---------------------------------------------------------------------------
+
+# Pipeline result markers stored on proposals as extra attrs (not Pydantic fields)
+_REUSE_CANONICAL_ID_ATTR = "_reuse_canonical_id"  # str UUID of existing canonical to reuse
+_DROPPED_ATTR = "_dropped"                          # True = drop this proposal (verdict='no')
+_REJECTION_INFO_ATTR = "_rejection_info"            # dict for skill_node_rejections insert
+_PROPOSAL_INFO_ATTR = "_proposal_info"             # dict for skill_node_proposals insert
+
+
+async def _run_verifier_pipeline(
+    db: AsyncSession,
+    user_id: UUID,
+    proposals: list[SonnetSkillNodeProposal],
+) -> None:
+    """Run the dedup + verifier pipeline for each sub/leaf proposal in the onboarding output.
+
+    Operates on proposals IN-PLACE by attaching pipeline result markers as extra attrs.
+    Root proposals (level='root') bypass this pipeline entirely (D-08 fixed roots).
+
+    Pipeline per proposal (D-09, D-10, D-13, D-14):
+      1. Query existing canonical skill_nodes (canonical_node_id = self.id, user_id IS NULL or
+         shared canonical marker). For POC: treat nodes where canonical_node_id IS NOT NULL
+         AND canonical_node_id = id as canonical. Also treats nodes with canonical_node_id = id
+         as their own canonical (self-referential).
+      2. For sub/leaf proposals, run dedupe_score against candidates at the same level:
+         - score >= 85: auto-dedupe → mark proposal._reuse_canonical_id = existing_id
+         - 70 <= score < 85: curator queue → insert skill_node_proposals, still insert user-scoped node
+         - score < 70 or no candidates: run Sonnet verifier
+           - AISkillVerifierError: treat as 'uncertain' → queue for curator
+           - verdict 'yes': insert as new canonical (canonical_node_id = self.id)
+           - verdict 'no': drop + insert skill_node_rejections
+           - verdict 'uncertain': insert user-scoped node + skill_node_proposals
+      3. Fan-out cap: first 10 verifier-eligible proposals run the verifier concurrently
+         with asyncio.Semaphore(5). Remaining proposals queue as 'deferred_overflow'.
+
+    All DB inserts for proposals/rejections happen HERE via db.execute(text(...)).
+    The actual skill_nodes inserts happen in _persist_bootstrap after pipeline completes.
+
+    Args:
+        db: Active AsyncSession (within the SAVEPOINT from bootstrap_user/re_run_onboarding).
+        user_id: UUID of the user being onboarded.
+        proposals: List of SonnetSkillNodeProposal objects from SonnetOnboardingOutput.skill_graph.
+    """
+    # (a) Query existing canonical nodes for dedup reference.
+    # For POC: canonical nodes are rows where canonical_node_id IS NOT NULL AND equals their own id.
+    # On fresh install with no prior users, this returns empty — all proposals fall through to verifier.
+    canonical_rows_result = await db.execute(
+        text(
+            "SELECT id, name, level FROM skill_nodes "
+            "WHERE canonical_node_id IS NOT NULL AND canonical_node_id = id"
+        )
+    )
+    canonical_rows = canonical_rows_result.mappings().all()
+
+    # Build level-keyed candidate map: level → [(id, name), ...]
+    canonical_by_level: dict[str, list[dict]] = {}
+    for row in canonical_rows:
+        lvl = str(row["level"])
+        canonical_by_level.setdefault(lvl, []).append(
+            {"id": str(row["id"]), "name": row["name"]}
+        )
+
+    # (b) Separate verifier-eligible proposals (score < 70 or no candidates) for fan-out cap.
+    verifier_eligible: list[SonnetSkillNodeProposal] = []
+
+    for prop in proposals:
+        if prop.level == "root":
+            # Roots always insert as-is (D-08 fixed taxonomy, never verified)
+            continue
+
+        level_candidates = canonical_by_level.get(prop.level, [])
+        candidate_names = [c["name"] for c in level_candidates]
+
+        match = best_match(prop.name, candidate_names)
+
+        if match is not None and match[1] >= SCORE_AUTO_DEDUPE:
+            # Auto-dedupe: reuse existing canonical (mark for downstream insert)
+            matched_name, matched_score = match
+            matched_id = next(
+                c["id"] for c in level_candidates if c["name"] == matched_name
+            )
+            setattr(prop, _REUSE_CANONICAL_ID_ATTR, matched_id)
+            logger.info(
+                "Verifier pipeline: auto-dedupe '%s' → existing canonical '%s' (score=%d)",
+                prop.name, matched_name, matched_score,
+            )
+
+        elif match is not None and match[1] >= SCORE_CURATOR_QUEUE:
+            # Curator queue: near-duplicate — queue for review, still insert user-scoped node
+            matched_name, matched_score = match
+            matched_id = next(
+                c["id"] for c in level_candidates if c["name"] == matched_name
+            )
+            setattr(prop, _PROPOSAL_INFO_ATTR, {
+                "user_id": str(user_id),
+                "proposed_name": prop.name,
+                "fuzzy_score": matched_score,
+                "status": "pending",
+                "canonical_id": matched_id,
+                "verifier_verdict": None,
+                "verifier_reason": f"near-duplicate fuzzy score {matched_score} (auto-queued, not verified)",
+            })
+            logger.info(
+                "Verifier pipeline: curator queue '%s' (score=%d vs '%s')",
+                prop.name, matched_score, matched_name,
+            )
+
+        else:
+            # Verifier eligible: score < 70 or no candidates
+            verifier_eligible.append(prop)
+
+    # (c) Fan-out cap: first 10 go to verifier; overflow queues as deferred_overflow.
+    first_batch = verifier_eligible[:_VERIFIER_FANOUT_CAP]
+    overflow = verifier_eligible[_VERIFIER_FANOUT_CAP:]
+
+    for prop in overflow:
+        # Queue as deferred_overflow — no user-scoped skill_nodes insert for overflow
+        setattr(prop, _DROPPED_ATTR, True)
+        setattr(prop, _PROPOSAL_INFO_ATTR, {
+            "user_id": str(user_id),
+            "proposed_name": prop.name,
+            "fuzzy_score": 0,
+            "status": "pending",
+            "canonical_id": None,
+            "verifier_verdict": "deferred_overflow",
+            "verifier_reason": "verifier fan-out cap reached; curator to triage",
+        })
+        logger.info(
+            "Verifier pipeline: deferred_overflow '%s' (fan-out cap reached)", prop.name
+        )
+
+    # (d) Run verifier on the first batch with asyncio.Semaphore(5) concurrency bound.
+    semaphore = asyncio.Semaphore(_VERIFIER_SEMAPHORE_LIMIT)
+
+    async def _bounded_verify(prop: SonnetSkillNodeProposal) -> None:
+        """Run run_skill_node_verify for a single proposal within the semaphore.
+
+        IMPORTANT: run_skill_node_verify is @governed(cap=None) — the decorator
+        calls _insert_governor_call(db, ...) which commits on the passed session.
+        Using the main 'db' (which is inside a SAVEPOINT) would commit the SAVEPOINT
+        prematurely. Instead, we use a FRESH AsyncSession so the governor_calls
+        INSERT+COMMIT runs on its own independent transaction.
+        """
+        level_candidates = canonical_by_level.get(prop.level, [])
+        candidate_names = [c["name"] for c in level_candidates]
+
+        async with semaphore:
+            async with AsyncSessionLocal() as verifier_db:
+                try:
+                    verdict = await run_skill_node_verify(
+                        prop.name,
+                        candidate_names,
+                        db=verifier_db,
+                        user_id=user_id,
+                    )
+                except AISkillVerifierError as ve:
+                    # D-14: verifier failure degrades gracefully — queue as 'uncertain'
+                    logger.warning(
+                        "Verifier pipeline: skill_verify failed for '%s' (%s) — queuing as uncertain.",
+                        prop.name, ve,
+                    )
+                    setattr(prop, _PROPOSAL_INFO_ATTR, {
+                        "user_id": str(user_id),
+                        "proposed_name": prop.name,
+                        "fuzzy_score": 0,
+                        "status": "pending",
+                        "canonical_id": None,
+                        "verifier_verdict": "uncertain",
+                        "verifier_reason": "verifier call failed, queued for manual review",
+                    })
+                    return
+
+                # Route verdict (outside the except block — only reached on success)
+                if verdict.verdict == "yes":
+                    # New canonical: skill_nodes insert with canonical_node_id = self.id
+                    # (handled in _persist_bootstrap; no markers set here)
+                    logger.info(
+                        "Verifier pipeline: '%s' → verdict=yes (new canonical under %s)",
+                        prop.name, verdict.root,
+                    )
+
+                elif verdict.verdict == "no":
+                    # Drop the proposal + record rejection
+                    setattr(prop, _DROPPED_ATTR, True)
+                    setattr(prop, _REJECTION_INFO_ATTR, {
+                        "proposed_name": prop.name,
+                        "reason": verdict.reason,
+                        "verifier_response": verdict.model_dump(),
+                    })
+                    logger.info(
+                        "Verifier pipeline: '%s' → verdict=no ('%s') — dropped.",
+                        prop.name, verdict.reason,
+                    )
+
+                elif verdict.verdict == "uncertain":
+                    # Insert user-scoped node + queue proposal for curator
+                    setattr(prop, _PROPOSAL_INFO_ATTR, {
+                        "user_id": str(user_id),
+                        "proposed_name": prop.name,
+                        "fuzzy_score": 0,
+                        "status": "pending",
+                        "canonical_id": None,
+                        "verifier_verdict": "uncertain",
+                        "verifier_reason": verdict.reason,
+                    })
+                    logger.info(
+                        "Verifier pipeline: '%s' → verdict=uncertain ('%s') — queued.",
+                        prop.name, verdict.reason,
+                    )
+
+    # Run first batch concurrently with semaphore
+    await asyncio.gather(*[_bounded_verify(p) for p in first_batch])
+
+    # (e) Flush proposal/rejection rows to DB now (within the SAVEPOINT).
+    for prop in proposals:
+        if prop.level == "root":
+            continue
+
+        rejection_info = getattr(prop, _REJECTION_INFO_ATTR, None)
+        if rejection_info:
+            await db.execute(
+                text(
+                    "INSERT INTO skill_node_rejections "
+                    "  (id, proposed_name, reason, verifier_response, created_at) "
+                    "VALUES "
+                    "  (gen_random_uuid(), :name, :reason, :response, now())"
+                ),
+                {
+                    "name": rejection_info["proposed_name"],
+                    "reason": rejection_info["reason"],
+                    "response": None,  # JSONB stored as NULL for simplicity at POC scale
+                },
+            )
+
+        proposal_info = getattr(prop, _PROPOSAL_INFO_ATTR, None)
+        if proposal_info:
+            await db.execute(
+                text(
+                    "INSERT INTO skill_node_proposals "
+                    "  (id, user_id, proposed_name, fuzzy_score, status, "
+                    "   canonical_id, verifier_verdict, verifier_reason, created_at) "
+                    "VALUES "
+                    "  (gen_random_uuid(), :uid, :name, :score, :status, "
+                    "   :canonical_id, :verdict, :reason, now())"
+                ),
+                {
+                    "uid": proposal_info["user_id"],
+                    "name": proposal_info["proposed_name"],
+                    "score": proposal_info["fuzzy_score"],
+                    "status": proposal_info["status"],
+                    "canonical_id": proposal_info["canonical_id"],
+                    "verdict": proposal_info["verifier_verdict"],
+                    "reason": proposal_info["verifier_reason"],
+                },
+            )
+
+
 async def _persist_bootstrap(
     db: AsyncSession,
     user_id: UUID,
@@ -57,6 +329,12 @@ async def _persist_bootstrap(
     parent_id FK is DEFERRABLE INITIALLY DEFERRED per migration 0002 — insertion order
     doesn't matter for FK correctness; PostgreSQL only checks the FK at COMMIT time.
     We still sort by level for readability, but this is not load-bearing.
+
+    Phase 4 (Slice C): for mode='full', each sub/leaf proposal runs through the verifier
+    pipeline BEFORE insert. The pipeline runs _run_verifier_pipeline which:
+      - Marks proposals with _reuse_canonical_id (auto-dedupe) or _dropped (verdict='no')
+        or _proposal_info (curator queue) as extra attrs.
+    The insert loop below honors these markers.
 
     Returns the inserted SkillNode rows so the caller can build SkillGraphResponse.
     """
@@ -102,13 +380,40 @@ async def _persist_bootstrap(
                 )
                 p.name = "Music Theory"
 
+    # 2.5) Phase 4 Slice C: run verifier pipeline on sub/leaf proposals.
+    # This runs BEFORE the insert loop so pipeline markers are set before we decide
+    # what to insert. Any AISkillVerifierError is caught inside _run_verifier_pipeline
+    # per D-14 (graceful degradation — onboarding still succeeds).
+    # AIParseError is NOT caught here — it propagates to the SAVEPOINT for fail-open.
+    await _run_verifier_pipeline(db, user_id, output.skill_graph)
+
     # 3) Insert skill_nodes. Sorted by level for readability; FK is deferrable so order
     #    doesn't matter for correctness (PostgreSQL checks FK only at COMMIT time per migration 0002).
     level_order = {"root": 0, "sub": 1, "leaf": 2}
     ordered = sorted(output.skill_graph, key=lambda p: level_order[p.level])
 
     for prop in ordered:
+        # Honor pipeline drop marker (verdict='no' or deferred_overflow skips user-scoped insert)
+        if getattr(prop, _DROPPED_ATTR, False):
+            continue
+
         parent_uuid = temp_to_uuid.get(prop.parent_temp_id) if prop.parent_temp_id else None
+        reuse_id = getattr(prop, _REUSE_CANONICAL_ID_ATTR, None)
+
+        # Determine canonical_node_id:
+        # - Reuse marker: use existing canonical's UUID
+        # - Proposal with curator queue: canonical_node_id=NULL (user-scoped, not yet canonical)
+        # - Verifier verdict='yes': canonical_node_id = self.id (this node IS the canonical)
+        # - Root nodes: canonical_node_id=NULL (roots are per-user, not canonical in POC)
+        if reuse_id:
+            canonical_node_id = UUID(reuse_id)
+        elif prop.level in ("sub", "leaf") and not getattr(prop, _PROPOSAL_INFO_ATTR, None):
+            # Verifier said 'yes' (or no pipeline ran) → self-canonical
+            canonical_node_id = temp_to_uuid[prop.temp_id]
+        else:
+            # Curator-queued, uncertain, or root → NULL
+            canonical_node_id = None
+
         db.add(SkillNode(
             id=temp_to_uuid[prop.temp_id],
             user_id=user_id,
@@ -117,6 +422,7 @@ async def _persist_bootstrap(
             parent_id=parent_uuid,
             tempo_bin_low=prop.tempo_bin_low,
             tempo_bin_high=prop.tempo_bin_high,
+            canonical_node_id=canonical_node_id,
             # mastery defaults to 0.0 via server_default (D-11 deterministic-writes principle)
         ))
 
@@ -149,6 +455,17 @@ async def _persist_bootstrap(
         if song_id is None:
             continue
         for temp_id in song_prop.skill_temp_ids:
+            # Skip song_skills for dropped proposals (their temp_id has no skill_nodes row)
+            prop_for_temp = next(
+                (p for p in output.skill_graph if p.temp_id == temp_id), None
+            )
+            if prop_for_temp and getattr(prop_for_temp, _DROPPED_ATTR, False):
+                logger.warning(
+                    "Skipping song_skill for dropped proposal temp_id '%s' in song '%s'.",
+                    temp_id, song_prop.title,
+                )
+                continue
+
             skill_uuid = temp_to_uuid.get(temp_id)
             if skill_uuid is None:
                 logger.warning(
