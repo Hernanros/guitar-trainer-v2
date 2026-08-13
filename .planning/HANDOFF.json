@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-08-13T12:57:30.581Z",
+  "phase": "04",
+  "phase_name": "cost-governor-node-verification",
+  "phase_dir": ".planning/phases/04-cost-governor-node-verification",
+  "plan": 4,
+  "task": null,
+  "total_tasks": 10,
+  "status": "phase_executed_pending_device_verify",
+  "completed_tasks": [
+    {"id": "04-01", "name": "Slice A — governor.py + @governed + Alembic 0004 + count_tokens/record_estimate on breakdown.py + BudgetExceededError + AnthropicQuotaExceededError + 429 BREAKDOWN_CAPPED mapping", "status": "done", "commit": "8b7fb71"},
+    {"id": "04-02", "name": "Slice B — TodaySongResponse.breakdown_quota populated (COUNT + MIN queries) + inline chip on SongOfDayCard + disabled CTA at 0 + BreakdownErrorCard BREAKDOWN_CAPPED/FLETCHER_OUT variants + RUNBOOK.md + startup log reminder + Console cap human-verify approved 2026-08-12", "status": "done", "commit": "c61c2fd"},
+    {"id": "04-03", "name": "Slice C — skill_dedupe.py (rapidfuzz 85/70) + skill_verifier.py + @governed(feature='skill_verify', cap=None) + verifier pipeline hook in bootstrap_user + fan-out cap (10 max, semaphore 5) + /admin/curator HTML endpoints behind hmac.compare_digest(X-Admin-Token) + bundled onboarding.py @governed wrap from Slice A gap", "status": "done", "commit": "cf75eef"},
+    {"id": "04-04", "name": "Slice D — server/app/scheduler.py (AsyncIOScheduler singleton, nightly 03:00 UTC) + decay_all_nodes with GREATEST(mastery*0.95, 0) + 20-hour debounce guard + decay_runs audit row per invocation + last_decayed_at update", "status": "done", "commit": "112bc89"},
+    {"id": "04-verify", "name": "Phase-level VERIFICATION.md — 6/6 must-haves verified in code; 2 items batched for EAS device build", "status": "done", "commit": "ee73c2e"},
+    {"id": "04-push", "name": "git push origin main (27 commits) — Railway auto-deploy triggered, alembic 0004 applied on prod", "status": "done", "commit": "ee73c2e"}
+  ],
+  "remaining_tasks": [
+    {"id": "eas-build", "name": "Queue EAS iOS preview build (from mobile/ dir): `eas build --platform ios --profile preview`", "status": "not_started"},
+    {"id": "eas-walkthrough", "name": "Device walkthrough of 6 items in memory `eas-batch-phase3-and-4-device-verify` (Phase 3: cross-day rating, live Sonnet, reroll button, bank chip; Phase 4: quota chip, BreakdownErrorCard variants)", "status": "not_started"},
+    {"id": "phase-5-plan", "name": "Discuss + plan Phase 5 (Library + Toolkit + Polish — LIB-01, TOOL-01, TOOL-02): /gsd-discuss-phase 5 then /gsd-plan-phase 5", "status": "not_started"}
+  ],
+  "blockers": [],
+  "human_actions_pending": [
+    {"action": "Run `eas build --platform ios --profile preview` from the mobile/ directory to queue the batched device-verify build", "context": "6 code-verified items (4 Phase 3, 2 Phase 4) are waiting for on-device visual confirmation. EAS CLI may prompt for `eas login` first — user was not logged in as of session end.", "blocking": false},
+    {"action": "Walk through 6-item test plan on device once EAS build installs", "context": "See memory `eas-batch-phase3-and-4-device-verify` for the exact checklist per item. Item 1 (cross-day rating) requires two calendar-day API calls — batch after tomorrow's midnight rotation.", "blocking": false},
+    {"action": "Verify Railway deploy succeeded and prod openapi.json includes /admin/curator + /api/v1/songs/{id}/breakdown 429 behavior", "context": "Push landed at 2026-08-13; Railway preDeploy runs alembic upgrade head. Migration 0004 adds 5 new tables + 2 SkillNode columns. Startup log should print REMINDER for Anthropic Console cap. A background task confirmed Phase 3 endpoints appeared on prod during this session.", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "count_tokens two-step protocol via record_estimate() helper called by wrapped fn between count_tokens and client.messages.create()", "rationale": "Plan-checker rejected the planner's initial 'defer to POC-2' rationale as inaccurate; three viable patterns exist without decorator restructuring. record_estimate() is least invasive.", "phase": "04-01"},
+    {"decision": "hmac.compare_digest for X-Admin-Token comparison (not plain !=)", "rationale": "Constant-time comparison prevents timing-attack on admin token. PATTERNS.md was originally showing != and was fixed in revision.", "phase": "04-03"},
+    {"decision": "Fresh AsyncSessionLocal() per _bounded_verify call in Slice C", "rationale": "@governed's db.commit() was prematurely closing the parent SAVEPOINT from bootstrap_user. Discovered during Task 2 debugging; documented in 04-03-SUMMARY.md as architectural deviation.", "phase": "04-03"},
+    {"decision": "20-hour decay debounce guard (not 6h from planner's initial proposal)", "rationale": "Nightly job at 03:00 UTC + APScheduler catch-up could re-fire up to 20-23h later. 6h only guards same-hour retries. Accepted as ADVISORY-8 in plan-checker revision.", "phase": "04-04"},
+    {"decision": "Slice A skipped onboarding.py prep (@governed + count_tokens); Slice C bundled it", "rationale": "Plan-defect: 04-01 line 259 assumed Slice A would prep, Slice C would decorate. Slice A skipped. Slice C's executor prompt was augmented to include the bundled scope. Not a regression — decorator + protocol landed together in Slice C.", "phase": "04-01"},
+    {"decision": "Slice A declared breakdown_quota non-optional without default → broke 2 Phase 3 tests between commits; Slice B Task 1 fixed via COUNT + MIN queries", "rationale": "Plan-defect: 04-01 line 190 said 'populated by Slice B' but non-optional Pydantic field breaks intermediate state. Nothing was pushed to origin between Slice A commit and Slice B fix, so no prod impact.", "phase": "04-01"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "1. Queue EAS build: `cd mobile && eas build --platform ios --profile preview` (login if prompted). 2. When build installs, walk 6-item plan in memory `eas-batch-phase3-and-4-device-verify`. 3. Update the memory with pass/fail per item + close any residual gaps. 4. Start Phase 5 planning: `/gsd-discuss-phase 5` (Library-tab search/add/remove + Toolkit metronome + tuner + shareability polish).",
+  "context_notes": "v1.0 milestone is 4/5 phases executed (80%). Phase 4 shipped clean code-wise; only unverified pieces are on-device visual. Sumi UI plugin was installed this session (37 skills, 39 agents from phazurlabs/sumi) — Phase 5 is client-heavy so Sumi's design intelligence commands (/sumi:start, /sumi:screen, /sumi:responsive, etc.) are worth leveraging when designing Library + Toolkit UI. Fletcher voice identity is at .planning/design/fletcher-identity.md — must carry into any Phase 5 error/empty-state copy. Anthropic Console cap ACTIVE at $20/mo (2026-08-12). Governor covers all 3 AI call sites: breakdown, onboarding, skill_verify. Pre-existing test hygiene issues (fixture pollution across test_alembic_0004 → test_song_of_day_quota; Phase 2 users_bootstrap_mocked test/schema drift from 2026-07-20; 3 tz_offset async-called-sync tests) are documented as pre-existing, NOT Phase 4 regressions."
+}
