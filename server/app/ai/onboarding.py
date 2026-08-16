@@ -37,7 +37,7 @@ You will receive three lists of songs describing what the user can play, is work
 
 Your job: return a structured payload with two parts.
 
-PART 1 — SONGS: for each song the user mentioned, produce a canonicalized entry with title + artist + category + a list of skill_temp_ids that describe the techniques required.
+PART 1 — SONGS: for each UNIQUE song the user mentioned, produce ONE canonicalized entry with title + artist + category + a list of skill_temp_ids that describe the techniques required. If the user mentions the same song across multiple sections (e.g. both `working_on` and `aspirational`), emit ONE proposal and pick the highest-priority category using this precedence: working_on > aspirational > can_play (currently practicing beats stretch goal beats baseline knowledge).
 
 PART 2 — SKILL_GRAPH: a 3-level tree of skill nodes.
 

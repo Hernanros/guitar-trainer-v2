@@ -19,7 +19,12 @@ from app.db.session import AsyncSessionLocal
 
 from app.db.session import get_db
 from app.models.db import SkillLevel, SkillNode, SkillNodeProposal, SkillNodeRejection, Song, SongSkill, User
-from app.models.skill_node import SkillNodeResponse, SonnetOnboardingOutput, SonnetSkillNodeProposal
+from app.models.skill_node import (
+    SkillNodeResponse,
+    SonnetOnboardingOutput,
+    SonnetSkillNodeProposal,
+    SonnetSongProposal,
+)
 from app.models.user import SkillGraphResponse, UserBootstrapRequest, UserResponse
 from app.ai.onboarding import AIParseError, FIXED_ROOTS, run_onboarding_parse
 from app.ai.skill_dedupe import best_match, SCORE_AUTO_DEDUPE, SCORE_CURATOR_QUEUE
@@ -86,6 +91,102 @@ async def _run_onboarding_parse_bounded(
             db=onboarding_gov_db,
             user_id=user_id,
         )
+
+
+# Category precedence for duplicate-song coalescing (see _coalesce_song_proposals).
+# working_on = currently practicing (most actionable);
+# aspirational = stretch goal; can_play = baseline knowledge.
+# If a user says both working_on and aspirational for the same song, they are
+# actively practicing it → working_on wins.
+_CATEGORY_PRIORITY: dict[str, int] = {
+    "working_on": 2,
+    "aspirational": 1,
+    "can_play": 0,
+}
+
+
+def _coalesce_song_proposals(
+    songs: list[SonnetSongProposal],
+) -> list[SonnetSongProposal]:
+    """Dedupe Sonnet song proposals by (lower(title), lower(artist)).
+
+    Prod bug 2026-08-16 (debug/onboarding-dup-song.md): Sonnet faithfully returned
+    two proposals when the user mentioned the same song in both `working_on` and
+    `aspirational` wizard sections. The songs INSERT loop then hit
+    `songs_user_title_artist_uidx` (unique on `(user_id, lower(title), lower(artist))`,
+    category NOT in the key) mid-transaction → full rollback → user got 0 songs and
+    0 skill_nodes.
+
+    Fix — model-layer coalesce (Sonnet output shape allows duplicates, DB says one
+    row per user per title+artist; we normalize between them):
+
+      - Group by (title.lower().strip(), artist.lower().strip()).
+      - Pick the highest-priority category per _CATEGORY_PRIORITY
+        (working_on > aspirational > can_play).
+      - UNION every merged proposal's `skill_temp_ids` (preserve first-seen order,
+        drop dupes) — no skill mapping is lost.
+      - Preserve insertion order across distinct songs (first-mentioned wins position).
+
+    The Sonnet prompt (server/app/ai/onboarding.py) carries a matching instruction
+    as belt-and-suspenders, but this function is authoritative: even a compliant
+    prompt-follower can drift under retry pressure or between prompt revisions.
+
+    Returns a new list; does not mutate the input.
+    """
+    merged: dict[tuple[str, str], SonnetSongProposal] = {}
+    merged_skill_ids: dict[tuple[str, str], list[str]] = {}
+    order: list[tuple[str, str]] = []
+
+    for prop in songs:
+        key = (prop.title.lower().strip(), prop.artist.lower().strip())
+        if key not in merged:
+            # First sighting — keep title/artist casing from this proposal.
+            merged[key] = SonnetSongProposal(
+                title=prop.title,
+                artist=prop.artist,
+                category=prop.category,
+                skill_temp_ids=list(prop.skill_temp_ids),
+            )
+            merged_skill_ids[key] = list(prop.skill_temp_ids)
+            order.append(key)
+            continue
+
+        existing = merged[key]
+        # Category precedence: promote if incoming has higher priority.
+        if _CATEGORY_PRIORITY.get(prop.category, -1) > _CATEGORY_PRIORITY.get(
+            existing.category, -1
+        ):
+            logger.info(
+                "Coalescing duplicate song '%s' by '%s': promoting category '%s' → '%s'.",
+                existing.title, existing.artist, existing.category, prop.category,
+            )
+            existing.category = prop.category
+        else:
+            logger.info(
+                "Coalescing duplicate song '%s' by '%s': keeping category '%s' (incoming '%s').",
+                existing.title, existing.artist, existing.category, prop.category,
+            )
+
+        # UNION skill_temp_ids, preserve first-seen order, drop dupes.
+        seen = set(merged_skill_ids[key])
+        for tid in prop.skill_temp_ids:
+            if tid not in seen:
+                merged_skill_ids[key].append(tid)
+                seen.add(tid)
+
+    # Rebuild in insertion order with unioned skill_temp_ids.
+    result: list[SonnetSongProposal] = []
+    for key in order:
+        song = merged[key]
+        song.skill_temp_ids = merged_skill_ids[key]
+        result.append(song)
+
+    if len(result) < len(songs):
+        logger.info(
+            "Coalesced %d Sonnet song proposals down to %d unique (title, artist) rows.",
+            len(songs), len(result),
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -459,8 +560,17 @@ async def _persist_bootstrap(
     await db.flush()   # make SkillNode IDs available for song_skills FK
 
     # 4) Insert songs
+    #
+    # Coalesce Sonnet duplicates before insert. `songs_user_title_artist_uidx`
+    # (migration 0003) is UNIQUE on (user_id, lower(title), lower(artist)) — the
+    # category column is NOT part of the key. A user who mentions the same song in
+    # two wizard sections (e.g. working_on AND aspirational) would previously trigger
+    # a UniqueViolationError mid-loop and roll back the entire SAVEPOINT (prod bug
+    # 2026-08-16, see .planning/debug/onboarding-dup-song.md).
+    coalesced_songs = _coalesce_song_proposals(output.songs)
+
     song_id_by_key: dict[tuple, int] = {}
-    for song_prop in output.songs:
+    for song_prop in coalesced_songs:
         song = Song(
             title=song_prop.title,
             artist=song_prop.artist,
@@ -475,12 +585,16 @@ async def _persist_bootstrap(
         )
         db.add(song)
         await db.flush()
-        song_id_by_key[(song_prop.title.lower(), song_prop.artist.lower())] = song.id
+        song_id_by_key[
+            (song_prop.title.lower().strip(), song_prop.artist.lower().strip())
+        ] = song.id
 
-    # 5) Insert song_skills junctions
-    for song_prop in output.songs:
+    # 5) Insert song_skills junctions — iterate the coalesced list so a song that
+    #    appeared in multiple wizard sections gets the UNION of all referenced
+    #    skill_temp_ids (no skill mappings dropped by dedup).
+    for song_prop in coalesced_songs:
         song_id = song_id_by_key.get(
-            (song_prop.title.lower(), song_prop.artist.lower())
+            (song_prop.title.lower().strip(), song_prop.artist.lower().strip())
         )
         if song_id is None:
             continue
