@@ -58,6 +58,36 @@ def _check_raw_input_size(raw_input: dict) -> None:
             )
 
 
+async def _run_onboarding_parse_bounded(
+    raw_input: dict,
+    user_id: UUID,
+) -> SonnetOnboardingOutput:
+    """Run run_onboarding_parse against a FRESH AsyncSession for governor bookkeeping.
+
+    IMPORTANT: run_onboarding_parse is @governed(feature='onboarding', cap=None) — the
+    decorator calls _insert_governor_call(db, ...) which commits on the passed session.
+    Using the caller's SAVEPOINT-nested session would commit the SAVEPOINT prematurely
+    and any subsequent db.execute() on that session raises
+    "Can't operate on closed transaction inside context manager." (prod P0 2026-08-13).
+
+    Mirrors the _bounded_verify precedent (Slice C fix for the same class of bug on
+    run_skill_node_verify). Only the governor_calls INSERT+COMMIT runs on this fresh
+    session; the returned SonnetOnboardingOutput is a plain Pydantic model that the
+    caller then persists via its own SAVEPOINT-scoped session.
+
+    NOTE: The caller MUST ensure the users row for user_id is durably committed BEFORE
+    invoking this helper — otherwise the fresh session cannot satisfy the
+    governor_calls.user_id FK to users.id (different connection, cannot see the
+    caller's uncommitted outer transaction).
+    """
+    async with AsyncSessionLocal() as onboarding_gov_db:
+        return await run_onboarding_parse(
+            raw_input,
+            db=onboarding_gov_db,
+            user_id=user_id,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Verifier pipeline (Phase 4 — D-09, D-10, D-13, D-14, T-04-03-11)
 # ---------------------------------------------------------------------------
@@ -498,13 +528,18 @@ async def bootstrap_user(
 
     1. Idempotency guard (Revision D): if skill_nodes already exist for this user_id,
        short-circuit with mode='existing' — no Sonnet call, no writes.
-    2. Upsert users row + preferences + raw_onboarding_text (parent transaction).
+    2. Upsert users row + preferences + raw_onboarding_text AND COMMIT — this must be
+       durable before Step 3 because the @governed decorator on run_onboarding_parse
+       (Step 3) opens a fresh AsyncSession for its governor_calls INSERT, which needs
+       the users FK to be visible on another connection.
     3. Open SAVEPOINT (async with db.begin_nested()) around: Sonnet call +
-       _persist_bootstrap(mode='full').
+       _persist_bootstrap(mode='full'). Sonnet call goes through
+       _run_onboarding_parse_bounded (fresh session for @governed bookkeeping).
     4. On AIParseError: SAVEPOINT rolls back automatically; call
        _persist_bootstrap(mode='bootstrap') OUTSIDE the nested block to write 6-root fallback.
+       Users row + preferences remain durably committed from Step 2 (fail-open preserved).
     5. Set onboarded_at on the user row.
-    6. Single await db.commit() at end.
+    6. Single await db.commit() at end for graph writes.
     """
     _check_raw_input_size(body.raw_input)
 
@@ -534,7 +569,13 @@ async def bootstrap_user(
             mode="existing",
         )
 
-    # ---- Step 2: upsert user row (parent transaction) ----
+    # ---- Step 2: upsert user row AND COMMIT (parent transaction) ----
+    # Why commit here (not deferred to Step 6): the @governed decorator on
+    # run_onboarding_parse (Step 3) opens a FRESH AsyncSession for governor_calls
+    # bookkeeping. That fresh session cannot see this session's uncommitted users
+    # row, so the governor_calls.user_id FK would fail with ForeignKeyViolationError.
+    # Committing here also preserves the fail-open contract: if Sonnet fails in
+    # Step 3, the users row + preferences still survive.
     now = datetime.now(timezone.utc)
     upsert = pg_insert(User).values(
         id=body.user_id,
@@ -549,23 +590,27 @@ async def bootstrap_user(
         },
     )
     await db.execute(upsert)
-    # NOTE: no flush/commit yet — the SAVEPOINT below is nested within this parent tx.
+    await db.commit()
 
     # ---- Step 3 + 4: SAVEPOINT-guarded Sonnet call + full persist ----
+    # run_onboarding_parse is invoked via _run_onboarding_parse_bounded which opens
+    # a FRESH AsyncSession for the @governed decorator's governor_calls INSERT+COMMIT.
+    # Passing the outer 'db' would commit the SAVEPOINT prematurely and make any
+    # subsequent db.execute() raise "Can't operate on closed transaction"
+    # (prod P0 2026-08-13). Only _persist_bootstrap uses the SAVEPOINT-scoped 'db'.
     mode: Literal["full", "bootstrap"] = "full"
     skill_rows: List[SkillNode]
     try:
         async with db.begin_nested():
-            sonnet_output = await run_onboarding_parse(
+            sonnet_output = await _run_onboarding_parse_bounded(
                 body.raw_input,
-                db=db,
-                user_id=body.user_id,
+                body.user_id,
             )
             skill_rows = await _persist_bootstrap(
                 db, body.user_id, sonnet_output, mode="full"
             )
     except AIParseError as e:
-        # SAVEPOINT auto-rolled-back. Parent tx (user row + preferences) still alive.
+        # SAVEPOINT auto-rolled-back. Users row + preferences already committed at Step 2.
         logger.warning(
             "Sonnet-backed bootstrap failed for user %s (%s) — falling back to 6-root graph.",
             body.user_id,
@@ -586,7 +631,7 @@ async def bootstrap_user(
         .on_conflict_do_update(index_elements=["id"], set_={"onboarded_at": now})
     )
 
-    # ---- Step 6: single commit ----
+    # ---- Step 6: commit graph writes + onboarded_at ----
     await db.commit()
 
     return SkillGraphResponse(
@@ -685,15 +730,25 @@ async def re_run_onboarding(
     user_row.preferences = body.preferences.model_dump()
     user_row.raw_onboarding_text = body.raw_input
 
-    # SAVEPOINT-guarded Sonnet + full persist (same pattern as bootstrap_user)
+    # Commit the wipe + preference update BEFORE the SAVEPOINT for the same reason as
+    # bootstrap_user Step 2: _run_onboarding_parse_bounded opens a fresh AsyncSession
+    # for the @governed decorator, and the fresh session must see a durable users row.
+    # (The users row already existed from a prior bootstrap so the FK is technically
+    # satisfied even without this commit, but we still need to prevent the SAVEPOINT
+    # from holding a lock across the AI call — committing here releases the lock.)
+    await db.commit()
+
+    # SAVEPOINT-guarded Sonnet + full persist (same pattern as bootstrap_user).
+    # Same governor-vs-SAVEPOINT rule applies here: run_onboarding_parse must run
+    # against a fresh AsyncSession via _run_onboarding_parse_bounded so the governor
+    # decorator's commit doesn't close this SAVEPOINT.
     mode: Literal["full", "bootstrap"] = "full"
     skill_rows: List[SkillNode]
     try:
         async with db.begin_nested():
-            sonnet_output = await run_onboarding_parse(
+            sonnet_output = await _run_onboarding_parse_bounded(
                 body.raw_input,
-                db=db,
-                user_id=user_id,
+                user_id,
             )
             skill_rows = await _persist_bootstrap(
                 db, user_id, sonnet_output, mode="full"
