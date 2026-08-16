@@ -6,6 +6,10 @@
 # Phase 2 (02-03): SonnetSkillNodeProposal, SonnetSongProposal, SonnetOnboardingOutput
 #                  (Sonnet tool-use structured output shapes) — added in 02-03.
 # Phase 2 (02-03): SkillNode + SongSkill ORM classes — added in 02-03 alongside the queries.
+# Phase 4 hotfix (2026-08-16): SonnetSongProposal extended with genre/difficulty/bpm/key
+#                              per debug/song-of-day-nullable-metadata.md. Sonnet now emits
+#                              full song metadata at onboarding so GET /song-of-day doesn't
+#                              500 on NULL columns via SongResponse.model_validate().
 from decimal import Decimal
 from typing import Any, List, Literal, Optional
 from uuid import UUID
@@ -69,11 +73,31 @@ class SonnetSkillNodeProposal(BaseModel):
 
 
 class SonnetSongProposal(BaseModel):
-    """A single song as proposed by Sonnet — canonicalized title + artist + category."""
+    """A single song as proposed by Sonnet — canonicalized title + artist + category + metadata.
+
+    genre/difficulty/bpm/key added 2026-08-16 (Phase 4 hotfix). Prior to this, Sonnet emitted
+    only title/artist/category and the songs INSERT loop persisted NULL for the metadata
+    columns; GET /song-of-day then 500'd inside SongResponse.model_validate() because
+    SongResponse had those fields as non-Optional. Sonnet now emits full metadata at
+    onboarding time; the SongResponse contract has also been loosened to Optional as a
+    backstop for any non-Sonnet insert path (e.g. future admin tooling, migrations,
+    seed backfills). See .planning/debug/song-of-day-nullable-metadata.md.
+
+    Sonnet's structured-output tool schema (built from SonnetOnboardingOutput.model_json_schema)
+    marks these fields as required. If Sonnet fails to emit them for a song, Pydantic
+    validation raises → AIParseError → SAVEPOINT rollback → D-07 fail-open path
+    (6-root bootstrap graph). The prompt explicitly instructs Sonnet to make a reasonable
+    inference rather than omit.
+    """
     title: str
     artist: str
     category: Literal["can_play", "working_on", "aspirational"]
     skill_temp_ids: List[str]          # references SonnetSkillNodeProposal.temp_id
+    # ---- Metadata (Phase 4 hotfix 2026-08-16) ----
+    genre: str                                                  # e.g. "Blues", "Rock", "Jazz"
+    difficulty: Literal["beginner", "intermediate", "advanced"]  # 3-tier — matches product taxonomy
+    bpm: int                                                    # canonical tempo
+    key: str                                                    # musical key, e.g. "Em", "C", "G#m"
 
 
 class SonnetOnboardingOutput(BaseModel):

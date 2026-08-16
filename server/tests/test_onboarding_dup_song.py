@@ -146,6 +146,10 @@ def _duplicate_lenny_output_dict() -> dict[str, Any]:
             "artist": "Stevie Ray Vaughan",
             "category": "aspirational",
             "skill_temp_ids": ["leaf-double-stops"],
+            "genre": "Blues",
+            "difficulty": "advanced",
+            "bpm": 85,
+            "key": "Eb",
         },
         # Working_on SECOND — must win the category tiebreak.
         {
@@ -153,6 +157,10 @@ def _duplicate_lenny_output_dict() -> dict[str, Any]:
             "artist": "Stevie Ray Vaughan",
             "category": "working_on",
             "skill_temp_ids": ["leaf-string-bends"],
+            "genre": "Blues",
+            "difficulty": "advanced",
+            "bpm": 85,
+            "key": "Eb",
         },
     ]
     return {"songs": songs, "skill_graph": skill_graph}
@@ -191,18 +199,30 @@ def _case_insensitive_dup_output_dict() -> dict[str, Any]:
             "artist": "Michael Jackson",
             "category": "can_play",
             "skill_temp_ids": ["leaf-power-chords"],
+            "genre": "Rock",
+            "difficulty": "intermediate",
+            "bpm": 139,
+            "key": "Em",
         },
         {
             "title": "Beat It",
             "artist": "Michael Jackson",
             "category": "aspirational",
             "skill_temp_ids": [],
+            "genre": "Rock",
+            "difficulty": "intermediate",
+            "bpm": 139,
+            "key": "Em",
         },
         {
             "title": "BEAT IT",
             "artist": "michael jackson",
             "category": "working_on",
             "skill_temp_ids": ["leaf-power-chords"],
+            "genre": "Rock",
+            "difficulty": "intermediate",
+            "bpm": 139,
+            "key": "Em",
         },
     ]
     return {"songs": songs, "skill_graph": skill_graph}
@@ -456,18 +476,30 @@ async def test_bootstrap_non_duplicate_songs_unaffected():
                 "artist": "Jimi Hendrix",
                 "category": "can_play",
                 "skill_temp_ids": [],
+                "genre": "Rock",
+                "difficulty": "intermediate",
+                "bpm": 70,
+                "key": "Em",
             },
             {
                 "title": "Lenny",
                 "artist": "Stevie Ray Vaughan",
                 "category": "working_on",
                 "skill_temp_ids": [],
+                "genre": "Blues",
+                "difficulty": "advanced",
+                "bpm": 85,
+                "key": "Eb",
             },
             {
                 "title": "Free Bird",
                 "artist": "Lynyrd Skynyrd",
                 "category": "aspirational",
                 "skill_temp_ids": [],
+                "genre": "Rock",
+                "difficulty": "intermediate",
+                "bpm": 105,
+                "key": "G",
             },
         ],
         "skill_graph": [
@@ -551,10 +583,12 @@ def test_coalesce_song_proposals_precedence_and_union():
         SonnetSongProposal(
             title="Lenny", artist="Stevie Ray Vaughan",
             category="aspirational", skill_temp_ids=["a"],
+            genre="Blues", difficulty="advanced", bpm=85, key="Eb",
         ),
         SonnetSongProposal(
             title="Lenny", artist="Stevie Ray Vaughan",
             category="working_on", skill_temp_ids=["b"],
+            genre="Blues", difficulty="advanced", bpm=85, key="Eb",
         ),
     ]
     out = _coalesce_song_proposals(props)
@@ -569,10 +603,12 @@ def test_coalesce_song_proposals_precedence_and_union():
         SonnetSongProposal(
             title="Free Bird", artist="Lynyrd Skynyrd",
             category="can_play", skill_temp_ids=["x"],
+            genre="Rock", difficulty="intermediate", bpm=105, key="G",
         ),
         SonnetSongProposal(
             title="Free Bird", artist="Lynyrd Skynyrd",
             category="aspirational", skill_temp_ids=["y"],
+            genre="Rock", difficulty="intermediate", bpm=105, key="G",
         ),
     ]
     out = _coalesce_song_proposals(props)
@@ -584,10 +620,12 @@ def test_coalesce_song_proposals_precedence_and_union():
         SonnetSongProposal(
             title="Beat It", artist="Michael Jackson",
             category="working_on", skill_temp_ids=["z"],
+            genre="Rock", difficulty="intermediate", bpm=139, key="Em",
         ),
         SonnetSongProposal(
             title="Beat It", artist="Michael Jackson",
             category="aspirational", skill_temp_ids=["w"],
+            genre="Rock", difficulty="intermediate", bpm=139, key="Em",
         ),
     ]
     out = _coalesce_song_proposals(props)
@@ -603,10 +641,12 @@ def test_coalesce_song_proposals_precedence_and_union():
         SonnetSongProposal(
             title="lenny", artist="stevie ray vaughan",
             category="can_play", skill_temp_ids=["a"],
+            genre="Blues", difficulty="advanced", bpm=85, key="Eb",
         ),
         SonnetSongProposal(
             title="Lenny", artist="Stevie Ray Vaughan",
             category="working_on", skill_temp_ids=["b"],
+            genre="Blues", difficulty="advanced", bpm=85, key="Eb",
         ),
     ]
     out = _coalesce_song_proposals(props)
@@ -622,10 +662,12 @@ def test_coalesce_song_proposals_precedence_and_union():
         SonnetSongProposal(
             title="Lenny ", artist=" Stevie Ray Vaughan",
             category="aspirational", skill_temp_ids=["a"],
+            genre="Blues", difficulty="advanced", bpm=85, key="Eb",
         ),
         SonnetSongProposal(
             title="Lenny", artist="Stevie Ray Vaughan",
             category="working_on", skill_temp_ids=["b"],
+            genre="Blues", difficulty="advanced", bpm=85, key="Eb",
         ),
     ]
     out = _coalesce_song_proposals(props)
@@ -637,10 +679,12 @@ def test_coalesce_song_proposals_precedence_and_union():
         SonnetSongProposal(
             title="X", artist="Y",
             category="can_play", skill_temp_ids=["a", "b"],
+            genre="Rock", difficulty="beginner", bpm=100, key="C",
         ),
         SonnetSongProposal(
             title="X", artist="Y",
             category="working_on", skill_temp_ids=["b", "c"],
+            genre="Rock", difficulty="beginner", bpm=100, key="C",
         ),
     ]
     out = _coalesce_song_proposals(props)
@@ -651,9 +695,18 @@ def test_coalesce_song_proposals_precedence_and_union():
 
     # Case 7: distinct songs pass through unchanged, insertion order preserved.
     props = [
-        SonnetSongProposal(title="A", artist="X", category="can_play", skill_temp_ids=[]),
-        SonnetSongProposal(title="B", artist="X", category="working_on", skill_temp_ids=[]),
-        SonnetSongProposal(title="C", artist="X", category="aspirational", skill_temp_ids=[]),
+        SonnetSongProposal(
+            title="A", artist="X", category="can_play", skill_temp_ids=[],
+            genre="Rock", difficulty="beginner", bpm=100, key="C",
+        ),
+        SonnetSongProposal(
+            title="B", artist="X", category="working_on", skill_temp_ids=[],
+            genre="Rock", difficulty="beginner", bpm=100, key="C",
+        ),
+        SonnetSongProposal(
+            title="C", artist="X", category="aspirational", skill_temp_ids=[],
+            genre="Rock", difficulty="beginner", bpm=100, key="C",
+        ),
     ]
     out = _coalesce_song_proposals(props)
     assert [s.title for s in out] == ["A", "B", "C"]

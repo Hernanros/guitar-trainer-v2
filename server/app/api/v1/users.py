@@ -141,11 +141,20 @@ def _coalesce_song_proposals(
         key = (prop.title.lower().strip(), prop.artist.lower().strip())
         if key not in merged:
             # First sighting — keep title/artist casing from this proposal.
+            # Metadata (genre/difficulty/bpm/key) also comes from the first-seen
+            # proposal — Sonnet emits the same metadata across duplicates for a
+            # given (title, artist), so the choice is equivalent. If a future
+            # Sonnet drift returns divergent metadata across duplicates, first-seen
+            # is a stable well-defined tiebreak.
             merged[key] = SonnetSongProposal(
                 title=prop.title,
                 artist=prop.artist,
                 category=prop.category,
                 skill_temp_ids=list(prop.skill_temp_ids),
+                genre=prop.genre,
+                difficulty=prop.difficulty,
+                bpm=prop.bpm,
+                key=prop.key,
             )
             merged_skill_ids[key] = list(prop.skill_temp_ids)
             order.append(key)
@@ -571,14 +580,24 @@ async def _persist_bootstrap(
 
     song_id_by_key: dict[tuple, int] = {}
     for song_prop in coalesced_songs:
+        # Persist Sonnet-emitted metadata (Phase 4 hotfix 2026-08-16 —
+        # see .planning/debug/song-of-day-nullable-metadata.md). Prior to this,
+        # genre/difficulty/bpm/key were hardcoded None and GET /song-of-day 500'd
+        # inside SongResponse.model_validate() because those API fields were required.
+        # SonnetSongProposal now REQUIRES these fields (validated at tool_use time);
+        # any onboarding output missing them raises AIParseError → D-07 fail-open.
+        # SongResponse fields have also been loosened to Optional as a backstop for
+        # non-Sonnet insert paths (admin tools, migrations, seed backfills).
         song = Song(
             title=song_prop.title,
             artist=song_prop.artist,
-            genre=None,
-            difficulty=None,
-            bpm=None,
-            key=None,
-            # non-null JSONB required by schema; Phase 3 will populate with technique breakdown
+            genre=song_prop.genre,
+            difficulty=song_prop.difficulty,
+            bpm=song_prop.bpm,
+            key=song_prop.key,
+            # Placeholder breakdown intentional — Phase 3 breakdown selector fills this
+            # on first user-requested breakdown. SongResponse.breakdown is now Optional,
+            # so this row now serves via GET /song-of-day as breakdown_available=False.
             breakdown={"placeholder": "Phase 3 will populate breakdown"},
             user_id=user_id,
             category=song_prop.category,

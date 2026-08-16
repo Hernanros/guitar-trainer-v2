@@ -37,7 +37,17 @@ You will receive three lists of songs describing what the user can play, is work
 
 Your job: return a structured payload with two parts.
 
-PART 1 — SONGS: for each UNIQUE song the user mentioned, produce ONE canonicalized entry with title + artist + category + a list of skill_temp_ids that describe the techniques required. If the user mentions the same song across multiple sections (e.g. both `working_on` and `aspirational`), emit ONE proposal and pick the highest-priority category using this precedence: working_on > aspirational > can_play (currently practicing beats stretch goal beats baseline knowledge).
+PART 1 — SONGS: for each UNIQUE song the user mentioned, produce ONE canonicalized entry with:
+  - title (canonical spelling)
+  - artist (canonical spelling)
+  - category — one of `can_play`, `working_on`, `aspirational`. If the user mentions the same song across multiple sections (e.g. both `working_on` and `aspirational`), emit ONE proposal and pick the highest-priority category using this precedence: working_on > aspirational > can_play (currently practicing beats stretch goal beats baseline knowledge).
+  - skill_temp_ids — list of skill node temp_ids from PART 2 describing the techniques required
+  - genre — one-word genre, e.g. "Blues", "Rock", "Jazz", "Fingerstyle", "Country", "Metal"
+  - difficulty — one of `beginner`, `intermediate`, `advanced` (3-tier)
+  - bpm — canonical tempo of the song as an integer (e.g. 90, 120, 145)
+  - key — musical key using standard notation, e.g. "Em", "C", "G#m", "F#", "Bb"
+
+CRITICAL for the metadata fields (genre/difficulty/bpm/key): if you are unsure about a specific value, make a reasonable inference from your knowledge of the song — DO NOT omit or leave blank. Missing metadata will fail validation and roll back the entire onboarding. For example, "Little Wing" by Jimi Hendrix → genre="Rock", difficulty="intermediate", bpm=70, key="Em". "Sweet Home Chicago" by Robert Johnson → genre="Blues", difficulty="intermediate", bpm=112, key="E". If the artist is unknown or the song is truly obscure, still supply your best-guess values for all four fields.
 
 PART 2 — SKILL_GRAPH: a 3-level tree of skill nodes.
 

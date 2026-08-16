@@ -8,6 +8,14 @@
 # user_id is Optional per D-14 step 1; Phase 3 will tighten.
 # Phase 3: TodayRatingInfo + TodaySongResponse (Slice A payload shape; rated field added in Slice C).
 # Phase 3 gap-closure (03-04): TodaySongResponse gains rerolls_left: int (0 or 1 per D-05).
+# Phase 4 hotfix (2026-08-16): SongResponse.genre/difficulty/bpm/key/breakdown loosened to
+#   Optional per .planning/debug/song-of-day-nullable-metadata.md. Backstop for any
+#   song-insert path that skips Sonnet (future admin tools, migrations, seed catalog).
+#   Primary correctness lives at insert time: Sonnet now emits full metadata during
+#   onboarding, so happy-path rows are always populated. The Optional shape only
+#   activates when a legacy row (pre-hotfix) or non-Sonnet path leaves a column NULL —
+#   in which case the endpoint no longer 500s; it just serves the row with missing
+#   fields and breakdown_available=False.
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -70,15 +78,32 @@ class Breakdown(BaseModel):
 
 
 class SongResponse(BaseModel):
-    """Top-level API response for GET /api/v1/song-of-day."""
+    """Top-level API response for GET /api/v1/song-of-day.
+
+    Invariants (always required): id, title, artist. Everything else is Optional.
+
+    Metadata (genre/difficulty/bpm/key) and breakdown are Optional as a defense-in-depth
+    backstop for any song-insert path that doesn't emit them. Phase 4 hotfix 2026-08-16:
+    Sonnet now emits metadata at onboarding so user-onboarded songs land fully populated.
+    breakdown is Optional because rows land with a placeholder JSONB until the Phase 3
+    breakdown selector fills it in on first user request. Callers should consult
+    TodaySongResponse.breakdown_available (server-authoritative signal per
+    songs.breakdown_generated_at) rather than probing SongResponse.breakdown for None.
+
+    Mobile clients should treat all Optional fields as nullable; the current EAS build
+    has strict interpolation but the happy path (Sonnet-populated) will never surface
+    None values for genre/difficulty/bpm/key. Deferred mobile graceful-degradation is
+    tracked in memory/project_eas_batch_phase3_and_4.md.
+    """
     id: int
     title: str
     artist: str
-    genre: str
-    difficulty: str   # "intermediate" | "advanced"
-    bpm: int
-    key: str
-    breakdown: Breakdown
+    # ---- Metadata (Phase 4 hotfix 2026-08-16 — loosened from required to Optional) ----
+    genre: Optional[str] = None
+    difficulty: Optional[str] = None   # "beginner" | "intermediate" | "advanced"
+    bpm: Optional[int] = None
+    key: Optional[str] = None
+    breakdown: Optional[Breakdown] = None
     # Phase 2 additions (Optional per D-14 — backfilled on existing row, nullable for new)
     user_id: Optional[UUID] = None
     category: Optional[Literal["can_play", "working_on", "aspirational"]] = None
@@ -93,6 +118,25 @@ class SongResponse(BaseModel):
         """
         if hasattr(v, "value"):
             return v.value
+        return v
+
+    @field_validator("breakdown", mode="before")
+    @classmethod
+    def coerce_placeholder_breakdown(cls, v):
+        """Coerce placeholder JSONB dicts to None so Breakdown validation is skipped.
+
+        Rows inserted during onboarding land with `breakdown = {"placeholder": "..."}`
+        as a marker that Phase 3 will fill in the real breakdown on first request.
+        The placeholder is a valid dict for the JSONB column but not a valid Breakdown
+        (missing tab/chords/technique_notes). Coercing to None lets Optional[Breakdown]
+        validation pass and defers the "is there a real breakdown?" question to the
+        server-authoritative TodaySongResponse.breakdown_available flag.
+
+        Real breakdowns are dicts with tab/chords/technique_notes keys — those pass
+        through unchanged. None passes through unchanged (already-Optional path).
+        """
+        if isinstance(v, dict) and "placeholder" in v and "tab" not in v:
+            return None
         return v
 
     model_config = {"from_attributes": True}
