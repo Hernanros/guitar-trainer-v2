@@ -31,14 +31,25 @@ Fix (both layers per user-approved plan):
    Callers consult `TodaySongResponse.breakdown_available` (server-authoritative signal)
    rather than probing SongResponse.breakdown for None.
 
+Follow-up hotfix 2026-08-17 (mobile-crash-null-breakdown):
+The 33d78ac coerce-to-None behavior crashed the EAS iOS build 690bc876 (built
+2026-08-16 09:21 UTC, BEFORE 33d78ac shipped) because
+`mobile/src/app/breakdown/[songId].tsx` accesses song.breakdown.tab / .chords /
+.technique_notes without null guards. The validator was updated to coerce placeholder
+JSONB to an empty-but-valid Breakdown shape instead. Client-contract regression guard
+`test_placeholder_breakdown_returns_mobile_safe_empty_shape` locks that shape in.
+
 Test coverage:
 - Happy-path regression: user songs with full metadata serialize + serve correctly.
 - Backstop path: songs with NULL genre/difficulty/bpm/key serialize (do not 500).
 - Backstop path: songs with placeholder `{"placeholder": ...}` breakdown serialize;
-  the placeholder coerces to None via SongResponse validator; breakdown_available=False.
+  the placeholder coerces to an empty Breakdown via SongResponse validator;
+  breakdown_available=False (the mobile-safe contract until EAS ships null guards).
 - Contract regression: SonnetSongProposal now REQUIRES the four metadata fields —
   any test/mock that omits them fails Pydantic validation at construction time,
   which is exactly the guarantee we want (prevents future drift).
+- Mobile-safe shape regression: explicit assertion of the empty-Breakdown fields the
+  current EAS build depends on (empty .map()-friendly arrays + standard tuning).
 
 These tests exercise SongResponse.model_validate directly (fast, no DB required) plus
 end-to-end via GET /api/v1/song-of-day against a real Postgres (proves the endpoint
@@ -252,8 +263,10 @@ async def test_song_of_day_serves_song_with_null_metadata_and_placeholder_breakd
 
     This exercises both parts of the SongResponse loosening:
       - genre/difficulty/bpm/key Optional → null in JSON when the column is NULL
-      - breakdown Optional + placeholder coercion → null in JSON when the JSONB
-        is a `{"placeholder": ...}` marker (no tab/chords/technique_notes keys).
+      - breakdown Optional + placeholder coercion → empty-but-valid Breakdown shape
+        (mobile-safe contract per 2026-08-17 follow-up hotfix; EAS build 690bc876
+        crashes on null breakdown). Once mobile ships graceful degradation on
+        breakdown_available, the coerce target can move back to None.
     """
     user_id = await _seed_user_with_song(
         genre=None,
@@ -285,12 +298,20 @@ async def test_song_of_day_serves_song_with_null_metadata_and_placeholder_breakd
         assert song["difficulty"] is None
         assert song["bpm"] is None
         assert song["key"] is None
-        # Placeholder breakdown coerces to None (no tab/chords/technique_notes).
-        assert song["breakdown"] is None, (
-            f"Placeholder breakdown JSONB must coerce to None so callers rely on "
-            f"breakdown_available (the server-authoritative flag) instead of probing "
-            f"breakdown for shape. Got: {song['breakdown']}"
+        # Placeholder breakdown coerces to the mobile-safe empty Breakdown shape
+        # (not None) so EAS build 690bc876 can .map() over the arrays without
+        # crashing. Callers still consult breakdown_available for "is a real
+        # breakdown ready?" — see test_placeholder_breakdown_returns_mobile_safe_empty_shape
+        # for the exact shape guarantee.
+        assert song["breakdown"] is not None, (
+            f"Placeholder breakdown JSONB must coerce to an empty-but-valid Breakdown "
+            f"(not None) so mobile clients from EAS build 690bc876 don't crash on "
+            f"song.breakdown.tab / .chords / .technique_notes access. Got: "
+            f"{song['breakdown']}"
         )
+        assert song["breakdown"]["tab"]["measures"] == []
+        assert song["breakdown"]["chords"] == []
+        assert song["breakdown"]["technique_notes"] == []
         # breakdown_available reflects breakdown_generated_at — still False.
         assert body["breakdown_available"] is False
     finally:
@@ -302,22 +323,29 @@ async def test_song_of_day_serves_song_with_null_metadata_and_placeholder_breakd
 # ---------------------------------------------------------------------------
 
 
-def test_song_response_placeholder_breakdown_coerces_to_none():
-    """Unit test — SongResponse's placeholder-coercion validator drops the JSONB
-    marker `{"placeholder": ...}` to None so Optional[Breakdown] validation passes.
+def test_song_response_placeholder_breakdown_coerces_to_empty_breakdown():
+    """Unit test — SongResponse's placeholder-coercion validator maps the JSONB
+    marker `{"placeholder": ...}` to an empty-but-valid Breakdown so
+    Optional[Breakdown] validation passes AND mobile clients from EAS build
+    690bc876 can safely iterate the (empty) tab.measures / chords /
+    technique_notes arrays without null-deref crashes.
 
     A real breakdown dict (with tab/chords/technique_notes) still parses as a full
-    Breakdown. None passes through unchanged.
+    Breakdown. None passes through unchanged (Optional path).
     """
-    # Placeholder → None
+    # Placeholder → empty Breakdown (mobile-safe shape).
     resp = SongResponse.model_validate({
         "id": 1, "title": "T", "artist": "A",
         "genre": None, "difficulty": None, "bpm": None, "key": None,
         "breakdown": {"placeholder": "Phase 3 will populate breakdown"},
     })
-    assert resp.breakdown is None
+    assert isinstance(resp.breakdown, Breakdown)
+    assert resp.breakdown.tab.measures == []
+    assert resp.breakdown.tab.tuning == ["E", "A", "D", "G", "B", "e"]
+    assert resp.breakdown.chords == []
+    assert resp.breakdown.technique_notes == []
 
-    # None → None
+    # None → None (Optional path, unchanged).
     resp = SongResponse.model_validate({
         "id": 2, "title": "T", "artist": "A",
         "genre": None, "difficulty": None, "bpm": None, "key": None,
@@ -337,6 +365,65 @@ def test_song_response_placeholder_breakdown_coerces_to_none():
     })
     assert isinstance(resp.breakdown, Breakdown)
     assert resp.breakdown.tab.tuning == ["E", "A", "D", "G", "B", "e"]
+
+
+# ---------------------------------------------------------------------------
+# Test 3b — Client-contract regression: mobile-safe empty Breakdown shape
+# ---------------------------------------------------------------------------
+
+
+def test_placeholder_breakdown_returns_mobile_safe_empty_shape():
+    """Client-contract regression guard for mobile-crash-null-breakdown (2026-08-17).
+
+    The current EAS iOS build 690bc876 (built 2026-08-16 09:21 UTC, before 33d78ac's
+    coerce-to-None change shipped) accesses song.breakdown.tab / .chords /
+    .technique_notes without null guards in
+    `mobile/src/app/breakdown/[songId].tsx:162,174,187`. Returning None from the
+    placeholder coercer crashes the app to the iOS home screen the moment the
+    breakdown screen mounts.
+
+    This test locks the mobile-safe empty-Breakdown shape in place so any future
+    edit that regresses the coercer back to None (or drops a required key from
+    the empty shape) fails loudly with a clear message. Once mobile ships graceful
+    degradation on TodaySongResponse.breakdown_available, this test can be flipped
+    (or the coercer target moved back to None + the assertion relaxed) — but until
+    that EAS build ships, this shape is a load-bearing client contract.
+    """
+    resp = SongResponse.model_validate({
+        "id": 42, "title": "Placeholder Song", "artist": "Test Artist",
+        "genre": None, "difficulty": None, "bpm": None, "key": None,
+        "breakdown": {"placeholder": "Phase 3 will populate breakdown"},
+    })
+
+    assert resp.breakdown is not None, (
+        "Placeholder coercion must NOT return None while EAS build 690bc876 is in "
+        "the field — mobile crashes on song.breakdown.tab access. See "
+        ".planning/debug/mobile-crash-null-breakdown.md."
+    )
+    assert isinstance(resp.breakdown, Breakdown)
+
+    # tab must be a fully-valid Tab with an iterable (possibly empty) .measures list
+    # so mobile's <TabNotation tab={song.breakdown.tab} /> doesn't null-deref.
+    assert resp.breakdown.tab.measures == [], (
+        "tab.measures must be an empty list (not None) — mobile TabNotation "
+        "iterates measures without null guards."
+    )
+    assert resp.breakdown.tab.tuning == ["E", "A", "D", "G", "B", "e"], (
+        "tab.tuning must be standard 6-string tuning so mobile's tab renderer "
+        "has a valid string count."
+    )
+
+    # chords must be an empty list so .map() renders nothing without crashing.
+    assert resp.breakdown.chords == [], (
+        "chords must be an empty list (not None) — mobile's "
+        "song.breakdown.chords.map((chord) => ...) crashes on null."
+    )
+
+    # technique_notes must be an empty list so .map() renders nothing without crashing.
+    assert resp.breakdown.technique_notes == [], (
+        "technique_notes must be an empty list (not None) — mobile's "
+        "song.breakdown.technique_notes.map((note, i) => ...) crashes on null."
+    )
 
 
 # ---------------------------------------------------------------------------

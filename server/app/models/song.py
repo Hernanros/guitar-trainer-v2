@@ -16,6 +16,15 @@
 #   activates when a legacy row (pre-hotfix) or non-Sonnet path leaves a column NULL —
 #   in which case the endpoint no longer 500s; it just serves the row with missing
 #   fields and breakdown_available=False.
+# Phase 4 hotfix (2026-08-17): coerce_placeholder_breakdown now returns an empty-but-
+#   valid Breakdown shape instead of None. The current EAS iOS build (690bc876, built
+#   2026-08-16 09:21 UTC — BEFORE the 33d78ac coerce-to-None change shipped) still
+#   accesses song.breakdown.tab / .chords / .technique_notes without null guards, and
+#   returning None crashes the app to the iOS home screen. Empty-Breakdown makes those
+#   .map() iterations render nothing without crashing. Once mobile ships graceful
+#   degradation keyed on TodaySongResponse.breakdown_available (deferred to the next
+#   EAS batch; see .planning/debug/mobile-crash-null-breakdown.md), the coerce target
+#   can move back to None — until then empty-Breakdown is the mobile-safe contract.
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -123,20 +132,34 @@ class SongResponse(BaseModel):
     @field_validator("breakdown", mode="before")
     @classmethod
     def coerce_placeholder_breakdown(cls, v):
-        """Coerce placeholder JSONB dicts to None so Breakdown validation is skipped.
+        """Coerce placeholder JSONB dicts to an empty-but-valid Breakdown shape.
 
         Rows inserted during onboarding land with `breakdown = {"placeholder": "..."}`
         as a marker that Phase 3 will fill in the real breakdown on first request.
         The placeholder is a valid dict for the JSONB column but not a valid Breakdown
-        (missing tab/chords/technique_notes). Coercing to None lets Optional[Breakdown]
-        validation pass and defers the "is there a real breakdown?" question to the
-        server-authoritative TodaySongResponse.breakdown_available flag.
+        (missing tab/chords/technique_notes).
+
+        Rationale for empty-Breakdown (not None): the current EAS iOS build (690bc876,
+        built 2026-08-16 09:21 UTC) accesses song.breakdown.tab / .chords /
+        .technique_notes without null guards. Returning None crashes the app to the
+        iOS home screen the moment the breakdown screen mounts. Returning an empty
+        Breakdown lets those .map() iterations render nothing without crashing —
+        callers still consult TodaySongResponse.breakdown_available (server-
+        authoritative signal per songs.breakdown_generated_at) to know whether a real
+        breakdown exists. Once mobile ships graceful degradation on breakdown_available
+        (deferred to the next EAS batch; see
+        .planning/debug/mobile-crash-null-breakdown.md), the coerce target can move
+        back to None. Until then empty-Breakdown is the mobile-safe contract.
 
         Real breakdowns are dicts with tab/chords/technique_notes keys — those pass
         through unchanged. None passes through unchanged (already-Optional path).
         """
         if isinstance(v, dict) and "placeholder" in v and "tab" not in v:
-            return None
+            return {
+                "tab": {"measures": [], "tuning": ["E", "A", "D", "G", "B", "e"]},
+                "chords": [],
+                "technique_notes": [],
+            }
         return v
 
     model_config = {"from_attributes": True}
