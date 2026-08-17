@@ -527,6 +527,42 @@ async def _persist_bootstrap(
     # AIParseError is NOT caught here — it propagates to the SAVEPOINT for fail-open.
     await _run_verifier_pipeline(db, user_id, output.skill_graph)
 
+    # 2.6) Cascade-drop: any proposal whose parent was dropped by the verifier
+    #      must ALSO be dropped, otherwise the skill_nodes insert loop below will
+    #      create an orphan row (parent_id → a UUID that never gets inserted) and
+    #      Postgres blows the DEFERRABLE FK fk_skill_nodes_parent at COMMIT time.
+    #
+    #      Prod bug 2026-08-17 (debug/onboarding-fk-orphan-leaves.md):
+    #        Verifier dropped a sub ('leaf-open-chord-voicings-100' parent), but the
+    #        sub's leaf children were still inserted with parent_id pointing to the
+    #        dropped sub's temp_to_uuid entry. Orphan parent_id
+    #        b564b549-47d8-4fb1-8c34-c5674dc1b4c4 tripped fk_skill_nodes_parent at
+    #        commit → whole SAVEPOINT rolled back → re-run returned 500.
+    #
+    #      Fixed-point loop (while any pass adds new drops) so the cascade
+    #      propagates through arbitrarily deep sub → sub → leaf trees. The current
+    #      DAG is only 3 levels (root → sub → leaf) so one pass suffices, but the
+    #      loop future-proofs against deeper trees without changing correctness.
+    dropped_temp_ids: set[str] = {
+        p.temp_id for p in output.skill_graph if getattr(p, _DROPPED_ATTR, False)
+    }
+    while True:
+        newly_dropped: list[SonnetSkillNodeProposal] = []
+        for prop in output.skill_graph:
+            if getattr(prop, _DROPPED_ATTR, False):
+                continue
+            if prop.parent_temp_id and prop.parent_temp_id in dropped_temp_ids:
+                setattr(prop, _DROPPED_ATTR, True)
+                newly_dropped.append(prop)
+                logger.warning(
+                    "Cascade-dropping proposal '%s' (temp_id '%s') — "
+                    "parent '%s' was dropped by verifier.",
+                    prop.name, prop.temp_id, prop.parent_temp_id,
+                )
+        if not newly_dropped:
+            break
+        dropped_temp_ids.update(p.temp_id for p in newly_dropped)
+
     # 3) Insert skill_nodes. Sorted by level for readability; FK is deferrable so order
     #    doesn't matter for correctness (PostgreSQL checks FK only at COMMIT time per migration 0002).
     level_order = {"root": 0, "sub": 1, "leaf": 2}
