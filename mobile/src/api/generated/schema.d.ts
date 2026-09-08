@@ -4,6 +4,87 @@
  */
 
 export interface paths {
+    "/api/v1/admin/curator": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Curator Queue
+         * @description Render curator queue HTML page.
+         *
+         *     ?tab=pending (default) shows pending skill_node_proposals.
+         *     ?tab=rejected shows recent skill_node_rejections (last 50).
+         */
+        get: operations["curator_queue_api_v1_admin_curator_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/curator/action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Curator Action
+         * @description Process a curator action on a skill_node_proposals row.
+         *
+         *     Accepts form-encoded body (from the HTML curator page).
+         *     Actions:
+         *       approve   — mark proposal approved; if a user-scoped skill_nodes row for this
+         *                   proposed_name has canonical_node_id=NULL, update it to a new canonical
+         *                   (canonical_node_id = self.id).
+         *       reject    — mark proposal rejected; insert a skill_node_rejections row.
+         *       merge_with — mark proposal merged into canonical_id; update user-scoped skill_nodes
+         *                    rows for the same proposed_name to point at canonical_id.
+         */
+        post: operations["curator_action_api_v1_admin_curator_action_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/songs/{song_id}/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Breakdown
+         * @description Return the technique breakdown for song_id, generating it on first tap.
+         *
+         *     Cache hit: songs.breakdown_generated_at IS NOT NULL  → return JSON directly.
+         *     Cache miss: call run_technique_breakdown, persist to songs.breakdown + set
+         *                 breakdown_generated_at atomically, return Breakdown.
+         *
+         *     Returns:
+         *         200 Breakdown on success.
+         *         404 if song_id not owned by X-User-ID.
+         *         503 with Fletcher-voiced detail if Sonnet call fails after retry.
+         */
+        get: operations["get_breakdown_api_v1_songs__song_id__breakdown_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions": {
         parameters: {
             query?: never;
@@ -16,6 +97,9 @@ export interface paths {
         /**
          * Submit Rating
          * @description Record a session rating and atomically update mastery on all attached skill_nodes.
+         *
+         *     Single `async with db.begin():` transaction wraps ALL operations (reads + writes).
+         *     No LLM call — deterministic writes principle (SKILL-03, D-08).
          */
         post: operations["submit_rating_api_v1_sessions_post"];
         delete?: never;
@@ -33,14 +117,47 @@ export interface paths {
         };
         /**
          * Get Song Of Day
-         * @description Return today's song of the day.
+         * @description Return today's Song of the Day for the requesting user.
          *
-         *     D-04: trivial selector — SELECT * FROM songs LIMIT 1.
-         *     If the table is empty (e.g., after a fresh migration), seeds the hardcoded row first.
+         *     Calls select_today_song (75/25 CTE, D-01 through D-04) to pick the song.
+         *     If the user has already rerolled today, reads the reroll marker row and returns
+         *     that song with bank_source propagated from the persisted marker (Revision B).
+         *
+         *     Threat T-03-04-04 mitigation: marker row SELECT filters on user_id.
          */
         get: operations["get_song_of_day_api_v1_song_of_day_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/today-song/reroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reroll Today Song
+         * @description Force a daily reroll — picks a new song from the bank and persists a reroll marker.
+         *
+         *     Enforces one-per-day via:
+         *     1. Application-layer pre-check (reduces DB round-trip for common repeat-tap case).
+         *     2. DB partial-unique index uq_user_sessions_daily_reroll (authoritative per T-03-04-02).
+         *
+         *     On second POST same day: returns HTTP 409 (either from pre-check or index).
+         *
+         *     Threat T-03-04-01: user_id from Depends(get_user_id), NEVER from request body.
+         *     Threat T-03-04-02: INSERT wrapped in IntegrityError → 409.
+         *     Threat T-03-04-05: bank_source is server-computed by select_today_song, not client-supplied.
+         */
+        post: operations["reroll_today_song_api_v1_today_song_reroll_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -62,13 +179,18 @@ export interface paths {
          *
          *     1. Idempotency guard (Revision D): if skill_nodes already exist for this user_id,
          *        short-circuit with mode='existing' — no Sonnet call, no writes.
-         *     2. Upsert users row + preferences + raw_onboarding_text (parent transaction).
+         *     2. Upsert users row + preferences + raw_onboarding_text AND COMMIT — this must be
+         *        durable before Step 3 because the @governed decorator on run_onboarding_parse
+         *        (Step 3) opens a fresh AsyncSession for its governor_calls INSERT, which needs
+         *        the users FK to be visible on another connection.
          *     3. Open SAVEPOINT (async with db.begin_nested()) around: Sonnet call +
-         *        _persist_bootstrap(mode='full').
+         *        _persist_bootstrap(mode='full'). Sonnet call goes through
+         *        _run_onboarding_parse_bounded (fresh session for @governed bookkeeping).
          *     4. On AIParseError: SAVEPOINT rolls back automatically; call
          *        _persist_bootstrap(mode='bootstrap') OUTSIDE the nested block to write 6-root fallback.
+         *        Users row + preferences remain durably committed from Step 2 (fail-open preserved).
          *     5. Set onboarded_at on the user row.
-         *     6. Single await db.commit() at end.
+         *     6. Single await db.commit() at end for graph writes.
          */
         post: operations["bootstrap_user_api_v1_users_post"];
         delete?: never;
@@ -169,98 +291,24 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
-         * SessionCreate
-         * @description POST /api/v1/sessions request body.
-         */
-        SessionCreate: {
-            /** Song Id */
-            song_id: number;
-            /**
-             * Rating
-             * @enum {string}
-             */
-            rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
-        };
-        /**
-         * SessionResponse
-         * @description POST /api/v1/sessions response body.
-         */
-        SessionResponse: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * User Id
-             * Format: uuid
-             */
-            user_id: string;
-            /** Song Id */
-            song_id: number;
-            /**
-             * Rating
-             * @enum {string}
-             */
-            rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
-            /** Local Calendar Day */
-            local_calendar_day: string;
-            /** Rated At */
-            rated_at: string;
-        };
-        /**
-         * TodayRatingInfo
-         * @description Rating info surfaced on TodaySongResponse.rated when the user has rated today's song.
-         */
-        TodayRatingInfo: {
-            /**
-             * Rating
-             * @enum {string}
-             */
-            rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
-            /** Rated At */
-            rated_at: string;
-        };
-        /**
-         * BreakdownQuota
-         * @description Phase 4 quota snapshot embedded in TodaySongResponse (D-06).
-         */
-        BreakdownQuota: {
-            /** Remaining — calls left in the current 7-day rolling window (0..cap) */
-            remaining: number;
-            /** Cap — per-user cap (always 3 for the breakdown feature per D-01) */
-            cap: number;
-            /** Resets At — ISO datetime string: oldest_call_in_window + 7 days, server-authoritative */
-            resets_at: string;
-        };
-        /**
-         * TodaySongResponse
-         * @description Response shape for GET /api/v1/song-of-day (Phase 3 per-user selector).
-         */
-        TodaySongResponse: {
-            song: components["schemas"]["SongResponse"];
-            /** Breakdown Available */
-            breakdown_available: boolean;
-            /** From Bank */
-            from_bank: boolean;
-            /** Bank Source */
-            bank_source?: ("user_bench" | "seed_catalog") | null;
-            /** Rerolled */
-            rerolled: boolean;
-            /** Rated — populated when user has rated today's song; null otherwise */
-            rated?: components["schemas"]["TodayRatingInfo"] | null;
-            /** Rerolls Left — 0 if the user has already rerolled today, 1 otherwise (D-05) */
-            rerolls_left: number;
-            /** Breakdown Quota — Phase 4: remaining/cap/resets_at for the quota chip (D-06) */
-            breakdown_quota: components["schemas"]["BreakdownQuota"];
-        };
-        /**
          * Beat
          * @description A rhythmic beat holding one or more simultaneous notes (chord within a beat).
          */
         Beat: {
             /** Notes */
             notes: components["schemas"]["Note"][];
+        };
+        /** Body_curator_action_api_v1_admin_curator_action_post */
+        Body_curator_action_api_v1_admin_curator_action_post: {
+            /**
+             * Proposal Id
+             * Format: uuid
+             */
+            proposal_id: string;
+            /** Action */
+            action: string;
+            /** Canonical Id */
+            canonical_id?: string | null;
         };
         /**
          * Breakdown
@@ -274,6 +322,22 @@ export interface components {
             chords: components["schemas"]["Chord"][];
             /** Technique Notes */
             technique_notes: components["schemas"]["TechniqueNote"][];
+        };
+        /**
+         * BreakdownQuota
+         * @description Phase 4 quota snapshot embedded in TodaySongResponse (D-06).
+         *
+         *     remaining: calls left in the current 7-day rolling window (0..cap).
+         *     cap: per-user cap (always 3 for the breakdown feature per D-01).
+         *     resets_at: ISO datetime string — oldest_call_in_window + 7 days, server-authoritative.
+         */
+        BreakdownQuota: {
+            /** Remaining */
+            remaining: number;
+            /** Cap */
+            cap: number;
+            /** Resets At */
+            resets_at: string;
         };
         /**
          * Chord
@@ -333,6 +397,40 @@ export interface components {
             fret: number;
             /** Duration */
             duration: string;
+        };
+        /** SessionCreate */
+        SessionCreate: {
+            /** Song Id */
+            song_id: number;
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
+        };
+        /** SessionResponse */
+        SessionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Song Id */
+            song_id: number;
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
+            /** Local Calendar Day */
+            local_calendar_day: string;
+            /** Rated At */
+            rated_at: string;
         };
         /**
          * SkillGraphResponse
@@ -406,6 +504,21 @@ export interface components {
         /**
          * SongResponse
          * @description Top-level API response for GET /api/v1/song-of-day.
+         *
+         *     Invariants (always required): id, title, artist. Everything else is Optional.
+         *
+         *     Metadata (genre/difficulty/bpm/key) and breakdown are Optional as a defense-in-depth
+         *     backstop for any song-insert path that doesn't emit them. Phase 4 hotfix 2026-08-16:
+         *     Sonnet now emits metadata at onboarding so user-onboarded songs land fully populated.
+         *     breakdown is Optional because rows land with a placeholder JSONB until the Phase 3
+         *     breakdown selector fills it in on first user request. Callers should consult
+         *     TodaySongResponse.breakdown_available (server-authoritative signal per
+         *     songs.breakdown_generated_at) rather than probing SongResponse.breakdown for None.
+         *
+         *     Mobile clients should treat all Optional fields as nullable; the current EAS build
+         *     has strict interpolation but the happy path (Sonnet-populated) will never surface
+         *     None values for genre/difficulty/bpm/key. Deferred mobile graceful-degradation is
+         *     tracked in memory/project_eas_batch_phase3_and_4.md.
          */
         SongResponse: {
             /** Id */
@@ -415,14 +528,14 @@ export interface components {
             /** Artist */
             artist: string;
             /** Genre */
-            genre: string;
+            genre?: string | null;
             /** Difficulty */
-            difficulty: string;
+            difficulty?: string | null;
             /** Bpm */
-            bpm: number;
+            bpm?: number | null;
             /** Key */
-            key: string;
-            breakdown: components["schemas"]["Breakdown"];
+            key?: string | null;
+            breakdown?: components["schemas"]["Breakdown"] | null;
             /** User Id */
             user_id?: string | null;
             /** Category */
@@ -457,6 +570,50 @@ export interface components {
             heading: string;
             /** Body */
             body: string;
+        };
+        /**
+         * TodayRatingInfo
+         * @description Rating info surfaced on TodaySongResponse.rated when the user has rated today's song.
+         *
+         *     Populated in Slice C (POST /api/v1/sessions) and read back via GET /api/v1/song-of-day.
+         *     The `rated` field is null when the user has not yet rated today's song.
+         */
+        TodayRatingInfo: {
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
+            /** Rated At */
+            rated_at: string;
+        };
+        /**
+         * TodaySongResponse
+         * @description Response shape for GET /api/v1/song-of-day (Phase 3 per-user selector).
+         *
+         *     song: the selected song.
+         *     breakdown_available: True if songs.breakdown_generated_at is not None (cache-forever per D-11).
+         *     from_bank: True when the 25% random override / empty-working_on path fired.
+         *     bank_source: "user_bench" if from user's own non-working_on songs; "seed_catalog" if from song_catalog.
+         *     rerolled: True if the user used their one daily re-roll.
+         *     rated: populated with TodayRatingInfo when the user has rated today's song; null otherwise.
+         *     rerolls_left: 0 if the user has already rerolled today, 1 otherwise (D-05 one-per-day).
+         *     breakdown_quota: Phase 4 — always populated; carries remaining/cap/resets_at for the quota chip (D-06).
+         */
+        TodaySongResponse: {
+            song: components["schemas"]["SongResponse"];
+            /** Breakdown Available */
+            breakdown_available: boolean;
+            /** From Bank */
+            from_bank: boolean;
+            /** Bank Source */
+            bank_source?: ("user_bench" | "seed_catalog") | null;
+            /** Rerolled */
+            rerolled: boolean;
+            rated?: components["schemas"]["TodayRatingInfo"] | null;
+            /** Rerolls Left */
+            rerolls_left: number;
+            breakdown_quota: components["schemas"]["BreakdownQuota"];
         };
         /**
          * UserBootstrapRequest
@@ -520,6 +677,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -530,10 +691,114 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    curator_queue_api_v1_admin_curator_get: {
+        parameters: {
+            query?: {
+                tab?: string;
+            };
+            header: {
+                "X-Admin-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    curator_action_api_v1_admin_curator_action_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Admin-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["Body_curator_action_api_v1_admin_curator_action_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_breakdown_api_v1_songs__song_id__breakdown_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+            };
+            path: {
+                song_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Breakdown"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     submit_rating_api_v1_sessions_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-User-ID": string;
+                "X-Timezone-Offset"?: number;
+            };
             path?: never;
             cookie?: never;
         };
@@ -552,15 +817,6 @@ export interface operations {
                     "application/json": components["schemas"]["SessionResponse"];
                 };
             };
-            /** @description Already rated today */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": { detail: string };
-                };
-            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -575,7 +831,10 @@ export interface operations {
     get_song_of_day_api_v1_song_of_day_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-User-ID": string;
+                "X-Timezone-Offset"?: number;
+            };
             path?: never;
             cookie?: never;
         };
@@ -588,6 +847,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TodaySongResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reroll_today_song_api_v1_today_song_reroll_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+                "X-Timezone-Offset"?: number;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodaySongResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -737,7 +1037,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
