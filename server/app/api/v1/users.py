@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import AsyncSessionLocal
 
 from app.db.session import get_db
-from app.models.db import SkillLevel, SkillNode, SkillNodeProposal, SkillNodeRejection, Song, SongSkill, User
+from app.models.db import SkillLevel, SkillNode, SkillNodeProposal, SkillNodeRejection, Song, SongSkill, User, UserSession
 from app.models.skill_node import (
     SkillNodeResponse,
     SonnetOnboardingOutput,
@@ -884,7 +884,16 @@ async def re_run_onboarding(
     if user_row is None:
         raise HTTPException(status_code=404, detail=f"User {user_id} not found.")
 
-    # Wipe order: song_skills first (FK to both songs + skill_nodes), then songs, then skill_nodes
+    # Wipe order matters — deepest FK references first:
+    #   1. song_skills          → refs songs.id + skill_nodes.id
+    #   2. user_sessions        → refs songs.id (nullable, no CASCADE) — omitting this
+    #      violated user_sessions_song_id_fkey on the DELETE FROM songs below and 500'd
+    #      re-run onboarding for any user with prior ratings/reroll markers
+    #   3. skill_node_proposals → canonical_id (nullable) refs skill_nodes.id; same
+    #      class of FK block for users who had verifier-processed proposals
+    #   4. songs                → safe once song_skills + user_sessions gone
+    #   5. skill_nodes          → safe once song_skills + proposals gone
+    # skill_node_rejections are global audit rows (no user FK) — not wiped per-user.
     await db.execute(
         delete(SongSkill).where(
             SongSkill.song_id.in_(
@@ -892,6 +901,8 @@ async def re_run_onboarding(
             )
         )
     )
+    await db.execute(delete(UserSession).where(UserSession.user_id == user_id))
+    await db.execute(delete(SkillNodeProposal).where(SkillNodeProposal.user_id == user_id))
     await db.execute(delete(Song).where(Song.user_id == user_id))
     await db.execute(delete(SkillNode).where(SkillNode.user_id == user_id))
 
