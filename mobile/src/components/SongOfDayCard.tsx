@@ -36,17 +36,28 @@ export function SongOfDayCard({
   onSeekBreakdown,
   onReroll,
 }: SongOfDayCardProps) {
+  // Genre / BPM / key / difficulty can each be null on user-onboarded songs from
+  // before 33d78ac or on placeholder-metadata rows. Render only fields we have;
+  // hide the meta line and difficulty badge entirely when empty (don't show "—").
+  const metaParts = [
+    song.genre,
+    song.bpm ? `${song.bpm} BPM` : null,
+    song.key ? `Key of ${song.key}` : null,
+  ].filter((p): p is string => Boolean(p));
+
   const HeaderContent = (
     <View style={styles.header}>
       <Text style={styles.label}>SONG OF THE DAY</Text>
       <Text style={styles.title}>{song.title}</Text>
       <Text style={styles.artist}>{song.artist}</Text>
-      <Text style={styles.meta}>
-        {song.genre} · {song.bpm} BPM · Key of {song.key}
-      </Text>
-      <View style={styles.difficultyBadge}>
-        <Text style={styles.difficultyText}>{song.difficulty}</Text>
-      </View>
+      {metaParts.length > 0 && (
+        <Text style={styles.meta}>{metaParts.join(' · ')}</Text>
+      )}
+      {song.difficulty && (
+        <View style={styles.difficultyBadge}>
+          <Text style={styles.difficultyText}>{song.difficulty}</Text>
+        </View>
+      )}
     </View>
   );
 

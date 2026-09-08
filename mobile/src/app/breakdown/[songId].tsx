@@ -36,6 +36,19 @@ import type { components } from '../../api/generated/schema';
 
 type Chord = components['schemas']['Chord'];
 type TechniqueNote = components['schemas']['TechniqueNote'];
+type SongResponse = components['schemas']['SongResponse'];
+
+// Genre / BPM / key can each be null on user-onboarded songs from before 33d78ac
+// or on placeholder-metadata rows. Render only the fields we have.
+function MetaLine({ song }: { song: SongResponse }) {
+  const parts = [
+    song.genre,
+    song.bpm ? `${song.bpm} BPM` : null,
+    song.key ? `Key of ${song.key}` : null,
+  ].filter((p): p is string => Boolean(p));
+  if (parts.length === 0) return null;
+  return <Text style={styles.meta}>{parts.join(' · ')}</Text>;
+}
 
 const LABELS: Record<RatingLiteral, string> = {
   not_my_tempo: 'Not my tempo',
@@ -125,6 +138,30 @@ export default function BreakdownScreen() {
 
   const { song } = today;
 
+  // Breakdown-not-ready placeholder. Server marks breakdown_available=false when
+  // the song has no Sonnet-generated breakdown yet (or the placeholder-Breakdown
+  // shape is present but not real content). Belt-and-suspenders: also treat
+  // missing/null song.breakdown the same way.
+  if (!today.breakdown_available || !song.breakdown) {
+    return (
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.header}>
+            <Text style={styles.label}>BREAKDOWN</Text>
+            <Text style={styles.title}>{song.title}</Text>
+            <Text style={styles.artist}>{song.artist}</Text>
+            <MetaLine song={song} />
+          </View>
+          <View style={styles.placeholder}>
+            <ActivityIndicator size="small" color="#E07B39" />
+            <Text style={styles.placeholderText}>Fletcher preparing this breakdown...</Text>
+            <Text style={styles.placeholderSubtext}>Come back in a moment.</Text>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
   // Already-rated read-only mode: server says rated, AND this is today's song
   const alreadyRated = today.rated?.rating ?? null;
   const isAlreadyRatedSong = alreadyRated !== null && today.song.id === songId;
@@ -151,9 +188,7 @@ export default function BreakdownScreen() {
           <Text style={styles.label}>BREAKDOWN</Text>
           <Text style={styles.title}>{song.title}</Text>
           <Text style={styles.artist}>{song.artist}</Text>
-          <Text style={styles.meta}>
-            {song.genre} · {song.bpm} BPM · Key of {song.key}
-          </Text>
+          <MetaLine song={song} />
         </View>
 
         {/* Technique Notes */}
@@ -329,5 +364,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 8,
     marginBottom: 24,
+  },
+  placeholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+  },
+  placeholderText: {
+    marginTop: 16,
+    fontSize: 15,
+    color: '#AAA',
+    textAlign: 'center',
+  },
+  placeholderSubtext: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
   },
 });

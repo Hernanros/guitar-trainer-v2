@@ -99,6 +99,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-12T15:18:45.000Z
-Stopped at: Completed 04-04-PLAN.md (Slice D — nightly decay scheduler + APScheduler + decay_runs audit); Phase 4 complete
-Resume file: .planning/phases/05-library-toolkit-polish/ (Phase 5 — Library tab, Toolkit, shareability)
+Last session: 2026-08-17 (resumed post-hotfix; ran /gsd:debug governor-onboarding-untracked → RESOLVED_FALSE_POSITIVE)
+Stopped at: Governor onboarding tracking follow-up cleared (was a stale-DB-query false positive; @governed correctly writes 8 rows across 5 users). HANDOFF.json cleaned; 3 follow-ups remain: (a) Phase 5 discuss+plan, (b) 6-item EAS device-verify batch, (c) mobile graceful-degradation batch.
+Resume file: .planning/HANDOFF.json (updated; false positive dropped, decision logged)

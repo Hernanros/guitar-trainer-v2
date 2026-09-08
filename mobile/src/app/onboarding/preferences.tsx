@@ -31,7 +31,7 @@
 // D-13: retention format defaults to 'streak' if user picks nothing.
 // D-03: preferences persisted to MMKV via setWizardPreferences on every change.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { FletcherIntroCard } from '../../components/FletcherIntroCard';
 import { FletcherLoader } from '../../components/FletcherLoader';
@@ -183,6 +183,14 @@ export default function OnboardingPreferences() {
       {active.isError && (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>Fletcher lost the thread. Try that again.</Text>
+          <Pressable
+            onPress={() => router.back()}
+            style={styles.errorBackButton}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Text style={styles.errorBackText}>Back</Text>
+          </Pressable>
         </View>
       )}
     </FletcherIntroCard>
@@ -223,5 +231,19 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#ffb0b0',
     fontSize: 14,
+  },
+  errorBackButton: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#ffb0b0',
+  },
+  errorBackText: {
+    color: '#ffb0b0',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
