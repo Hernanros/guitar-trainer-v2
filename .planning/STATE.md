@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: 04-04-PLAN.md complete — Slice D (nightly decay scheduler + APScheduler + decay_runs audit) shipped; Phase 4 COMPLETE
-last_updated: "2026-08-12T15:35:00.000Z"
-last_activity: 2026-08-12 -- Phase 04 Slice D (scheduler.py + decay_all_nodes + main.py startup hook + 12 tests) executed; Phase 4 all 4 slices complete
+last_updated: "2026-09-08T00:00:00.000Z"
+last_activity: 2026-09-08 -- Completed quick task 260908-01: wire useBreakdown hook + call from breakdown screen (Slice B deviation closed)
 progress:
   total_phases: 5
   completed_phases: 4
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 Phase: 04 (Cost Governor & Node Verification) — COMPLETE
 Plan: 4 of 4 complete (Slice D shipped — nightly decay scheduler + decay_runs audit)
 Status: Phase 4 complete — all 6 req IDs satisfied (COST-01/02/03/04, SKILL-04, SKILL-05)
-Last activity: 2026-08-12 -- 04-04 scheduler.py + decay_all_nodes + startup hook + 12 tests shipped (commit: a635d40); Phase 4 DONE
+Last activity: 2026-09-08 -- Completed quick task 260908-01: wire useBreakdown hook + call from breakdown screen (commit: 3c67c77); Slice B deviation §3 closed. Prior: 2026-08-12 Phase 4 Slice D shipped.
 
 Progress: [██████████████░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 ✓, Phase 5 next
 
@@ -89,6 +89,12 @@ None yet.
 
 None yet.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260908-01 | Wire useBreakdown hook + call from breakdown screen (closes Slice B deviation §3) | 2026-09-08 | 3c67c77 | [260908-01-wire-usebreakdown-hook](./quick/260908-01-wire-usebreakdown-hook/) |
+
 ## Deferred Items
 
 Items acknowledged and carried forward from previous milestone close:
@@ -99,6 +105,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17 (resumed post-hotfix; ran /gsd:debug governor-onboarding-untracked → RESOLVED_FALSE_POSITIVE)
-Stopped at: Governor onboarding tracking follow-up cleared (was a stale-DB-query false positive; @governed correctly writes 8 rows across 5 users). HANDOFF.json cleaned; 3 follow-ups remain: (a) Phase 5 discuss+plan, (b) 6-item EAS device-verify batch, (c) mobile graceful-degradation batch.
-Resume file: .planning/HANDOFF.json (updated; false positive dropped, decision logged)
+Last session: 2026-09-08 (multi-workstream: debug false-positive + route-leak fix + graceful degradation batch + EAS build + partial device verify + Task #15 quick task shipped)
+Stopped at: Shipped 4 commits (a46f46b route-leak, 6ea248c schema regen, d42ae4c null-guards, 3c67c77 useBreakdown wiring). EAS build a08e7f3b on device does NOT include 3c67c77 yet — needs new EAS build to unblock device-verify items 3 (live Sonnet breakdown), 4 (quota chip decrement), 5 (BreakdownErrorCard CAPPED/FLETCHER_OUT variants), and Grace-E server revert. Also open: Task #7 cross-day rating (tomorrow-doable), Task #9 orphaned app-tabs cleanup (low priority).
+Resume file: .planning/HANDOFF.json (needs update — next_action should shift from Task #15 to "trigger EAS build for 3c67c77 verification")
