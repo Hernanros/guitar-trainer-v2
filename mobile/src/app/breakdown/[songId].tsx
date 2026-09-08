@@ -29,7 +29,9 @@ import { AlreadyRatedCard } from '../../components/AlreadyRatedCard';
 import { BreakdownErrorCard } from '../../components/BreakdownErrorCard';
 import { ChordDiagram } from '../../components/ChordDiagram';
 import { TabNotation } from '../../components/TabNotation';
+import { FletcherLoader } from '../../components/FletcherLoader';
 import { useTodaySong, localCalendarDay } from '../../api/todaySong';
+import { useBreakdown } from '../../api/breakdown';
 import { getOrCreateUserId } from '../../api/mmkv';
 import { useSubmitRating, type RatingLiteral } from '../../api/sessions';
 import type { components } from '../../api/generated/schema';
@@ -64,46 +66,22 @@ export default function BreakdownScreen() {
   const userId = getOrCreateUserId();
 
   const { data: today, isLoading, isError, error } = useTodaySong();
+  const breakdown = useBreakdown(songId);
   const submitRating = useSubmitRating();
   const [submittedRating, setSubmittedRating] = useState<RatingLiteral | null>(null);
-  // Phase 4 Slice B: error code state for BREAKDOWN_CAPPED / FLETCHER_OUT variants.
-  const [errorCode, setErrorCode] = useState<'BREAKDOWN_CAPPED' | 'FLETCHER_OUT' | null>(null);
-  const [errorResetsAt, setErrorResetsAt] = useState<string | null>(null);
 
-  // Phase 4 Slice B: invalidate today-song when the breakdown loads successfully so
-  // the quota chip on the Today tab reflects the latest governor_calls count.
-  // Runs once when today data becomes available (data transitions from undefined to truthy).
+  // Phase 4 Slice B follow-up (quick-260908-01): invalidate today-song when the
+  // breakdown load succeeds so the quota chip on the Today tab reflects the latest
+  // governor_calls count. Previously this fired on `Boolean(today)` as a Slice B
+  // placeholder because the breakdown endpoint wasn't wired yet — now that
+  // useBreakdown exists, the correct trigger is `Boolean(breakdown.data)`, which is
+  // the true "breakdown was served (cache hit or miss)" signal.
   useEffect(() => {
-    if (today) {
+    if (breakdown.data) {
       qc.invalidateQueries({ queryKey: ['today-song', userId, localCalendarDay()] });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [Boolean(today)]);
-
-  // Phase 4 Slice B: invalidate today-song on a successful breakdown view so the
-  // quota chip decrements on next Today-tab open. The chip reads from
-  // TodaySongResponse.breakdown_quota which is server-authoritative (D-06).
-  // We trigger invalidation here rather than in sessions.ts to avoid touching
-  // Slice C's rating logic (sessions.ts is explicitly excluded from files_modified).
-  const invalidateTodaySong = () => {
-    qc.invalidateQueries({ queryKey: ['today-song', userId, localCalendarDay()] });
-  };
-
-  // Helper: parse error from breakdown fetch (HTTP 429/503 body shape from Slice A).
-  // If a future refactor adds a direct breakdown endpoint call, this function handles it.
-  const handleBreakdownError = (err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('BREAKDOWN_CAPPED') || msg.includes('429')) {
-      // Try to extract resets_at from error message if available
-      const resetsAtMatch = msg.match(/"resets_at"\s*:\s*"([^"]+)"/);
-      setErrorCode('BREAKDOWN_CAPPED');
-      setErrorResetsAt(resetsAtMatch ? resetsAtMatch[1] : null);
-    } else if (msg.includes('FLETCHER_OUT') || msg.includes('503')) {
-      setErrorCode('FLETCHER_OUT');
-    } else {
-      setErrorCode(null);
-    }
-  };
+  }, [Boolean(breakdown.data)]);
 
   if (isLoading) {
     return (
@@ -115,21 +93,19 @@ export default function BreakdownScreen() {
   }
 
   if (isError || !today) {
-    // Parse error code from the useTodaySong error for code-based rendering
-    const parsedCode = (() => {
-      const msg = error instanceof Error ? error.message : String(error ?? '');
-      if (msg.includes('BREAKDOWN_CAPPED')) return 'BREAKDOWN_CAPPED' as const;
-      if (msg.includes('FLETCHER_OUT')) return 'FLETCHER_OUT' as const;
-      return errorCode;
-    })();
+    // Parse error code from the useTodaySong error for code-based rendering.
+    const msg = error instanceof Error ? error.message : String(error ?? '');
+    const parsedCode = msg.includes('BREAKDOWN_CAPPED')
+      ? ('BREAKDOWN_CAPPED' as const)
+      : msg.includes('FLETCHER_OUT')
+        ? ('FLETCHER_OUT' as const)
+        : null;
     return (
       <BreakdownErrorCard
         code={parsedCode}
-        resets_at={errorResetsAt}
+        resets_at={null}
         onRetry={() => {
-          setErrorCode(null);
-          setErrorResetsAt(null);
-          invalidateTodaySong();
+          qc.invalidateQueries({ queryKey: ['today-song', userId, localCalendarDay()] });
         }}
         onBack={() => router.back()}
       />
@@ -138,11 +114,31 @@ export default function BreakdownScreen() {
 
   const { song } = today;
 
-  // Breakdown-not-ready placeholder. Server marks breakdown_available=false when
-  // the song has no Sonnet-generated breakdown yet (or the placeholder-Breakdown
-  // shape is present but not real content). Belt-and-suspenders: also treat
-  // missing/null song.breakdown the same way.
-  if (!today.breakdown_available || !song.breakdown) {
+  // Breakdown error branch — parse HTTP status inline (apiFetch throws
+  // "HTTP {status} {method} {path}" per apiClient.ts:50; body is not included, so
+  // resets_at is null and BreakdownErrorCard's BREAKDOWN_CAPPED variant renders
+  // "Come back in 0 days" — acceptable POC compromise per T-quick-03).
+  if (breakdown.isError) {
+    const bdMsg = breakdown.error instanceof Error ? breakdown.error.message : String(breakdown.error);
+    const code =
+      bdMsg.includes('HTTP 429') || bdMsg.includes('BREAKDOWN_CAPPED')
+        ? ('BREAKDOWN_CAPPED' as const)
+        : bdMsg.includes('HTTP 503') || bdMsg.includes('FLETCHER_OUT')
+          ? ('FLETCHER_OUT' as const)
+          : null;
+    return (
+      <BreakdownErrorCard
+        code={code}
+        resets_at={null}
+        onRetry={() => breakdown.refetch()}
+        onBack={() => router.back()}
+      />
+    );
+  }
+
+  // Breakdown pending branch — show the song header + FletcherLoader so the user
+  // still sees "which song we're loading a breakdown for" while Sonnet works.
+  if (breakdown.isPending) {
     return (
       <View style={styles.container}>
         <ScrollView contentContainerStyle={styles.content}>
@@ -152,15 +148,17 @@ export default function BreakdownScreen() {
             <Text style={styles.artist}>{song.artist}</Text>
             <MetaLine song={song} />
           </View>
-          <View style={styles.placeholder}>
-            <ActivityIndicator size="small" color="#E07B39" />
-            <Text style={styles.placeholderText}>Fletcher preparing this breakdown...</Text>
-            <Text style={styles.placeholderSubtext}>Come back in a moment.</Text>
-          </View>
+          <FletcherLoader
+            messages={['Fletcher is listening...', 'Working out the fingering...', 'Almost there...']}
+            isPending={true}
+          />
         </ScrollView>
       </View>
     );
   }
+
+  // Breakdown success — bd is the source of truth for tab/chords/technique.
+  const bd = breakdown.data;
 
   // Already-rated read-only mode: server says rated, AND this is today's song
   const alreadyRated = today.rated?.rating ?? null;
@@ -194,7 +192,7 @@ export default function BreakdownScreen() {
         {/* Technique Notes */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>How to play it</Text>
-          {song.breakdown.technique_notes.map((note: TechniqueNote, i: number) => (
+          {bd.technique_notes.map((note: TechniqueNote, i: number) => (
             <View key={i} style={styles.techniqueCard}>
               <Text style={styles.techniqueHeading}>{note.heading}</Text>
               <Text style={styles.techniqueBody}>{note.body}</Text>
@@ -206,7 +204,7 @@ export default function BreakdownScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tab</Text>
           <View style={styles.tabContainer}>
-            <TabNotation tab={song.breakdown.tab} />
+            <TabNotation tab={bd.tab} />
           </View>
         </View>
 
@@ -219,7 +217,7 @@ export default function BreakdownScreen() {
             style={styles.chordScroll}
             contentContainerStyle={styles.chordScrollContent}
           >
-            {song.breakdown.chords.map((chord: Chord) => (
+            {bd.chords.map((chord: Chord) => (
               <ChordDiagram key={chord.name} chord={chord} />
             ))}
           </ScrollView>
@@ -364,23 +362,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 8,
     marginBottom: 24,
-  },
-  placeholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 48,
-    paddingHorizontal: 24,
-  },
-  placeholderText: {
-    marginTop: 16,
-    fontSize: 15,
-    color: '#AAA',
-    textAlign: 'center',
-  },
-  placeholderSubtext: {
-    marginTop: 6,
-    fontSize: 13,
-    color: '#666',
-    textAlign: 'center',
   },
 });
