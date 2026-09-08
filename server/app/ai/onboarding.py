@@ -37,6 +37,8 @@ You will receive three lists of songs describing what the user can play, is work
 
 Your job: return a structured payload with two parts.
 
+CRITICAL — RESPONSE COMPLETENESS: Your tool_use response MUST include BOTH the `songs` array AND the `skill_graph` array. Omitting either field is a validation failure that discards the entire response. If the user's song lists are sparse or empty, emit `songs: []` and/or the six roots only in `skill_graph` — but both keys MUST be present.
+
 PART 1 — SONGS: for each UNIQUE song the user mentioned, produce ONE canonicalized entry with:
   - title (canonical spelling)
   - artist (canonical spelling)
@@ -127,7 +129,10 @@ async def run_onboarding_parse(
         resp = await asyncio.wait_for(
             client.messages.create(
                 model=SONNET_MODEL,
-                max_tokens=4096,
+                # 4096 was insufficient when a user's aspirational list expanded the
+                # skill_graph tree — Sonnet silently dropped the field to stay within
+                # budget. 8192 headroom for a full 3-level tree + ~20 canonicalized songs.
+                max_tokens=8192,
                 system=SYSTEM_PROMPT,
                 messages=messages,
                 tools=[_TOOL_DEF],
