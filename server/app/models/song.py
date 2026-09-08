@@ -132,34 +132,26 @@ class SongResponse(BaseModel):
     @field_validator("breakdown", mode="before")
     @classmethod
     def coerce_placeholder_breakdown(cls, v):
-        """Coerce placeholder JSONB dicts to an empty-but-valid Breakdown shape.
+        """Coerce placeholder JSONB dicts to None (Grace-E, restored 2026-09-08).
 
         Rows inserted during onboarding land with `breakdown = {"placeholder": "..."}`
-        as a marker that Phase 3 will fill in the real breakdown on first request.
-        The placeholder is a valid dict for the JSONB column but not a valid Breakdown
-        (missing tab/chords/technique_notes).
+        as a marker that a real breakdown has not been generated yet. Without this
+        coerce, Pydantic would fail to validate the placeholder dict against the
+        Breakdown schema and 500 the endpoint.
 
-        Rationale for empty-Breakdown (not None): the current EAS iOS build (690bc876,
-        built 2026-08-16 09:21 UTC) accesses song.breakdown.tab / .chords /
-        .technique_notes without null guards. Returning None crashes the app to the
-        iOS home screen the moment the breakdown screen mounts. Returning an empty
-        Breakdown lets those .map() iterations render nothing without crashing —
-        callers still consult TodaySongResponse.breakdown_available (server-
-        authoritative signal per songs.breakdown_generated_at) to know whether a real
-        breakdown exists. Once mobile ships graceful degradation on breakdown_available
-        (deferred to the next EAS batch; see
-        .planning/debug/mobile-crash-null-breakdown.md), the coerce target can move
-        back to None. Until then empty-Breakdown is the mobile-safe contract.
+        History: the 2026-08-17 hotfix (6ae712a) coerced placeholder → empty-Breakdown
+        as a bandaid for EAS build 690bc876 which accessed song.breakdown.tab / .chords
+        without null guards and crashed on None. Grace-B (d42ae4c, 2026-09-08) added
+        the null-guard mobile-side, and 3c67c77 (2026-09-08) wired useBreakdown so the
+        pending state now has a real hook to display a FletcherLoader against. With
+        both mobile-side fixes shipped in EAS build a08e7f3b+, the coerce target moves
+        back to None so the Optional[Breakdown] contract matches server truth again.
 
         Real breakdowns are dicts with tab/chords/technique_notes keys — those pass
         through unchanged. None passes through unchanged (already-Optional path).
         """
         if isinstance(v, dict) and "placeholder" in v and "tab" not in v:
-            return {
-                "tab": {"measures": [], "tuning": ["E", "A", "D", "G", "B", "e"]},
-                "chords": [],
-                "technique_notes": [],
-            }
+            return None
         return v
 
     model_config = {"from_attributes": True}
