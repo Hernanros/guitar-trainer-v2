@@ -68,10 +68,16 @@ async def get_song_of_day(
     rerolls_left = 0 if rerolled else 1
 
     if reroll_marker is not None:
-        # Reroll path: use the song_id + bank_source from the persisted reroll marker (Revision B)
+        # Reroll path: use the song_id + bank_source from the persisted reroll marker (Revision B).
+        # from_bank derived from bank_source presence — the reroll CTE actually runs the same
+        # 75/25 branch logic as fresh picks (reroll_suffix only reseeds), so a reroll CAN land
+        # on the working_on_pick branch (bank_source=null). Hard-coding from_bank=True lied
+        # about that and left the FromTheBankTag chip in an inconsistent state (from_bank=true
+        # but bank_source=null → mobile client-side conditional Boolean(from_bank && bank_source)
+        # hid the chip anyway, so the user just never saw a bank chip on rerolled bank songs).
         song_id = reroll_marker["song_id"]
-        from_bank = True  # rerolls are always bank picks per D-05 selector contract
         bank_source = reroll_marker["bank_source"]
+        from_bank = bank_source is not None
 
         # Load the songs row, filtered by user_id for defense-in-depth (T-03-04-04)
         row = (
