@@ -1,5 +1,9 @@
-// mobile/src/app/(tabs)/index.test.tsx
+// mobile/__tests__/app/(tabs)/index.test.tsx
 // Unit tests for Phase 3 Today tab + hooks + components.
+// Mirrors the source at mobile/src/app/(tabs)/index.tsx.
+//
+// Kept out of mobile/src/app/ so Expo Router doesn't auto-discover it as a route
+// (which would leak as a 5th bottom tab and crash on tap).
 //
 // No Jest or @testing-library/react-native available in this project.
 // Tests are written as TypeScript-compilable assertions that validate:
@@ -12,8 +16,8 @@
 // Run: npx tsc --noEmit from mobile/ to validate these compile.
 // If Jest is added in a future phase, replace these with describe/it blocks.
 
-import { localCalendarDay } from '../../api/todaySong';
-import type { FletcherLineVariant } from '../../components/SongOfDayCard';
+import { localCalendarDay } from '@/api/todaySong';
+import type { FletcherLineVariant } from '@/components/SongOfDayCard';
 
 // ---------------------------------------------------------------------------
 // localCalendarDay — pure function tests

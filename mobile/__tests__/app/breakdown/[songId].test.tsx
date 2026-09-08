@@ -1,5 +1,9 @@
 /**
  * BreakdownScreen route pure-logic tests.
+ * Mirrors the source at mobile/src/app/breakdown/[songId].tsx.
+ *
+ * Kept out of mobile/src/app/ so Expo Router doesn't auto-discover it as a route
+ * (`/breakdown/[songId].test`) that would crash on navigation.
  *
  * @testing-library/react-native is not installed.
  * These tests cover the pure logic and data processing in the breakdown route
