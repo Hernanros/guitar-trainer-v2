@@ -21,15 +21,21 @@ technique_notes: 5 (high quality — SRV-specific style, b3→3 slides, fingerst
 tab: 8 measures, first beat = open low E (walking bass)
 ```
 
-**Ground truth:** Lenny is played in **Open E tuning** (E B E G# B E, low to high — every string except low E is tuned up from standard). The entire song is arranged around Open-E chord voicings and fingerpicked figures unique to that tuning. The actual intro is a Cadd9/Bm-flavored fingerpicked pattern, not a walking-bass I-IV-V progression.
+**Ground truth (CORRECTED 2026-09-09):** Lenny is played in **E♭ standard tuning** (E♭ A♭ D♭ G♭ B♭ E♭ — standard EADGBE tuned down a half step), NOT Open E as I originally claimed. This is SRV's usual tuning across most of his catalog (Pride and Joy, Texas Flood, Little Wing cover — all E♭ standard). Hendrix, Slash, and Van Halen also played predominantly in E♭ standard. Lenny is fingered in E-major shapes (that's why Sonnet's chord list `E, E7, A, A7, B7` looks right for a guitarist) but SOUNDS a half step lower because the whole guitar is detuned. This is the "shape key vs. concert key" gap — Sonnet returned `key=E` (the shape) when the concert key is E♭.
 
-## Diagnosis
+**Original claim was wrong** — my Open E hypothesis appeared plausible because SRV DOES have some Open E work (parts of "Little Wing" solo runs) but Lenny itself is straight E♭ standard, an instrumental in E♭ major. The user surfaced this correction 2026-09-09 after the first tuning-awareness fix shipped (af3fdef) with the wrong example.
+
+## Diagnosis (CORRECTED)
 
 **Sonnet made three implicit choices without labeling them:**
 
-1. **Chose to render in standard EADGBE tuning** despite Lenny being famously Open E
-2. **Chose to translate the arrangement** into a simplified I-IV-V blues-in-E progression (E, E7, A, A7, B7)
-3. **Did not include a tuning technique note** — user has no way to know Sonnet made a translation choice
+1. **Chose to render in standard EADGBE tuning** when Lenny is actually **E♭ standard** (SRV's usual tuning). Notes sound a half step off from the recording.
+2. **Reported `key=E`** (the shape SRV fingers) rather than `key=Eb` (the concert pitch). Shape/concert-key gap unaddressed.
+3. **Did not include a tuning technique note** — user has no way to know Sonnet omitted the retune step.
+
+The chord list (E, E7, A, A7, B7) is right SHAPES for how SRV plays Lenny, but wrong SOUND when a listener compares to the recording with a standard-tuned guitar.
+
+**Broader lesson:** Half-step-down and whole-step-down tunings are just as common as open tunings for classic rock/blues (E♭ standard is arguably THE most common non-standard tuning in the SRV/Hendrix/Slash/EVH catalog). My first fix (af3fdef) omitted them entirely and treated only open/alternate tunings — a real gap.
 
 **The teaching content itself is excellent** — technique notes about SRV's b3→3 slide, walking bass with thumb, tempo discipline, fingerstyle attack are all accurate and useful. But the tab notation is a **hidden simplification**, not a faithful transcription.
 
