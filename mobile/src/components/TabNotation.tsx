@@ -31,6 +31,11 @@ const STRINGS = 6;
 // TUNING block exactly.
 const STANDARD_TUNING = ['E', 'A', 'D', 'G', 'B', 'e'];
 const KNOWN_TUNINGS: Record<string, string> = {
+  // Half-step-down and whole-step-down (very common in classic rock/blues —
+  // SRV, Hendrix, Slash, Van Halen, Alice in Chains, etc.)
+  'Eb|Ab|Db|Gb|Bb|Eb': 'E♭ standard',
+  'D|G|C|F|A|D': 'D standard',
+  // Alternate / open tunings
   'E|B|E|G#|B|E': 'Open E',
   'D|A|D|F#|A|D': 'Open D',
   'D|G|D|G|B|D': 'Open G',
