@@ -10,7 +10,7 @@
 // Layout constants preserved from Phase 1 (must not change — ChordDiagram calibrates to these):
 //   STRING_SPACING = 20, BEAT_WIDTH = 48, LEFT_MARGIN = 30, TOP_PADDING = 20, STRINGS = 6
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { G, Line, Rect, Svg, Text as SvgText } from 'react-native-svg';
 import type { components } from '../api/generated/schema';
 
@@ -24,6 +24,32 @@ const BEAT_WIDTH = 48;
 const LEFT_MARGIN = 30;
 const TOP_PADDING = 20;
 const STRINGS = 6;
+
+// Tuning awareness (Task #16 / quick 260909-01) — surface Sonnet's tuning choice
+// so intermediate/advanced players can immediately see whether the tab is in the
+// song's canonical tuning. Arrays MUST match server/app/ai/breakdown.py SYSTEM_PROMPT
+// TUNING block exactly.
+const STANDARD_TUNING = ['E', 'A', 'D', 'G', 'B', 'e'];
+const KNOWN_TUNINGS: Record<string, string> = {
+  'E|B|E|G#|B|E': 'Open E',
+  'D|A|D|F#|A|D': 'Open D',
+  'D|G|D|G|B|D': 'Open G',
+  'D|A|D|G|A|D': 'DADGAD',
+  'D|A|D|G|B|E': 'Drop D',
+  'C|G|C|F|A|D': 'Drop C',
+};
+
+function tuningDisplay(tuning: string[]): { friendly: string | null; raw: string } {
+  const key = tuning.join('|');
+  const friendly = KNOWN_TUNINGS[key] ?? null;
+  const raw = tuning.join(' ');
+  return { friendly, raw };
+}
+
+function isStandardTuning(tuning: string[] | null | undefined): boolean {
+  if (!tuning || tuning.length !== 6) return true; // defensive: treat malformed as standard (no label)
+  return tuning.every((s, i) => s === STANDARD_TUNING[i]);
+}
 
 // Phase 3: measure width = left margin + 4 beats wide + 8px right-pad between measures.
 // Assumes 4 beats per measure (4/4 time is the overwhelming majority; 3/4 uses 3 × BEAT_WIDTH).
@@ -96,7 +122,7 @@ const Measure = React.memo(function Measure({ measure, offsetX, measureIndex }: 
 // ---------------------------------------------------------------------------
 
 export function TabNotation({ tab }: { tab: Tab }) {
-  const tuning = tab.tuning ?? ['E', 'A', 'D', 'G', 'B', 'e'];
+  const tuning = tab.tuning ?? STANDARD_TUNING;
 
   // String labels: tuning is low-to-high [E, A, D, G, B, e].
   // Reverse so index 0 = high e (top line) and index 5 = low E (bottom line).
@@ -106,8 +132,28 @@ export function TabNotation({ tab }: { tab: Tab }) {
   const svgHeight = staffHeight + TOP_PADDING * 2;
   const totalWidth = LEFT_MARGIN + (tab.measures?.length ?? 0) * MEASURE_WIDTH + 16;
 
+  // Tuning label — render only when Sonnet chose a non-standard tuning.
+  // Standard / null / undefined / malformed tuning renders no label (defensive).
+  const isNonStandard = !isStandardTuning(tab.tuning);
+  const { friendly, raw } = isNonStandard
+    ? tuningDisplay(tuning)
+    : { friendly: null, raw: '' };
+
   return (
     <View style={styles.wrapper}>
+      {isNonStandard && (
+        <Text style={styles.tuningLabel}>
+          <Text style={styles.tuningPrefix}>Tuning: </Text>
+          {friendly ? (
+            <>
+              <Text style={styles.tuningValue}>{friendly}</Text>
+              <Text style={styles.tuningRaw}>{` — ${raw}`}</Text>
+            </>
+          ) : (
+            <Text style={styles.tuningValue}>{raw}</Text>
+          )}
+        </Text>
+      )}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={true}
@@ -164,5 +210,22 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 0,
+  },
+  tuningLabel: {
+    marginBottom: 6,
+    fontSize: 12,
+  },
+  tuningPrefix: {
+    color: '#999',
+    fontSize: 12,
+  },
+  tuningValue: {
+    color: '#E07B39',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tuningRaw: {
+    color: '#999',
+    fontSize: 12,
   },
 });

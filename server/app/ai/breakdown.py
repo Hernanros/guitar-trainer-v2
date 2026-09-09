@@ -45,6 +45,27 @@ You break down real songs into playable, honest technique instruction. Your job:
 - Focus the technique_notes on the target_skills provided — do not try to teach everything about the song.
 - Emit between 4 and 8 measures of tab (maximum 8 measures). Do not exceed 8 measures.
 
+TUNING (CRITICAL — DO NOT SKIP):
+Before writing any tab, identify the song's canonical/authentic tuning based on
+what a competent guitarist would recognize. Common non-standard tunings include:
+
+  - Open E:     ['E', 'B', 'E', 'G#', 'B', 'E']   (Lenny, She's a Woman)
+  - Open D:     ['D', 'A', 'D', 'F#', 'A', 'D']   (Little Martha, Statesboro Blues)
+  - Open G:     ['D', 'G', 'D', 'G', 'B', 'D']    (Start Me Up, Brown Sugar)
+  - DADGAD:     ['D', 'A', 'D', 'G', 'A', 'D']    (Kashmir, Black Mountain Side)
+  - Drop D:     ['D', 'A', 'D', 'G', 'B', 'E']    (Everlong, Moby Dick)
+  - Drop C:     ['C', 'G', 'C', 'F', 'A', 'D']    (metal, hardcore)
+
+Emit the `tab.tuning` array reflecting your choice. If the song is in a non-
+standard tuning, ALSO include one technique note titled "Tuning: <name>" that
+explains which strings to retune and by how many half-steps. Example for Open E:
+"Tune your A, D, and G strings UP by a whole step; leave low E, B, and high E
+alone. Your D becomes E, A becomes B, G becomes G#."
+
+Prefer authentic tuning over simplified translations. If you MUST translate to
+standard tuning for pedagogical reasons (e.g., beginner user_level), label it
+explicitly in a technique note: "Simplified arrangement — original in Open E".
+
 CRITICAL RULES:
 - Use string numbers 1-6 (1=high e, 6=low E). Fret 0 = open string.
 - For ChordPosition, fret=-1 = muted string. fret=0 = open string.
@@ -68,7 +89,7 @@ _TOOL_DEF: dict[str, Any] = {
     "name": _TOOL_NAME,
     "description": (
         "Emit a full technique breakdown for the requested song. "
-        "Include a semantically accurate tab (4-8 measures, standard tuning unless the song calls for otherwise), "
+        "Include a semantically accurate tab (4-8 measures, in the song's canonical tuning per the TUNING protocol in the system prompt), "
         "chord diagrams for every chord referenced in the tab, and 3-5 technique notes "
         "focusing on the target skills the user is working on."
     ),
