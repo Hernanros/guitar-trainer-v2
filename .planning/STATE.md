@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: 04-04-PLAN.md complete — Slice D (nightly decay scheduler + APScheduler + decay_runs audit) shipped; Phase 4 COMPLETE
-last_updated: "2026-09-09T00:00:00.000Z"
-last_activity: 2026-09-09 -- Completed quick task 260909-01: tuning-aware Sonnet + mobile tuning label (closes Task #16). Also 2026-09-08 shipped 9 fixes end-to-end + investigation of Sonnet tuning quality.
+last_updated: "2026-09-10T00:00:00.000Z"
+last_activity: 2026-09-10 -- Completed quick task 260910-01: mobile refresh affordances (pull-to-refresh + dev button + E♭/D standard KNOWN_TUNINGS). Also 2026-09-10 corrected Lenny attribution (ffdf2e7 — was Open E, actually E♭ standard). Prior: 2026-09-09 260909-01 tuning-aware Sonnet initial ship; 2026-09-08 9 fixes end-to-end.
 progress:
   total_phases: 5
   completed_phases: 4
@@ -95,6 +95,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 260908-01 | Wire useBreakdown hook + call from breakdown screen (closes Slice B deviation §3) | 2026-09-08 | 3c67c77 | [260908-01-wire-usebreakdown-hook](./quick/260908-01-wire-usebreakdown-hook/) |
 | 260909-01 | Tuning-aware Sonnet + mobile tuning label (closes Task #16 tuning-quality investigation) | 2026-09-09 | af3fdef | [260909-01-sonnet-tuning-awareness](./quick/260909-01-sonnet-tuning-awareness/) |
+| 260910-01 | Mobile refresh affordances — pull-to-refresh + dev Settings button + E♭/D standard KNOWN_TUNINGS entries | 2026-09-10 | 1e3a12f | [260910-01-mobile-refresh-batch](./quick/260910-01-mobile-refresh-batch/) |
 
 ## Deferred Items
 
