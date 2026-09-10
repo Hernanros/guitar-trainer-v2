@@ -23,6 +23,7 @@
 import React from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '../../api/users';
 import { clearOnboardedAt, clearWizardState, setReRunPending } from '../../api/mmkv';
 
@@ -35,6 +36,27 @@ const RETENTION_LABELS: Record<string, string> = {
 
 export default function SettingsScreen() {
   const { data: user, isLoading } = useUser();
+  const qc = useQueryClient();
+
+  // POC dev affordance — invalidate all TanStack Query cache entries so the next
+  // render refetches from server. Needed for testing when server-side state has
+  // changed (quota reset, reroll marker inserted, song regen) but the client's
+  // staleTime: Infinity + MMKV persistence keeps serving the stale response.
+  const onRefreshCache = () => {
+    Alert.alert(
+      'Refresh cache?',
+      'Discards local cache. Next screen open refetches from server. Use when server-side state has been changed manually.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Refresh',
+          onPress: () => {
+            qc.invalidateQueries();
+          },
+        },
+      ],
+    );
+  };
 
   const onReRun = () => {
     Alert.alert(
@@ -85,6 +107,14 @@ export default function SettingsScreen() {
       >
         <Text style={styles.buttonText}>Re-run onboarding</Text>
       </Pressable>
+
+      <Text style={styles.devSectionLabel}>Dev</Text>
+      <Pressable
+        style={({ pressed }) => [styles.devButton, pressed && styles.buttonPressed]}
+        onPress={onRefreshCache}
+      >
+        <Text style={styles.devButtonText}>Refresh cache</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -130,5 +160,25 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 16,
+  },
+  devSectionLabel: {
+    color: '#666',
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginTop: 48,
+    marginBottom: 12,
+  },
+  devButton: {
+    borderWidth: 1,
+    borderColor: '#444',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  devButtonText: {
+    color: '#A0A0A0',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

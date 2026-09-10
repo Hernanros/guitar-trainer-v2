@@ -12,15 +12,17 @@
 //
 // The song title/metadata region wraps in a Pressable (onTitlePress) so the user can
 // re-open the breakdown in read-only mode even after rating (UI-SPEC §8).
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ActivityIndicator,
+  RefreshControl,
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTodaySong, useReroll } from '../../api/todaySong';
 import { SongOfDayCard } from '../../components/SongOfDayCard';
 import { FromTheBankTag } from '../../components/FromTheBankTag';
@@ -36,6 +38,21 @@ export default function TodayScreen() {
   const { data: today, isLoading, isError, error } = useTodaySong();
   const reroll = useReroll();
   const router = useRouter();
+  const qc = useQueryClient();
+
+  // Pull-to-refresh — invalidate the today-song query so the response refetches from server.
+  // Needed because staleTime: Infinity + MMKV persistence means a stale cache survives force-quit;
+  // the only user-facing escape hatch without waiting for a calendar-day boundary.
+  // Broad predicate ['today-song'] catches every user/day tuple; TanStack refetches those active.
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await qc.invalidateQueries({ queryKey: ['today-song'] });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [qc]);
 
   if (isLoading) {
     return (
@@ -81,7 +98,18 @@ export default function TodayScreen() {
         : null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor="#E07B39"
+          colors={['#E07B39']}
+        />
+      }
+    >
       {showBankChip && today.bank_source && (
         <FromTheBankTag variant={today.bank_source} />
       )}
