@@ -28,7 +28,7 @@
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Note(BaseModel):
@@ -76,14 +76,116 @@ class TechniqueNote(BaseModel):
     body: str
 
 
+class Drill(BaseModel):
+    """A single Fletcher-voiced practice drill (Phase 4.1, Plan 04.1-01).
+
+    Sonnet emits 2-4 of these per breakdown as part of the SAME `emit_breakdown`
+    tool call (no new endpoint, no new governor category). Each drill isolates
+    ONE skill from the target_skills list. `tab_snippet` is a CANONICAL EXERCISE
+    SHAPE composed by Sonnet — NOT a slice of the main song tab (see SYSTEM_PROMPT
+    DRILLS block BAD/GOOD example).
+
+    Landmine #3 protection: target_bpm > start_bpm is enforced by @model_validator
+    so a lazy Sonnet emit (equal bpms → zero-progress drill) fails at parse time.
+    The breakdowns endpoint wraps run_technique_breakdown parsing in a try/except
+    that soft-fails to drills=[] on ValidationError — the endpoint NEVER 500s
+    from a drills-shape violation.
+
+    target_skill_temp_id validity (is-this-a-real-skill-node-owned-by-the-user)
+    is NOT enforced at the Pydantic layer — validation lives at the endpoint
+    where the per-request resolved skill list is in scope (Plan 04.1-01 Task 3).
+    """
+    name: str = Field(
+        ...,
+        description="Short imperative name, e.g., 'Isolate the b3→3 slide'. Fletcher voice: sharp, diagnostic.",
+    )
+    target_skill_temp_id: str = Field(
+        ...,
+        description=(
+            "The single skill_temp_id from target_skills this drill exercises. "
+            "Exactly one. MUST be one of the ids in the user message."
+        ),
+    )
+    song_specific: bool = Field(
+        ...,
+        description=(
+            "True if `what` copy names this song. False if the drill is a foundational "
+            "technique any guitarist could use regardless of song context."
+        ),
+    )
+    what: str = Field(
+        ...,
+        description=(
+            "1-2 sentences explaining what the user does. If song_specific=true, name "
+            "the song and the moment."
+        ),
+    )
+    tab_snippet: Tab = Field(
+        ...,
+        description=(
+            "Canonical exercise shape. 1-2 measures max. MUST NOT be a slice of the main song tab."
+        ),
+    )
+    start_bpm: int = Field(
+        ...,
+        ge=40,
+        le=180,
+        description="Warmup tempo. Multiple of 5. Between 40 and 180.",
+    )
+    target_bpm: int = Field(
+        ...,
+        ge=40,
+        le=220,
+        description="Stretch tempo. Multiple of 5. Between 10 and 40 BPM higher than start_bpm.",
+    )
+    repetitions: int = Field(
+        ...,
+        ge=8,
+        le=30,
+        description="Reps per tempo step. Between 8 and 30.",
+    )
+    success_criterion: str = Field(
+        ...,
+        description="One sentence — what 'unlocked' sounds like. Fletcher voice.",
+    )
+    common_trap: Optional[str] = Field(
+        None,
+        description="Optional. One sentence about the mistake beginners make on this mechanic.",
+    )
+
+    @model_validator(mode="after")
+    def _target_bpm_above_start(self) -> "Drill":
+        """W2 fix: target_bpm must be strictly greater than start_bpm.
+
+        Any positive delta validates — the 10-40 BPM range is SYSTEM_PROMPT guidance,
+        not Pydantic-enforced (Sonnet-side quality gate, not a hard schema constraint).
+        """
+        if self.target_bpm <= self.start_bpm:
+            raise ValueError(
+                f"target_bpm ({self.target_bpm}) must be strictly greater than "
+                f"start_bpm ({self.start_bpm})"
+            )
+        return self
+
+
 class Breakdown(BaseModel):
     """Full Phase 3-ready song breakdown (D-01).
 
     Phase 3 will add: practice_loops, difficulty_tags — additive fields, no breaking change.
+
+    Phase 4.1 (Plan 04.1-01): `drills` field added — Sonnet emits 2-4 practice drills
+    alongside tab/chords/technique_notes in the SAME tool call. `default_factory=list`
+    means pre-4.1 cached breakdowns (where `drills` is absent from the JSONB) read back
+    as `drills=[]` without triggering min_length=2 — that check only fires when a caller
+    (i.e., Sonnet output parse) EXPLICITLY provides a drills list.
     """
     tab: Tab
     chords: list[Chord]
     technique_notes: list[TechniqueNote]
+    # Phase 4.1: drills. min_length/max_length only apply on explicit input (Sonnet
+    # output path). Default-factory-produced [] bypasses these checks — that's the
+    # intended backward-compat behavior for pre-4.1 cached rows.
+    drills: list[Drill] = Field(default_factory=list, min_length=2, max_length=4)
 
 
 class SongResponse(BaseModel):
