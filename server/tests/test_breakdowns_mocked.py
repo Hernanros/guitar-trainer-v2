@@ -398,7 +398,10 @@ async def test_get_client_called_inside_call_closure(monkeypatch):
     async with _make_session() as db:
         with pytest.raises(AIBreakdownError):
             await breakdown_module.run_technique_breakdown(
-                "Sweet Home Chicago", "Robert Johnson", ["Blues Shuffle Rhythm"], 0.3,
+                "Sweet Home Chicago",
+                "Robert Johnson",
+                [{"id": str(uuid.uuid4()), "name": "Blues Shuffle Rhythm"}],
+                0.3,
                 db=db, user_id=uuid.UUID(user_id),
             )
 
@@ -418,15 +421,22 @@ async def test_get_client_called_inside_call_closure(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_user_message_contains_static_labels():
-    """T-03-02-01 defense: user message wraps fields with static labels."""
+    """T-03-02-01 defense: user message wraps fields with static labels.
+
+    Phase 4.1 (Plan 04.1-01 Task 2): target_skills is now list[dict{id,name}]
+    (evolved from list[str] to support drill target_skill_temp_id echo). The
+    injection-defense assertions (label-before-value) still hold.
+    """
     from app.ai.breakdown import _format_user_message
 
     msg = _format_user_message(
-        "Sweet Home Chicago", "Robert Johnson", ["Blues Shuffle Rhythm"], 0.3
+        "Sweet Home Chicago",
+        "Robert Johnson",
+        [{"id": "skill-1", "name": "Blues Shuffle Rhythm"}],
+        0.3,
     )
     assert "Song:" in msg
     assert "Artist:" in msg
-    assert "Target skills to focus on:" in msg
     assert "User player_level:" in msg
     assert "Emit the structured breakdown now." in msg
     # Confirm injection defense: labels precede values
@@ -456,6 +466,67 @@ def test_max_tokens_is_8192():
     assert "max_tokens=8192" in source, (
         "max_tokens must be 8192 (RESEARCH §1 pitfall 3 — larger payload for 4-8 measures)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.1 Plan 04.1-01 Task 2 — SYSTEM_PROMPT DRILLS block + user-message
+# id/name pairs
+# ---------------------------------------------------------------------------
+
+
+def test_system_prompt_contains_drills_block():
+    """DRILLS block from RESEARCH.md §Q1 present in SYSTEM_PROMPT (Landmine #1 defense)."""
+    from app.ai.breakdown import SYSTEM_PROMPT
+    assert "DRILLS (produce 2-4)" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must contain the DRILLS block header verbatim"
+    )
+    assert "MUST NOT be a slice of the main song tab" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must forbid slicing the main tab (Landmine #1 negative constraint)"
+    )
+    assert "song_specific: true if" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must include the song_specific tagging phrasing"
+    )
+    # One BAD/GOOD example pair (Anthropic prompt-engineering best-practice per RESEARCH §Q1)
+    assert "BAD:" in SYSTEM_PROMPT and "GOOD:" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must contain a BAD/GOOD tab_snippet example pair"
+    )
+    # target_skill_temp_id id-constraint copy
+    assert "target_skill_temp_id MUST be one of the ids" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must constrain target_skill_temp_id to listed ids (Landmine #2)"
+    )
+
+
+def test_format_user_message_emits_id_name_pairs():
+    """_format_user_message now accepts list[dict{id,name}] and echoes both parts."""
+    from app.ai.breakdown import _format_user_message
+
+    msg = _format_user_message(
+        song_title="Lenny",
+        song_artist="SRV",
+        target_skills=[
+            {"id": "abc", "name": "Slide"},
+            {"id": "def", "name": "Barre"},
+        ],
+        user_level=0.5,
+    )
+    assert "id=abc" in msg
+    assert "name=Slide" in msg
+    assert "id=def" in msg
+    assert "name=Barre" in msg
+    assert "target_skill_temp_id in each drill MUST be one of the ids listed above" in msg
+
+
+def test_format_user_message_empty_target_skills_fallback():
+    """Empty target_skills preserves the existing '(no target skills specified)' fallback."""
+    from app.ai.breakdown import _format_user_message
+
+    msg = _format_user_message(
+        song_title="Lenny",
+        song_artist="SRV",
+        target_skills=[],
+        user_level=0.5,
+    )
+    assert "no target skills specified" in msg
 
 
 def test_no_savepoint_in_endpoint():

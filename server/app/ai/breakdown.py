@@ -99,6 +99,35 @@ CRITICAL RULES:
 - Duration values: "whole", "half", "quarter", "eighth", "sixteenth" only.
 - Do NOT invent song content that doesn't exist. If you're not sure about a specific arrangement, use a well-known idiomatic voicing for the song's genre.
 - Voice: sharp, diagnostic, next-step. Never vague. Never punitive.
+
+DRILLS (produce 2-4):
+After the main tab/chords/technique_notes, emit 2-4 short practice drills.
+Each drill isolates ONE skill from the target_skills list and must be
+playable in under 60 seconds per rep.
+
+For each drill, tag song_specific: true if the drill's `what` copy
+explicitly references THIS song (e.g., "the b3→3 slide SRV uses in Lenny's
+intro"). Tag song_specific: false if the drill is a foundational
+technique any guitarist could benefit from regardless of song context
+(e.g., "isolate the E-shape barre chord in position VII").
+
+For `tab_snippet`: compose a CANONICAL EXERCISE SHAPE that isolates the
+technique. It MUST NOT be a slice of the main song tab. The snippet should
+be 1-2 measures maximum and exercise ONE mechanic per drill.
+
+BAD: `tab_snippet` is measures 3-4 from the main song tab.
+GOOD: `tab_snippet` is just the two-note slide on one string, played
+      alone, no bass, no chord — isolated so the user drills the mechanic
+      not the song.
+
+Order drills easiest→hardest. Start_bpm should be a comfortable warmup
+tempo, target_bpm should be a stretch (10-40 BPM higher, in 5-BPM
+increments to match the skill graph's 5-bpm bins). Repetitions: 8-30
+per tempo step.
+
+target_skill_temp_id MUST be one of the ids listed in the user message.
+Do not invent ids. If none of the listed skills fit a drill you'd
+naturally emit, skip that drill rather than mislabel it.
 """
 
 # ---------------------------------------------------------------------------
@@ -130,7 +159,7 @@ _TOOL_DEF: dict[str, Any] = {
 def _format_user_message(
     song_title: str,
     song_artist: str,
-    target_skill_names: list[str],
+    target_skills: list[dict],
     user_level: float,
 ) -> str:
     """Wrap user-controlled fields with static labels.
@@ -138,16 +167,26 @@ def _format_user_message(
     Defense-in-depth against prompt injection via song_title/artist (T-03-02-01).
     Even though song data comes from server-controlled rows, apply the mitigation
     pattern from Phase 2's _format_user_message.
+
+    Phase 4.1 (Plan 04.1-01 Task 2): `target_skills` is now a list of
+    `{"id": "<uuid-str>", "name": "<skill name>"}` dicts (evolved from
+    list[str]) so Sonnet can echo the exact id back in each drill's
+    `target_skill_temp_id` field (Landmine #2 defense).
     """
-    skills_str = (
-        ", ".join(target_skill_names)
-        if target_skill_names
-        else "(no target skills specified — use idiomatic voicings for the genre)"
-    )
+    if target_skills:
+        skills_block = "\n".join(
+            f"  - id={s['id']}  name={s['name']}" for s in target_skills
+        )
+        skills_str = (
+            f"target_skills available:\n{skills_block}\n\n"
+            f"target_skill_temp_id in each drill MUST be one of the ids listed above."
+        )
+    else:
+        skills_str = "(no target skills specified — use idiomatic voicings for the genre)"
     return (
         f"Song: {song_title}\n"
         f"Artist: {song_artist}\n"
-        f"Target skills to focus on: {skills_str}\n"
+        f"{skills_str}\n"
         f"User player_level: {user_level:.2f}\n\n"
         f"Emit the structured breakdown now."
     )
@@ -161,7 +200,7 @@ def _format_user_message(
 async def run_technique_breakdown(
     song_title: str,
     song_artist: str,
-    target_skill_names: list[str],
+    target_skills: list[dict],
     user_level: float,
     *,
     db: AsyncSession,
@@ -182,7 +221,10 @@ async def run_technique_breakdown(
     Args:
         song_title: Title of the song to break down.
         song_artist: Artist name.
-        target_skill_names: Leaf skill node names associated with this song for this user.
+        target_skills: Leaf skill nodes for this song+user, as list of
+            {"id": "<uuid-str>", "name": "<skill name>"} dicts. Sonnet echoes
+            the exact id in each drill's `target_skill_temp_id` (Plan 04.1-01
+            Landmine #2 defense).
         user_level: Mean mastery across user's leaf nodes, 0.0 (beginner) to 1.0 (expert).
         db: AsyncSession — required by @governed for cap-check + audit row.
         user_id: UUID — required by @governed for row attribution.
@@ -196,7 +238,7 @@ async def run_technique_breakdown(
         BudgetExceededError: Raised by @governed decorator if cap is hit (before this body).
     """
     user_content = _format_user_message(
-        song_title, song_artist, target_skill_names, user_level
+        song_title, song_artist, target_skills, user_level
     )
     messages = [{"role": "user", "content": user_content}]
 

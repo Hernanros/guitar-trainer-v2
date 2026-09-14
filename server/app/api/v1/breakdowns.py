@@ -35,6 +35,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _load_cached_breakdown(cached: dict) -> Breakdown:
+    """Validate a cached breakdown dict from JSONB into a Breakdown model.
+
+    Landmine (Plan 04.1-01): Breakdown.drills has min_length=2 which fires on
+    explicit input. Cached rows serialized via model_dump() include `drills: []`
+    when no drills were generated (pre-4.1 rows AND post-4.1 Landmine #3 soft-fail
+    rows) — that empty-list key would trip min_length on re-read. Strip it before
+    validation so `default_factory=list` kicks in and drills becomes [] cleanly.
+
+    Real drills (2-4 items) pass through unchanged and validate normally.
+    """
+    if isinstance(cached, dict) and isinstance(cached.get("drills"), list) and not cached["drills"]:
+        cached = {k: v for k, v in cached.items() if k != "drills"}
+    return Breakdown.model_validate(cached)
+
+
 @router.get("/songs/{song_id}/breakdown", response_model=Breakdown)
 async def get_breakdown(
     song_id: int,
@@ -107,17 +123,20 @@ async def get_breakdown(
             {"id": cached_call_id, "uid": str(user_id), "model": _SONNET_MODEL},
         )
         await db.commit()
-        return Breakdown.model_validate(song.breakdown)
+        return _load_cached_breakdown(song.breakdown)
 
     # 4. Cache miss — resolve target skills for this song + user_level
+    # Phase 4.1 (Plan 04.1-01 Task 2 rename → Task 3 wiring): fetch both id + name
+    # so Sonnet can echo the exact skill_node UUID back in each drill's
+    # `target_skill_temp_id` field (Landmine #2 hallucinated-id defense).
     skill_rows = (
         await db.execute(
-            select(SkillNode.name)
+            select(SkillNode.id, SkillNode.name)
             .join(SongSkill, SongSkill.skill_node_id == SkillNode.id)
             .where(SongSkill.song_id == song_id, SkillNode.user_id == user_id)
         )
-    ).scalars().all()
-    target_skill_names = list(skill_rows)
+    ).all()
+    target_skills = [{"id": str(sid), "name": sname} for sid, sname in skill_rows]
 
     user_level_scalar = await db.scalar(
         select(func.coalesce(func.avg(SkillNode.mastery), 0.5)).where(
@@ -134,7 +153,7 @@ async def get_breakdown(
     # (BudgetExceededError is caught upstream in step 2 — cap-check fires before this)
     try:
         breakdown = await run_technique_breakdown(
-            song.title, song.artist or "", target_skill_names, user_level,
+            song.title, song.artist or "", target_skills, user_level,
             db=db, user_id=user_id,
         )
     except BudgetExceededError as exc:
