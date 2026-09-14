@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 04.1-04-PLAN.md complete — Wave 3 (mobile drill-detail screen) shipped via cherry-pick recovery after worktree base-drift incident. Wave 4 (04.1-05 manual eval) pending.
+stopped_at: 04.1-05 Task 1 shipped — eval script infrastructure on main. Wave 4 paused at Task 2 HUMAN CHECKPOINT (live-Anthropic eval run + landmine gate table).
 last_updated: "2026-09-14T00:00:00.000Z"
-last_activity: 2026-09-14 -- Phase 4.1 Wave 3 (Plan 04) shipped via cherry-pick recovery. Executor spawned in worktree isolation forked off ancient base (ee44834 pre-Phase-4.1) — worktree base drift caused a would-delete-30-files merge blocker. Recovery: reset main to 9522dea (dropped stray executor commit on main), cherry-picked 5 worktree commits onto proper Wave 2 base, resolved 1 comment-only conflict in [songId].tsx Task 5. tsc clean. Prior: 2026-09-14 Phase 4.1 Waves 1+2 executed (8 commits shipped). 2026-09-14 inserted Phase 4.1 + captured CONTEXT + RESEARCH + 5 PLAN.md files.
+last_activity: 2026-09-14 -- Phase 4.1 Wave 4 Task 1 shipped (513a1c4): eval_drills.py + skip-by-default pytest wrapper. Executor cleanly hit Task 2 checkpoint — no invented eval results. Worktree base drift did NOT recur this run (explicit EXPECTED_BASE anchor + guard in executor prompt worked). Prior: 2026-09-14 Wave 3 shipped via cherry-pick recovery after worktree base drift. 2026-09-14 Waves 1+2 executed.
 progress:
   total_phases: 5
   completed_phases: 4
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 
 ## Current Position
 
-Phase: 04.1 (AI Drills) — EXECUTING — Waves 1+2+3 shipped, Wave 4 pending
-Plan: 4 of 5 complete (Plans 01, 02, 03, 04 shipped; Plan 05 pending)
-Status: Wave 3 (04.1-04 mobile drill-detail screen) shipped 2026-09-14 via cherry-pick recovery — see "Worktree base-drift incident" below. Tree state: nested Expo Router /breakdown/[songId]/drill/[drillIndex] route live, useSubmitDrillRating hook + 4 mutation tests, drill.test.tsx pure-fn helpers 16 tests (B2), B1 server-derived drillRatedToday on parent breakdown screen (deletes pre-revision mutation-cache subscribe pattern). Only pre-existing app-tabs.web.tsx tsc error remains (Phase 1 orphan, deferred). Deployments PENDING: Railway (server changes) + EAS iOS (mobile drill UI + drill-detail screen) BEFORE Wave 4 can run. Wave 4 = Plan 04.1-05 (manual eval loop against LIVE Anthropic ~$0.10-0.30 + 2 blocking checkpoints).
+Phase: 04.1 (AI Drills) — EXECUTING — Waves 1+2+3 + Wave 4 Task 1 shipped, Wave 4 Tasks 2+3 pending human checkpoints
+Plan: 4 of 5 complete + Plan 05 Task 1 shipped (Plan 05 pending human eval + on-device verify)
+Status: Wave 4 Task 1 (513a1c4) shipped 2026-09-14 — server/scripts/eval_drills.py (5 tuning-diverse songs: Lenny/Kashmir/Little Wing/Beat It/Wonderwall) + server/tests/test_drill_eval_live.py (skip-by-default via ANTHROPIC_EVAL_RUN=1). W5 fix respected: Postgres-only, exits with clear instructions if DATABASE_URL absent/non-postgres. Task 2 CHECKPOINT: awaiting user to run live eval (~$0.35 budget), fill EVAL-RESULTS.md with 5 songs × 6 landmines = 30-gate table, disposition SHIP/REVISE PROMPT/REVISE SCHEMA/DEFER. Task 3 CHECKPOINT: awaiting Railway deploy + fresh EAS iOS build (batched with 6 Phase 3+4 device-verify items per memory).
 Last activity: 2026-09-14 -- Phase 4.1 Wave 3 shipped (Plan 04 via cherry-pick recovery). Prior: 2026-09-14 Waves 1+2 executed (8 commits shipped). 2026-09-14 inserted Phase 4.1 + captured CONTEXT + RESEARCH + 5 PLAN.md files.
 
 ## Worktree base-drift incident (2026-09-14)
@@ -111,6 +111,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14 (Phase 4.1 Wave 3 shipped via cherry-pick recovery)
-Stopped at: Wave 3 (Plan 04.1-04 mobile drill-detail screen) shipped. 5 commits on main (a34d1d1 Task 2, f0058a4 Task 3, 0bb56c2 Task 4, 30950b6 Task 5, e4d7899 SUMMARY). Nested Expo Router drill route + useSubmitDrillRating hook + drill.test.tsx 16 pure-fn tests + B1 server-derived drillRatedToday on parent breakdown screen. Recovery from worktree base-drift incident (see incident block in Current Position). tsc clean modulo pre-existing Phase 1 app-tabs.web.tsx orphan. jest not runnable locally (jest-expo not installed in mobile/node_modules — pre-existing env issue, declared in package.json but absent).
-Resume file: .planning/phases/04.1-ai-drills/04.1-05-PLAN.md (Wave 4 = manual eval loop against live Anthropic + 2 blocking checkpoints; BLOCKED on Railway deploy of server changes + fresh EAS iOS build)
+Last session: 2026-09-14 (Phase 4.1 Wave 3 + Wave 4 Task 1 shipped)
+Stopped at: Wave 4 paused at Task 2 human checkpoint. Task 1 shipped as 513a1c4 (eval script + pytest wrapper on main). Prior Wave 3 shipped as a34d1d1→e4d7899 (5 commits + tracking). To resume Wave 4: (1) run live eval via `cd server && ANTHROPIC_EVAL_RUN=1 ANTHROPIC_API_KEY=... DATABASE_URL=postgresql+asyncpg://... python -m scripts.eval_drills` (~$0.35 budget); (2) fill .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md with 30-gate landmine table + disposition; (3) commit results doc; (4) if SHIP disposition, deploy Railway server + build EAS iOS + do on-device verify (batch with 6 pending Phase 3+4 items); (5) commit SUMMARY.md; (6) re-enter via `/gsd:execute-phase 04.1 --wave 4` or `/gsd:progress` to finalize phase verification.
+Resume file: .planning/phases/04.1-ai-drills/04.1-05-PLAN.md (Wave 4 = manual eval + 2 human checkpoints; Task 1 shipped; Tasks 2+3 pending)
