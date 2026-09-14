@@ -17,6 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Onboarding & Initial Skill Graph** - 5–8 min onboarding, Settings re-run, 3-level DAG skill graph with 5-bpm bins seeded from onboarding answers (completed 2026-07-28)
 - [ ] **Phase 3: AI Teacher & Song of the Day** - Sonnet 4.6 breakdown, react-native-svg tab + chord diagrams, deterministic song selection, self-report rating writes back to graph
 - [x] **Phase 4: Cost Governor & Node Verification** - Single-module LLM governor, per-user rate caps, quota UI, $20 Console cap, embed-dedup + Sonnet verifier for new nodes + curator queue, nightly 5% decay (completed 2026-08-12)
+- [ ] **Phase 4.1: AI Drills** (INSERTED 2026-09-14) - Sonnet emits 2-4 named drills per breakdown with target_skill_node + tempo ladder + rep count; mobile renders drill list + focused drill screen; per-drill rating writes to skill_nodes.mastery. Recovers the drills-in-service-of-songs vision from V1's failure diagnosis.
 - [ ] **Phase 5: Library, Toolkit & Polish** - Library tab (search/add/remove), Toolkit (metronome + chromatic tuner), shareability polish
 
 ## Phase Details
@@ -180,6 +181,31 @@ Plans:
 
 **UI hint**: yes
 
+### Phase 4.1: AI Drills (INSERTED 2026-09-14)
+
+**Goal**: Turn the Song of the Day breakdown from a static reference (tab + chords + technique-notes-as-paragraphs) into an actionable practice unit. The AI teacher emits 2–4 named drills per song, each targeting a specific skill_node with a tempo ladder, repetition count, and success criterion. Drills are rated individually so mastery writes back to one skill_node per drill — tightening the personalization signal the whole product hinges on.
+**Mode:** mvp
+**Depends on**: Phase 4 (needs the Sonnet governor pipeline + skill_nodes writeback path from Slice C)
+**Requirements**: DRILL-01, DRILL-02, DRILL-03
+**Success Criteria** (what must be TRUE):
+
+  1. `GET /api/v1/songs/{id}/breakdown` response includes 2–4 drills with `name`, `target_skill_temp_id`, `what`, `tab_snippet` (1–2 measures), `start_bpm`, `target_bpm`, `repetitions`, `success_criterion`, optional `common_trap`
+  2. Mobile `breakdown/[songId]` screen renders a **DRILLS** section above the full-song tab; each drill = a card with name + target skill + tempo ladder + Start button
+  3. Tapping Start opens a focused drill screen showing the 1–2 measure `tab_snippet`, current tempo in the ladder, rep counter, and 3-choice rating (Done unlocked it / Getting closer / Not my tempo skip) — metronome integration DEFERRED to Phase 5 so drill screen renders static tab + spec for now
+  4. Rating a drill writes to `skill_nodes.mastery` for the drill's `target_skill_temp_id` via the existing per-song rating path (extended for per-drill granularity)
+  5. Existing Breakdown fields (`tab`, `chords`, `technique_notes`) unchanged and still render — drills are additive
+
+**Motivation**: 2026-09-14 birdseye product review concluded V2 was repeating V1's failure mode with sides flipped. V1 had drills without songs → user stopped opening it (PROJECT.md line 47's killer diagnosis). V2 as shipped is songs without drills — same silo, other side. The word "drill" appeared 0 times in the pre-insertion ROADMAP. This phase restores the layer that got dropped between vision and roadmap.
+
+**Out of scope** (deferred to Phase 5 or later):
+- Metronome click during drill practice — Phase 5 Toolkit ships the metronome; a follow-on wires it into drill Start
+- Drill progress tracking across sessions (rep counter is per-session only for now)
+- Drill history / analytics
+- Redefining Phase 5 — Phase 5 stays as-is after this insertion
+
+**Plans**: TBD
+**UI hint**: yes
+
 ### Phase 5: Library, Toolkit & Polish
 
 **Goal**: The Library tab lets the user browse, search, add, and remove tracked songs; the Toolkit tab ships a working metronome (tempo + subdivisions) and a chromatic tuner — so the app feels shareable day one.
@@ -208,4 +234,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Onboarding & Initial Skill Graph | 4/4 | Complete    | 2026-07-28 |
 | 3. AI Teacher & Song of the Day | 4/4 | Complete | 2026-07-29 |
 | 4. Cost Governor & Node Verification | 4/4 | Complete — all 6 req IDs satisfied (COST-01/02/03/04, SKILL-04, SKILL-05) | 2026-08-12 |
+| 4.1. AI Drills (INSERTED) | 0/TBD | Not planned yet — recovers drills-in-service-of-songs vision | - |
 | 5. Library, Toolkit & Polish | 0/TBD | Not started | - |

@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 
 ## Current Position
 
-Phase: 04 (Cost Governor & Node Verification) — COMPLETE
-Plan: 4 of 4 complete (Slice D shipped — nightly decay scheduler + decay_runs audit)
-Status: Phase 4 complete — all 6 req IDs satisfied (COST-01/02/03/04, SKILL-04, SKILL-05)
-Last activity: 2026-09-09 -- Completed quick task 260909-01: tuning-aware Sonnet + mobile tuning label (commit: af3fdef); Task #16 investigation closed. Prior: 2026-09-08 shipped 9 fixes (route-leak, schema regen, null-guards, useBreakdown wire, re-run FK fix, Sonnet skill_graph hardening, reroll bank_source fix, Grace-E). 2026-08-12 Phase 4 Slice D shipped.
+Phase: 04.1 (AI Drills) — INSERTED 2026-09-14 after birdseye product review; recovers drills-in-service-of-songs vision
+Plan: 0 of TBD (not planned yet — next step /gsd:discuss-phase 4.1 → /gsd:plan-phase 4.1)
+Status: Phase 4 done through Slice D + Task #16 tuning-awareness quick tasks; Phase 4.1 inserted 2026-09-14 to close the "songs without drills" gap surfaced by product-viability-review
+Last activity: 2026-09-14 -- Inserted Phase 4.1 (AI Drills) into ROADMAP + PROJECT.md; DRILL-01/02/03 requirements added. Prior: 2026-09-10 quick task 260910-01 mobile refresh affordances (commit 1e3a12f); 2026-09-09 tuning-aware Sonnet (af3fdef + ffdf2e7 correction); 2026-09-08 9 fixes end-to-end.
 
-Progress: [██████████████░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 ✓, Phase 5 next
+Progress: [██████████████░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 ✓, Phase 4.1 planning next, Phase 5 after
 
 ## Performance Metrics
 
@@ -107,6 +107,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-09 (Sonnet tuning-awareness quick task shipped)
-Stopped at: Shipped af3fdef (tuning-aware Sonnet + mobile TabNotation tuning label) closing Task #16. Server change needs Railway deploy; mobile change needs new EAS build. 2026-09-08 previously shipped 9 commits + verified core loop end-to-end on device. Open: Task #7 cross-day rating (needs midnight rotation), Task #18 sparse skill graph investigation, Task #9 orphaned app-tabs cleanup, Items 4/5/6 device-verify (need new EAS build).
-Resume file: .planning/HANDOFF.json (needs update — next_action should shift to "trigger EAS build + verify tuning label + Item 4/5/6 device walk")
+Last session: 2026-09-14 (birdseye product review → Phase 4.1 AI Drills inserted + CONTEXT.md captured)
+Stopped at: Phase 4.1 context gathered. Product-viability-review flagged V2 as "songs without drills" (V1's failure mirrored). Phase 4.1 inserted into ROADMAP + PROJECT.md + STATE.md (uncommitted). CONTEXT.md locks: (a) drills inline in the breakdown Sonnet call, hybrid song_specific+foundational (Sonnet decides per drill), (b) tab_snippet is canonical shape Sonnet-composes per call (no schema change), (c) manual tap-to-advance rep counter. Rating write semantics + drill_id storage shape deferred to planner. Metronome integration deferred to Phase 5. Prior: 2026-09-10 quick 260910-01 (refresh affordances + E♭ standard); 2026-09-09 260909-01 (tuning-aware Sonnet); 2026-09-08 9 fixes end-to-end.
+Resume file: .planning/phases/04.1-ai-drills/04.1-CONTEXT.md (context ready for /gsd:plan-phase 4.1)
