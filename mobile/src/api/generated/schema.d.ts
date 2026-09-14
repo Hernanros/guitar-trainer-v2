@@ -315,6 +315,7 @@ export interface components {
          * @description Full Phase 3-ready song breakdown (D-01).
          *
          *     Phase 3 will add: practice_loops, difficulty_tags — additive fields, no breaking change.
+         *     Phase 4.1 adds: drills — additive field, empty [] for pre-4.1 cached rows.
          */
         Breakdown: {
             tab: components["schemas"]["Tab"];
@@ -322,6 +323,58 @@ export interface components {
             chords: components["schemas"]["Chord"][];
             /** Technique Notes */
             technique_notes: components["schemas"]["TechniqueNote"][];
+            /** Drills */
+            drills: components["schemas"]["Drill"][];
+        };
+        /**
+         * BreakdownEnvelope
+         * @description Phase 4.1 B1 fix — server-derived drill state envelope.
+         *
+         *     Wraps the cached Breakdown (D-11 cache-forever preserved) with per-request
+         *     drill_rated_today_indices computed from user_sessions on every read. Mobile
+         *     consumes this to render "drill rated today" UI state durably (survives app
+         *     restart / cache invalidation / cross-component navigation).
+         */
+        BreakdownEnvelope: {
+            breakdown: components["schemas"]["Breakdown"];
+            /** Drill Rated Today Indices */
+            drill_rated_today_indices: number[];
+        };
+        /**
+         * Drill
+         * @description A named practice drill emitted by Sonnet in the breakdown call.
+         *
+         *     Phase 4.1 core primitive — turns the breakdown from a static reference into
+         *     an actionable practice unit. Each drill targets a specific skill_node (via
+         *     target_skill_temp_id — a validated UUID) with a tempo ladder (start_bpm →
+         *     target_bpm), a repetition count, and a Fletcher-voiced success criterion.
+         *
+         *     song_specific: true → "For this song" (drill tied to this song's use of the technique)
+         *     song_specific: false → "Any song" (foundational skill drill, transferable)
+         *
+         *     tab_snippet: canonical exercise shape (NOT a slice of the main song tab —
+         *     enforced by Sonnet's SYSTEM_PROMPT DRILLS block).
+         */
+        Drill: {
+            /** Name */
+            name: string;
+            /** Target Skill Temp Id */
+            target_skill_temp_id: string;
+            /** Song Specific */
+            song_specific: boolean;
+            /** What */
+            what: string;
+            tab_snippet: components["schemas"]["Tab"];
+            /** Start Bpm */
+            start_bpm: number;
+            /** Target Bpm */
+            target_bpm: number;
+            /** Repetitions */
+            repetitions: number;
+            /** Success Criterion */
+            success_criterion: string;
+            /** Common Trap */
+            common_trap?: string | null;
         };
         /**
          * BreakdownQuota
@@ -407,6 +460,13 @@ export interface components {
              * @enum {string}
              */
             rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
+            /** Drill Index */
+            drill_index?: number | null;
+            /**
+             * Target Skill Node Id
+             * Format: uuid
+             */
+            target_skill_node_id?: string | null;
         };
         /** SessionResponse */
         SessionResponse: {
@@ -431,6 +491,13 @@ export interface components {
             local_calendar_day: string;
             /** Rated At */
             rated_at: string;
+            /** Drill Index */
+            drill_index?: number | null;
+            /**
+             * Target Skill Node Id
+             * Format: uuid
+             */
+            target_skill_node_id?: string | null;
         };
         /**
          * SkillGraphResponse
@@ -778,7 +845,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Breakdown"];
+                    "application/json": components["schemas"]["BreakdownEnvelope"];
                 };
             };
             /** @description Validation Error */
