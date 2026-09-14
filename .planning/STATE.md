@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 04-04-PLAN.md complete — Slice D (nightly decay scheduler + APScheduler + decay_runs audit) shipped; Phase 4 COMPLETE
-last_updated: "2026-09-10T00:00:00.000Z"
-last_activity: 2026-09-10 -- Completed quick task 260910-01: mobile refresh affordances (pull-to-refresh + dev button + E♭/D standard KNOWN_TUNINGS). Also 2026-09-10 corrected Lenny attribution (ffdf2e7 — was Open E, actually E♭ standard). Prior: 2026-09-09 260909-01 tuning-aware Sonnet initial ship; 2026-09-08 9 fixes end-to-end.
+stopped_at: 04.1-04-PLAN.md complete — Wave 3 (mobile drill-detail screen) shipped via cherry-pick recovery after worktree base-drift incident. Wave 4 (04.1-05 manual eval) pending.
+last_updated: "2026-09-14T00:00:00.000Z"
+last_activity: 2026-09-14 -- Phase 4.1 Wave 3 (Plan 04) shipped via cherry-pick recovery. Executor spawned in worktree isolation forked off ancient base (ee44834 pre-Phase-4.1) — worktree base drift caused a would-delete-30-files merge blocker. Recovery: reset main to 9522dea (dropped stray executor commit on main), cherry-picked 5 worktree commits onto proper Wave 2 base, resolved 1 comment-only conflict in [songId].tsx Task 5. tsc clean. Prior: 2026-09-14 Phase 4.1 Waves 1+2 executed (8 commits shipped). 2026-09-14 inserted Phase 4.1 + captured CONTEXT + RESEARCH + 5 PLAN.md files.
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 16
-  completed_plans: 15
-  percent: 75
+  completed_plans: 16
+  percent: 81
 ---
 
 # Project State
@@ -25,12 +25,16 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 
 ## Current Position
 
-Phase: 04.1 (AI Drills) — EXECUTING — Waves 1+2 shipped, Waves 3+4 pending
-Plan: 3 of 5 complete (Plans 01, 02, 03 shipped; Plans 04, 05 pending)
-Status: Wave 1 (04.1-01 server drill emission) + Wave 2 (04.1-02 drill rating write + 04.1-03 mobile drill list) shipped 2026-09-14. Tree state verified: Alembic 0005 present, BreakdownEnvelope live, DrillCard mounted, drill_rated_today_indices wired both sides, 76 server tests pass + mobile tsc clean. Deployments PENDING: Railway (server changes for Wave 4 eval) + EAS iOS (mobile changes for on-device verify). Wave 3 = Plan 04.1-04 (mobile drill-detail screen, 5 tasks, single-plan — no race risk).
-Last activity: 2026-09-14 -- Phase 4.1 Waves 1+2 executed (8 commits shipped). Prior: 2026-09-14 inserted Phase 4.1 + captured CONTEXT + RESEARCH + 5 PLAN.md files (plan-checker PASS round 2). 2026-09-10 quick 260910-01 mobile refresh affordances. 2026-09-09 tuning-aware Sonnet (af3fdef + ffdf2e7 correction). 2026-09-08 9 fixes end-to-end.
+Phase: 04.1 (AI Drills) — EXECUTING — Waves 1+2+3 shipped, Wave 4 pending
+Plan: 4 of 5 complete (Plans 01, 02, 03, 04 shipped; Plan 05 pending)
+Status: Wave 3 (04.1-04 mobile drill-detail screen) shipped 2026-09-14 via cherry-pick recovery — see "Worktree base-drift incident" below. Tree state: nested Expo Router /breakdown/[songId]/drill/[drillIndex] route live, useSubmitDrillRating hook + 4 mutation tests, drill.test.tsx pure-fn helpers 16 tests (B2), B1 server-derived drillRatedToday on parent breakdown screen (deletes pre-revision mutation-cache subscribe pattern). Only pre-existing app-tabs.web.tsx tsc error remains (Phase 1 orphan, deferred). Deployments PENDING: Railway (server changes) + EAS iOS (mobile drill UI + drill-detail screen) BEFORE Wave 4 can run. Wave 4 = Plan 04.1-05 (manual eval loop against LIVE Anthropic ~$0.10-0.30 + 2 blocking checkpoints).
+Last activity: 2026-09-14 -- Phase 4.1 Wave 3 shipped (Plan 04 via cherry-pick recovery). Prior: 2026-09-14 Waves 1+2 executed (8 commits shipped). 2026-09-14 inserted Phase 4.1 + captured CONTEXT + RESEARCH + 5 PLAN.md files.
 
-Progress: [██████████████░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 ✓, Phase 4.1 planning next, Phase 5 after
+## Worktree base-drift incident (2026-09-14)
+
+Executor spawned via `Agent(isolation="worktree")` for Plan 04.1-04. The isolated worktree branch forked off `ee44834` (README commit from **before** Phase 4.1 was inserted) instead of current `9522dea`. Result: worktree branch had Task 2-5 commits but no Wave 2 files at all. Executor's Task 5 "brought in Wave 2 files" by re-creating them (identical content), and one Task 2 attempt accidentally committed to the main worktree before switching. If the standard workflow cleanup had merged the worktree branch back, its deletion guard would have blocked (would-delete 30 files / ~7000 lines of Waves 1+2). Recovery via cherry-pick + `git reset --hard 9522dea`. Root cause: worktree fork base not aligned with orchestrator HEAD. Future-infra: verify worktree base = orchestrator HEAD before dispatching executor; guard-clause for base-diff exceeding N commits behind.
+
+Progress: [██████████████░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 ✓, Phase 4.1 Waves 1-3 ✓ (Wave 4 pending deploys), Phase 5 after
 
 ## Performance Metrics
 
@@ -107,6 +111,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14 (Phase 4.1 planning + Waves 1+2 executed — pause point)
-Stopped at: Waves 1+2 of Phase 4.1 shipped end-to-end. 8 commits on main. Server: Drill Pydantic model + SYSTEM_PROMPT DRILLS block + Landmine #3 soft-fail + Alembic 0005 (user_sessions.drill_index + target_skill_node_id) + BreakdownEnvelope with drill_rated_today_indices + submit_rating drill-primary 409 policy. Mobile: schema regen (Path B manual edit — Wave 3 Plan 04 Task 1 has sanity check for drift) + DrillCard component + DRILLS section on breakdown screen with envelope adapter. 76 server tests pass, mobile tsc clean. Real incident: parallel-execution git race in Wave 2 tangled commit boundaries between Plans 02+03 (749315c bundles both) — content correct, audit trail muddled, future-infra note filed.
-Resume file: .planning/phases/04.1-ai-drills/04.1-04-PLAN.md (Wave 3 = single plan, 5 tasks; no race risk since only one executor)
+Last session: 2026-09-14 (Phase 4.1 Wave 3 shipped via cherry-pick recovery)
+Stopped at: Wave 3 (Plan 04.1-04 mobile drill-detail screen) shipped. 5 commits on main (a34d1d1 Task 2, f0058a4 Task 3, 0bb56c2 Task 4, 30950b6 Task 5, e4d7899 SUMMARY). Nested Expo Router drill route + useSubmitDrillRating hook + drill.test.tsx 16 pure-fn tests + B1 server-derived drillRatedToday on parent breakdown screen. Recovery from worktree base-drift incident (see incident block in Current Position). tsc clean modulo pre-existing Phase 1 app-tabs.web.tsx orphan. jest not runnable locally (jest-expo not installed in mobile/node_modules — pre-existing env issue, declared in package.json but absent).
+Resume file: .planning/phases/04.1-ai-drills/04.1-05-PLAN.md (Wave 4 = manual eval loop against live Anthropic + 2 blocking checkpoints; BLOCKED on Railway deploy of server changes + fresh EAS iOS build)

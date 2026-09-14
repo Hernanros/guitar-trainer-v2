@@ -198,6 +198,7 @@ Plans:
 **Motivation**: 2026-09-14 birdseye product review concluded V2 was repeating V1's failure mode with sides flipped. V1 had drills without songs → user stopped opening it (PROJECT.md line 47's killer diagnosis). V2 as shipped is songs without drills — same silo, other side. The word "drill" appeared 0 times in the pre-insertion ROADMAP. This phase restores the layer that got dropped between vision and roadmap.
 
 **Out of scope** (deferred to Phase 5 or later):
+
 - Metronome click during drill practice — Phase 5 Toolkit ships the metronome; a follow-on wires it into drill Start
 - Drill progress tracking across sessions (rep counter is per-session only for now)
 - Drill history / analytics
@@ -209,17 +210,17 @@ Plans:
 
 **Wave 1**
 
-- [ ] 04.1-01-PLAN.md — Slice 1 · Server-side drill emission: Drill Pydantic model (bpm/rep constraints + target_bpm>start_bpm validator per W2) + Breakdown.drills field (min_length=2/max_length=4 per Landmine #3) + SYSTEM_PROMPT DRILLS block + _format_user_message pair-passing + breakdowns endpoint hallucinated-id drop-filter + Landmine #3 soft-fail (ValidationError → drills=[], never 500) + schema + endpoint tests [DRILL-01]
+- [x] 04.1-01-PLAN.md — Slice 1 · Server-side drill emission: Drill Pydantic model (bpm/rep constraints + target_bpm>start_bpm validator per W2) + Breakdown.drills field (min_length=2/max_length=4 per Landmine #3) + SYSTEM_PROMPT DRILLS block + _format_user_message pair-passing + breakdowns endpoint hallucinated-id drop-filter + Landmine #3 soft-fail (ValidationError → drills=[], never 500) + schema + endpoint tests [DRILL-01]
 
 **Wave 2** *(blocked on Wave 1 — Drill Pydantic contract required for downstream)*
 
-- [ ] 04.1-02-PLAN.md — Slice 2 · Rating write path + BreakdownEnvelope: Alembic 0005 (drill_index + target_skill_node_id columns + COALESCE partial-unique index + CHECK constraint) + UserSession ORM extension + SessionCreate/SessionResponse Pydantic extension + submit_rating drill branch (surgical single-node UPDATE) + drill-primary 409 policy (SONG_RATING_BLOCKED_BY_DRILL) + **B1 FIX: BreakdownEnvelope wrapper adds server-derived drill_rated_today_indices to GET /breakdown response** + alembic 0005 + sessions + envelope tests [DRILL-03]
+- [x] 04.1-02-PLAN.md — Slice 2 · Rating write path + BreakdownEnvelope: Alembic 0005 (drill_index + target_skill_node_id columns + COALESCE partial-unique index + CHECK constraint) + UserSession ORM extension + SessionCreate/SessionResponse Pydantic extension + submit_rating drill branch (surgical single-node UPDATE) + drill-primary 409 policy (SONG_RATING_BLOCKED_BY_DRILL) + **B1 FIX: BreakdownEnvelope wrapper adds server-derived drill_rated_today_indices to GET /breakdown response** + alembic 0005 + sessions + envelope tests [DRILL-03]
 
-- [ ] 04.1-03-PLAN.md — Slice 3 · Mobile drill list + envelope adapt: schema.d.ts regen (Drill + BreakdownEnvelope + SessionCreate.drill_index) + DrillCard component (compile-time contract tests per existing convention) + useBreakdown envelope-shape adaptation + DRILLS section inserted immediately below song header, above How-to-play-it (N2 clarification) + W1 shell semantics fix ( instead of fragile ) [DRILL-02]
+- [x] 04.1-03-PLAN.md — Slice 3 · Mobile drill list + envelope adapt: schema.d.ts regen (Drill + BreakdownEnvelope + SessionCreate.drill_index) + DrillCard component (compile-time contract tests per existing convention) + useBreakdown envelope-shape adaptation + DRILLS section inserted immediately below song header, above How-to-play-it (N2 clarification) + W1 shell semantics fix ( instead of fragile ) [DRILL-02]
 
 **Wave 3** *(blocked on Wave 2 for BreakdownEnvelope + Wave 3 for DrillCard component)*
 
-- [ ] 04.1-04-PLAN.md — Slice 4 · Drill-detail screen + rating mutation + drill-primary UI: **B4 FIX: schema-regen sanity check task** + useSubmitDrillRating hook + nested Expo Router route + focused drill screen (N3 fix: guard-clause route params, no  non-null assertions) + pure-fn helpers exported for testability + **B2 FIX: mobile/__tests__/app/breakdown/drill.test.tsx behavioral tests** + **B1 FIX: parent breakdown screen derives drillRatedToday from envelope.drill_rated_today_indices — DELETES the pre-revision QueryClient mutation-cache subscription pattern** [DRILL-02, DRILL-03]
+- [x] 04.1-04-PLAN.md — Slice 4 · Drill-detail screen + rating mutation + drill-primary UI: **B4 FIX: schema-regen sanity check task** + useSubmitDrillRating hook + nested Expo Router route + focused drill screen (N3 fix: guard-clause route params, no  non-null assertions) + pure-fn helpers exported for testability + **B2 FIX: mobile/__tests__/app/breakdown/drill.test.tsx behavioral tests** + **B1 FIX: parent breakdown screen derives drillRatedToday from envelope.drill_rated_today_indices — DELETES the pre-revision QueryClient mutation-cache subscription pattern** [DRILL-02, DRILL-03]
 
 **Wave 4** *(blocked on all prior — manual eval + device verification)*
 
@@ -255,5 +256,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Onboarding & Initial Skill Graph | 4/4 | Complete    | 2026-07-28 |
 | 3. AI Teacher & Song of the Day | 4/4 | Complete | 2026-07-29 |
 | 4. Cost Governor & Node Verification | 4/4 | Complete — all 6 req IDs satisfied (COST-01/02/03/04, SKILL-04, SKILL-05) | 2026-08-12 |
-| 4.1. AI Drills (INSERTED) | 0/TBD | Not planned yet — recovers drills-in-service-of-songs vision | - |
+| 4.1. AI Drills (INSERTED) | 4/5 | In Progress|  |
 | 5. Library, Toolkit & Polish | 0/TBD | Not started | - |
