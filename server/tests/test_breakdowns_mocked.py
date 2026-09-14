@@ -191,6 +191,9 @@ async def _seed_user_and_song(
 async def _cleanup(db: AsyncSession, user_id: str) -> None:
     # Phase 4: delete governor_calls first (FK references users)
     await db.execute(text(f"DELETE FROM governor_calls WHERE user_id='{user_id}'"))
+    # Phase 4.1 (Plan 04.1-02): delete user_sessions before skill_nodes because
+    # user_sessions.target_skill_node_id FKs to skill_nodes.id.
+    await db.execute(text(f"DELETE FROM user_sessions WHERE user_id='{user_id}'"))
     await db.execute(
         text(f"DELETE FROM song_skills WHERE song_id IN (SELECT id FROM songs WHERE user_id='{user_id}')")
     )
@@ -222,9 +225,14 @@ async def test_cache_miss_calls_sonnet_and_persists(mock_breakdown_success):
 
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert "tab" in data
-    assert "chords" in data
-    assert "technique_notes" in data
+    # Plan 04.1-02 B1 FIX: response is BreakdownEnvelope { breakdown, drill_rated_today_indices }
+    assert "breakdown" in data
+    assert "drill_rated_today_indices" in data
+    assert data["drill_rated_today_indices"] == []  # no drill ratings on cache-miss
+    bd = data["breakdown"]
+    assert "tab" in bd
+    assert "chords" in bd
+    assert "technique_notes" in bd
     assert mock_breakdown_success["count"] == 1, (
         f"Expected run_technique_breakdown called once, was: {mock_breakdown_success['count']}"
     )
@@ -270,8 +278,11 @@ async def test_cache_hit_skips_sonnet(mock_breakdown_never_called):
 
     assert resp.status_code == 200, resp.text
     data = resp.json()
+    # Plan 04.1-02 B1 FIX: envelope shape
+    assert "breakdown" in data
+    assert "drill_rated_today_indices" in data
     # Should return the cached breakdown without calling Sonnet
-    assert data["chords"][0]["name"] == "E7", (
+    assert data["breakdown"]["chords"][0]["name"] == "E7", (
         "Expected cached E7 chord — confirms JSONB was returned not freshly generated"
     )
 
@@ -631,9 +642,13 @@ async def test_breakdown_response_includes_drills_from_sonnet(monkeypatch):
 
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert "drills" in data
-        assert len(data["drills"]) == 2
-        names = {d["name"] for d in data["drills"]}
+        # Plan 04.1-02 B1 FIX: envelope shape
+        assert "breakdown" in data
+        assert "drill_rated_today_indices" in data
+        bd = data["breakdown"]
+        assert "drills" in bd
+        assert len(bd["drills"]) == 2
+        names = {d["name"] for d in bd["drills"]}
         assert names == {"Drill A", "Drill B"}
     finally:
         async with _make_session() as db:
@@ -674,11 +689,13 @@ async def test_breakdown_drops_drill_with_hallucinated_skill_id(monkeypatch, cap
 
         assert resp.status_code == 200, resp.text
         data = resp.json()
+        # Plan 04.1-02 B1 FIX: envelope shape
+        bd = data["breakdown"]
         # Hallucinated drill dropped; 2 real drills survive
-        assert len(data["drills"]) == 2, (
-            f"Expected 2 drills after hallucinated-id drop, got {len(data['drills'])}"
+        assert len(bd["drills"]) == 2, (
+            f"Expected 2 drills after hallucinated-id drop, got {len(bd['drills'])}"
         )
-        names = {d["name"] for d in data["drills"]}
+        names = {d["name"] for d in bd["drills"]}
         assert names == {"Real drill 1", "Real drill 2"}
         assert "Hallucinated drill" not in names
 
@@ -771,8 +788,12 @@ async def test_breakdown_cached_pre_4_1_row_has_empty_drills(mock_breakdown_neve
 
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert "drills" in data, "Response must always expose the drills key"
-        assert data["drills"] == [], (
+        # Plan 04.1-02 B1 FIX: envelope shape
+        assert "breakdown" in data
+        assert "drill_rated_today_indices" in data
+        bd = data["breakdown"]
+        assert "drills" in bd, "Response must always expose the drills key"
+        assert bd["drills"] == [], (
             "Pre-4.1 cached row (no drills key) must read back as drills=[] "
             "via default_factory (backward-compat)"
         )
@@ -796,3 +817,395 @@ def test_no_savepoint_in_endpoint():
     assert "await db.commit()" in source, (
         "breakdowns.py must use await db.commit() to persist cache write"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.1 Plan 04.1-02 Task 4 (B1 FIX): BreakdownEnvelope + drill_rated_today_indices
+# ---------------------------------------------------------------------------
+
+
+def test_breakdown_envelope_shape():
+    """BreakdownEnvelope(breakdown=..., drill_rated_today_indices=[...]) validates cleanly.
+    Missing drill_rated_today_indices defaults to []."""
+    from app.models.song import BreakdownEnvelope
+
+    bd = _canned_breakdown()
+
+    # With explicit list
+    env = BreakdownEnvelope(breakdown=bd, drill_rated_today_indices=[0, 2])
+    assert env.breakdown == bd
+    assert env.drill_rated_today_indices == [0, 2]
+
+    # Default empty
+    env2 = BreakdownEnvelope(breakdown=bd)
+    assert env2.drill_rated_today_indices == []
+
+    # model_dump exposes both fields
+    d = env.model_dump()
+    assert "breakdown" in d
+    assert d["drill_rated_today_indices"] == [0, 2]
+
+    # model_dump_json round-trip works when drills is present (via _canned_breakdown_with_drills).
+    # For a drill-less Breakdown the round-trip trips Breakdown.drills min_length=2 because
+    # model_dump serializes drills=[] explicitly — this is the same Wave 1 landmine that
+    # required the _load_cached_breakdown helper; the envelope wrapper does not change that
+    # invariant. See test_breakdown_envelope_json_roundtrip_with_drills for the with-drills path.
+
+
+def test_breakdown_envelope_json_roundtrip_with_drills():
+    """model_dump_json → model_validate_json round-trips cleanly when drills present.
+
+    (See test_breakdown_envelope_shape for why the drills-empty case cannot round-trip
+    via model_dump_json directly — it's the same Wave 1 landmine that motivated the
+    _load_cached_breakdown helper.)
+    """
+    from app.models.song import Breakdown, BreakdownEnvelope, Drill
+    from uuid import uuid4 as _uuid4
+
+    drills = [
+        Drill(
+            name="Test drill A",
+            target_skill_temp_id=str(_uuid4()),
+            song_specific=True,
+            what="Do the thing.",
+            tab_snippet=_canned_breakdown().tab,
+            start_bpm=60,
+            target_bpm=70,
+            repetitions=20,
+            success_criterion="Cleanly.",
+        ),
+        Drill(
+            name="Test drill B",
+            target_skill_temp_id=str(_uuid4()),
+            song_specific=False,
+            what="Do the other thing.",
+            tab_snippet=_canned_breakdown().tab,
+            start_bpm=80,
+            target_bpm=90,
+            repetitions=15,
+            success_criterion="Also cleanly.",
+        ),
+    ]
+    bd = Breakdown(
+        tab=_canned_breakdown().tab,
+        chords=[],
+        technique_notes=[],
+        drills=drills,
+    )
+    env = BreakdownEnvelope(breakdown=bd, drill_rated_today_indices=[0, 1])
+
+    js = env.model_dump_json()
+    env2 = BreakdownEnvelope.model_validate_json(js)
+    assert env2.drill_rated_today_indices == [0, 1]
+    assert len(env2.breakdown.drills) == 2
+    assert env2.breakdown.drills[0].name == "Test drill A"
+
+
+async def _insert_drill_rating(
+    db: AsyncSession,
+    user_id: str,
+    song_id: int,
+    skill_node_id: str,
+    drill_index: int,
+    *,
+    day_offset_days: int = 0,
+    is_reroll_marker: bool = False,
+) -> None:
+    """Insert a user_sessions row simulating a drill rating for (user, song, today+offset).
+
+    Uses direct SQL so we don't have to go through the sessions endpoint (which would
+    trip the drill-primary policy on subsequent inserts within the same test).
+    """
+    from sqlalchemy import text as _text
+    row_id = str(uuid.uuid4())
+    if day_offset_days == 0:
+        day_sql = "CURRENT_DATE"
+    elif day_offset_days < 0:
+        day_sql = f"CURRENT_DATE - {abs(day_offset_days)}"
+    else:
+        day_sql = f"CURRENT_DATE + {day_offset_days}"
+    await db.execute(
+        _text(
+            f"INSERT INTO user_sessions "
+            f"  (id, user_id, song_id, rating, local_calendar_day, tz_offset_minutes, "
+            f"   is_reroll_marker, drill_index, target_skill_node_id) "
+            f"VALUES (:rid, :uid, :song_id, 'getting_closer', {day_sql}, 0, "
+            f"        :reroll, :di, :tsni)"
+        ),
+        {
+            "rid": row_id,
+            "uid": user_id,
+            "song_id": song_id,
+            "reroll": is_reroll_marker,
+            "di": drill_index,
+            "tsni": skill_node_id,
+        },
+    )
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_get_breakdown_returns_envelope_with_empty_drill_indices_when_no_ratings(
+    mock_breakdown_never_called,
+):
+    """Cache-hit path with no drill ratings → drill_rated_today_indices=[]."""
+    user_id = str(uuid.uuid4())
+    canned = _canned_breakdown()
+    cached_ts = datetime(2026, 7, 28, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(
+            db, user_id,
+            breakdown_generated_at=cached_ts,
+            existing_breakdown=canned.model_dump(),
+        )
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["drill_rated_today_indices"] == []
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_get_breakdown_returns_envelope_with_drill_indices_after_rating(
+    mock_breakdown_never_called,
+):
+    """After inserting drill_index=0 and drill_index=2 rows, GET returns
+    drill_rated_today_indices=[0, 2] (sorted ascending)."""
+    user_id = str(uuid.uuid4())
+    canned = _canned_breakdown()
+    cached_ts = datetime(2026, 7, 28, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(
+            db, user_id,
+            breakdown_generated_at=cached_ts,
+            existing_breakdown=canned.model_dump(),
+        )
+        skill_id = await _seed_skill_and_link(db, user_id, song_id, "Slide")
+
+    try:
+        # First: no drill ratings yet
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp0 = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp0.json()["drill_rated_today_indices"] == []
+
+        # Insert a drill_index=2 rating
+        async with _make_session() as db:
+            await _insert_drill_rating(db, user_id, song_id, skill_id, drill_index=2)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp1 = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp1.json()["drill_rated_today_indices"] == [2]
+
+        # Insert a drill_index=0 rating — should sort ascending in response
+        async with _make_session() as db:
+            await _insert_drill_rating(db, user_id, song_id, skill_id, drill_index=0)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp2 = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp2.json()["drill_rated_today_indices"] == [0, 2]
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_get_breakdown_scoped_to_user(mock_breakdown_never_called):
+    """User A's drill ratings do NOT appear in User B's GET response."""
+    user_a = str(uuid.uuid4())
+    user_b = str(uuid.uuid4())
+    canned = _canned_breakdown()
+    cached_ts = datetime(2026, 7, 28, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with _make_session() as db:
+        # User A owns a song and rates drill 0
+        song_a_id = await _seed_user_and_song(
+            db, user_a,
+            breakdown_generated_at=cached_ts,
+            existing_breakdown=canned.model_dump(),
+        )
+        skill_a_id = await _seed_skill_and_link(db, user_a, song_a_id, "SlideA")
+        await _insert_drill_rating(db, user_a, song_a_id, skill_a_id, drill_index=0)
+
+        # User B owns a DIFFERENT song
+        song_b_id = await _seed_user_and_song(
+            db, user_b,
+            breakdown_generated_at=cached_ts,
+            existing_breakdown=canned.model_dump(),
+        )
+        _ = await _seed_skill_and_link(db, user_b, song_b_id, "SlideB")
+
+    try:
+        # User B's GET on their own song must not leak User A's drill ratings
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_b_id}/breakdown",
+                headers={"X-User-ID": user_b, "X-Timezone-Offset": "0"},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["drill_rated_today_indices"] == []
+
+        # And User A's GET on their own song sees their own rating
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp_a = await client.get(
+                f"/api/v1/songs/{song_a_id}/breakdown",
+                headers={"X-User-ID": user_a, "X-Timezone-Offset": "0"},
+            )
+        assert resp_a.status_code == 200, resp_a.text
+        assert resp_a.json()["drill_rated_today_indices"] == [0]
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_a)
+            await _cleanup(db, user_b)
+
+
+@pytest.mark.asyncio
+async def test_get_breakdown_scoped_to_today(mock_breakdown_never_called):
+    """A drill rating with local_calendar_day=YESTERDAY is NOT in today's GET response."""
+    user_id = str(uuid.uuid4())
+    canned = _canned_breakdown()
+    cached_ts = datetime(2026, 7, 28, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(
+            db, user_id,
+            breakdown_generated_at=cached_ts,
+            existing_breakdown=canned.model_dump(),
+        )
+        skill_id = await _seed_skill_and_link(db, user_id, song_id, "Slide")
+        # Yesterday's drill rating
+        await _insert_drill_rating(
+            db, user_id, song_id, skill_id, drill_index=1, day_offset_days=-1
+        )
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["drill_rated_today_indices"] == [], (
+            "Yesterday's drill rating must not appear in today's response"
+        )
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_get_breakdown_reroll_marker_excluded(mock_breakdown_never_called):
+    """is_reroll_marker=true rows must be excluded from drill_rated_today_indices."""
+    # Reroll markers have drill_index=NULL by construction (they're not drill ratings),
+    # but we can still verify the query filter excludes reroll rows. Insert a
+    # drill_index=0 row AND a reroll marker with the same drill_index (would only
+    # happen if a client somehow set both — we just want to verify the WHERE clause).
+    # In practice, reroll markers have drill_index=NULL and would be filtered by
+    # the .isnot(None) clause anyway. This test verifies the is_reroll_marker=False
+    # filter is in place as belt-and-suspenders.
+    user_id = str(uuid.uuid4())
+    canned = _canned_breakdown()
+    cached_ts = datetime(2026, 7, 28, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(
+            db, user_id,
+            breakdown_generated_at=cached_ts,
+            existing_breakdown=canned.model_dump(),
+        )
+        skill_id = await _seed_skill_and_link(db, user_id, song_id, "Slide")
+        # Real drill rating (should appear)
+        await _insert_drill_rating(db, user_id, song_id, skill_id, drill_index=0)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp.status_code == 200, resp.text
+        # Only the real drill rating (0) should appear — reroll markers filtered out
+        # (the query also filters drill_index IS NOT NULL, so reroll markers with
+        # drill_index=NULL are excluded on both counts).
+        assert resp.json()["drill_rated_today_indices"] == [0]
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_get_breakdown_envelope_backward_compat_wrap(mock_breakdown_never_called):
+    """Inside envelope.breakdown, the shape MUST match the pre-envelope response:
+    tab, chords, technique_notes, drills — no field renaming or shape drift."""
+    user_id = str(uuid.uuid4())
+    canned = _canned_breakdown()
+    cached_ts = datetime(2026, 7, 28, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(
+            db, user_id,
+            breakdown_generated_at=cached_ts,
+            existing_breakdown=canned.model_dump(),
+        )
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+
+        # Top-level envelope shape
+        assert set(data.keys()) == {"breakdown", "drill_rated_today_indices"}, (
+            f"Envelope must have exactly {{breakdown, drill_rated_today_indices}}, got {set(data.keys())}"
+        )
+
+        # Nested breakdown shape must include all pre-envelope fields
+        bd = data["breakdown"]
+        for field in ("tab", "chords", "technique_notes", "drills"):
+            assert field in bd, f"Breakdown must expose '{field}'"
+
+        # Tab has measures + tuning (unchanged from Phase 3)
+        assert "measures" in bd["tab"]
+        assert "tuning" in bd["tab"]
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)

@@ -4,6 +4,21 @@ Cache semantics (Claude's Discretion D-11):
   - songs.breakdown_generated_at IS NULL  → call Sonnet, persist, return
   - songs.breakdown_generated_at IS NOT NULL → return cached JSONB, no Sonnet call
 
+Phase 4.1 (Plan 04.1-02 B1 FIX) — response shape changed to BreakdownEnvelope:
+  Every GET /api/v1/songs/{id}/breakdown response is now wrapped in a
+  BreakdownEnvelope { breakdown: Breakdown, drill_rated_today_indices: list[int] }.
+
+  The `drill_rated_today_indices` field is COMPUTED PER-REQUEST from user_sessions
+  rows (not cached). The Breakdown itself (cached JSONB) is unchanged — D-11
+  cache-forever contract preserved.
+
+  This is the durable server-derived source of truth for the mobile drill-primary
+  UI logic (replaces the fragile QueryClient mutation-cache subscription pattern).
+
+  BREAKING RESPONSE SHAPE: mobile consumers must access `response.breakdown.drills`
+  (etc.) instead of `response.drills`. Plan 03 (mobile) regenerates schema.d.ts to
+  pick up the new shape.
+
 On AIBreakdownError (Sonnet failure after retry):
   - Return HTTP 503 with Fletcher-voiced detail
   - breakdown_generated_at stays NULL — next user tap retries
@@ -19,6 +34,7 @@ Access control (T-03-02-04): song MUST be owned by X-User-ID; 404 otherwise.
 """
 import logging
 from datetime import datetime, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -26,10 +42,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.breakdown import AIBreakdownError, run_technique_breakdown
 from app.ai.governor import BudgetExceededError, AnthropicQuotaExceededError
-from app.api.deps import get_user_id
+from app.api.deps import get_tz_offset_minutes, get_user_id
 from app.db.session import get_db
-from app.models.db import SkillNode, Song, SongSkill
-from app.models.song import Breakdown
+from app.models.db import SkillNode, Song, SongSkill, UserSession
+from app.models.song import Breakdown, BreakdownEnvelope
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,20 +67,65 @@ def _load_cached_breakdown(cached: dict) -> Breakdown:
     return Breakdown.model_validate(cached)
 
 
-@router.get("/songs/{song_id}/breakdown", response_model=Breakdown)
+async def _compute_drill_rated_today_indices(
+    db: AsyncSession,
+    user_id: UUID,
+    song_id: int,
+    tz_offset_minutes: int,
+) -> list[int]:
+    """B1 FIX (Plan 04.1-02): return sorted list of drill_index values the user has
+    rated for (song, today).
+
+    Excludes reroll markers and NULL drill_index (whole-song) rows. Computed on
+    every request from user_sessions — NOT cached, so it always reflects the
+    current DB state and survives app restart / cache invalidation / cross-
+    component navigation on the mobile side.
+
+    Scoped strictly to (user_id, song_id) so USER A's drill ratings do not leak
+    into USER B's response (T-04.1-B1 info-disclosure mitigation).
+    """
+    from sqlalchemy import text as _text
+    local_day = await db.scalar(
+        _text(
+            "SELECT DATE((now() AT TIME ZONE 'UTC') + (:tz * INTERVAL '1 minute'))"
+        ),
+        {"tz": tz_offset_minutes},
+    )
+    rows = await db.execute(
+        select(UserSession.drill_index)
+        .where(
+            UserSession.user_id == user_id,
+            UserSession.song_id == song_id,
+            UserSession.local_calendar_day == local_day,
+            UserSession.drill_index.isnot(None),
+            UserSession.is_reroll_marker == False,  # noqa: E712
+        )
+        .order_by(UserSession.drill_index.asc())
+    )
+    return [r[0] for r in rows.all()]
+
+
+@router.get("/songs/{song_id}/breakdown", response_model=BreakdownEnvelope)
 async def get_breakdown(
     song_id: int,
-    user_id=Depends(get_user_id),
+    user_id: UUID = Depends(get_user_id),
+    tz_offset_minutes: int = Depends(get_tz_offset_minutes),
     db: AsyncSession = Depends(get_db),
-) -> Breakdown:
-    """Return the technique breakdown for song_id, generating it on first tap.
+) -> BreakdownEnvelope:
+    """Return the technique breakdown envelope for song_id, generating it on first tap.
+
+    Response envelope (Plan 04.1-02 B1 FIX):
+        {
+          "breakdown": { tab, chords, technique_notes, drills },   # cached-forever
+          "drill_rated_today_indices": [0, 2, ...]                 # per-request
+        }
 
     Cache hit: songs.breakdown_generated_at IS NOT NULL  → return JSON directly.
     Cache miss: call run_technique_breakdown, persist to songs.breakdown + set
-                breakdown_generated_at atomically, return Breakdown.
+                breakdown_generated_at atomically, return envelope.
 
     Returns:
-        200 Breakdown on success.
+        200 BreakdownEnvelope on success.
         404 if song_id not owned by X-User-ID.
         503 with Fletcher-voiced detail if Sonnet call fails after retry.
     """
@@ -123,7 +184,16 @@ async def get_breakdown(
             {"id": cached_call_id, "uid": str(user_id), "model": _SONNET_MODEL},
         )
         await db.commit()
-        return _load_cached_breakdown(song.breakdown)
+
+        # B1 FIX: compute drill_rated_today_indices on every read (not cached)
+        cached_breakdown = _load_cached_breakdown(song.breakdown)
+        drill_indices = await _compute_drill_rated_today_indices(
+            db, user_id, song_id, tz_offset_minutes,
+        )
+        return BreakdownEnvelope(
+            breakdown=cached_breakdown,
+            drill_rated_today_indices=drill_indices,
+        )
 
     # 4. Cache miss — resolve target skills for this song + user_level
     # Phase 4.1 (Plan 04.1-01 Task 2 rename → Task 3 wiring): fetch both id + name
@@ -221,4 +291,16 @@ async def get_breakdown(
     song.breakdown_generated_at = datetime.now(timezone.utc)
     await db.commit()
 
-    return breakdown
+    # 7. B1 FIX: compute drill_rated_today_indices on every read.
+    # On cache-miss (this branch), the user has almost certainly not rated any
+    # drills for this song yet (they're seeing the breakdown for the first time),
+    # so the list is typically []. But we compute it anyway to keep the response
+    # shape consistent and correct for edge cases (e.g., an admin regen after
+    # the user already rated).
+    drill_indices = await _compute_drill_rated_today_indices(
+        db, user_id, song_id, tz_offset_minutes,
+    )
+    return BreakdownEnvelope(
+        breakdown=breakdown,
+        drill_rated_today_indices=drill_indices,
+    )

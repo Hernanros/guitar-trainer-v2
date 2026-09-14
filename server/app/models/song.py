@@ -188,6 +188,37 @@ class Breakdown(BaseModel):
     drills: list[Drill] = Field(default_factory=list, min_length=2, max_length=4)
 
 
+class BreakdownEnvelope(BaseModel):
+    """Envelope wrapper for GET /api/v1/songs/{id}/breakdown response.
+
+    Phase 4.1 (Plan 04.1-02 B1 FIX): wraps the cached-forever Breakdown with
+    EPHEMERAL per-request state derived from user_sessions.
+
+    `drill_rated_today_indices` is the durable server-derived source of truth for
+    the mobile drill-primary UI logic — replaces the fragile client-side QueryClient
+    mutation-cache subscription pattern flagged by the plan checker.
+
+    Contract preservation:
+      - The `breakdown` field is the SAME shape as the raw Breakdown that was
+        previously returned directly by get_breakdown (mobile consumers must now
+        access response.breakdown.drills / .tab / .chords / .technique_notes rather
+        than response.drills etc. — see Plan 03 schema.d.ts regen).
+      - The `drill_rated_today_indices` field is computed on EVERY request from
+        user_sessions and is NOT cached. This preserves the D-11 cache-forever
+        contract for the Breakdown itself — the envelope is a pure request-scoped
+        wrapper.
+    """
+    breakdown: Breakdown
+    drill_rated_today_indices: list[int] = Field(
+        default_factory=list,
+        description=(
+            "0-based drill_index values the current user has rated for this song today. "
+            "Sorted ascending. Empty when no drill ratings exist yet. Server-derived — "
+            "cannot be set by clients."
+        ),
+    )
+
+
 class SongResponse(BaseModel):
     """Top-level API response for GET /api/v1/song-of-day.
 
