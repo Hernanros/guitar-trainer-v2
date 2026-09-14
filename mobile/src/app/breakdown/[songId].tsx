@@ -3,6 +3,13 @@
 // Slice C: Adds RatingPills below the breakdown stack + AlreadyRatedCard overlay.
 // Phase 4 Slice B: Error parsing for BREAKDOWN_CAPPED (429) and FLETCHER_OUT (503);
 //   today-song cache invalidation on success so the quota chip decrements.
+// Phase 4.1 Plan 02 (Wave 2): BreakdownEnvelope — unwrap via bd = envelope.breakdown.
+//   drill_rated_today_indices now available for drill-primary UI state.
+// Phase 4.1 Plan 03 (Wave 2): DrillCard section renders drills above technique notes.
+// Phase 4.1 Plan 04 (Wave 3): B1 FIX — drillRatedToday derived from server-side
+//   envelope.drill_rated_today_indices (durable across restart/cache/cross-device).
+//   Replaces the pre-revision fragile QueryClient mutation-cache subscription pattern
+//   that never shipped (was in the pre-revision plan, not in the actual Wave 2 code).
 //
 // Rating flow:
 //   1. User taps a RatingPill → selectedRating set (confirmed visual + POST fires)
@@ -12,6 +19,11 @@
 // Read-only mode (already rated today):
 //   When today.rated is set AND today.song.id === songId, the RatingPills row
 //   is replaced by a static "Rated: {label}" line. User can still see breakdown.
+//
+// Drill-primary mode (drill rated today — B1 fix):
+//   When envelope.drill_rated_today_indices.length > 0, the RatingPills row
+//   is replaced by "Drills rated. The song-level rating is off — trust the drills."
+//   This state comes from the SERVER (envelope refetches on drill rating success).
 //
 // router.replace (not router.push) so tapping back on Today tab does not re-enter breakdown.
 import { useState, useEffect } from 'react';
@@ -160,15 +172,25 @@ export default function BreakdownScreen() {
 
   // Breakdown success — bd is the source of truth for tab/chords/technique/drills.
   // Phase 4.1 B1: endpoint now returns BreakdownEnvelope; unwrap via `.breakdown` so
-  // downstream tab/chords/technique_notes access stays unchanged. envelope also
-  // carries `drill_rated_today_indices` for Plan 04's drill-primary UI state (not
-  // consumed here — this plan only makes the field accessible via the envelope typing).
+  // downstream tab/chords/technique_notes access stays unchanged.
   const envelope = breakdown.data;
   const bd = envelope.breakdown;
 
   // Already-rated read-only mode: server says rated, AND this is today's song
   const alreadyRated = today.rated?.rating ?? null;
   const isAlreadyRatedSong = alreadyRated !== null && today.song.id === songId;
+
+  // B1 FIX (Plan 04.1-04 Task 5): server-derived drill-rated-today state.
+  // Envelope refetches on ['breakdown', songId] invalidation (fired by
+  // useSubmitDrillRating.onSuccess), so this boolean stays in sync without any
+  // subscription pattern. Durable across app restart, cache invalidation,
+  // cross-component navigation, and multi-device sync.
+  // Defense-in-depth: if the user fires a whole-song rating between drill submit
+  // and envelope refetch, the server's 409 SONG_RATING_BLOCKED_BY_DRILL (Plan 02)
+  // catches it — the existing useSubmitRating.onError 409 handler invalidates
+  // today-song, which triggers a re-render, and on re-render the envelope has been
+  // refetched with drill_rated_today_indices populated — pills auto-disable.
+  const drillRatedToday = (envelope?.drill_rated_today_indices?.length ?? 0) > 0;
 
   const handleRatingSelect = (rating: RatingLiteral) => {
     setSubmittedRating(rating);
@@ -250,9 +272,16 @@ export default function BreakdownScreen() {
           </ScrollView>
         </View>
 
-        {/* Rating area — RatingPills or read-only rated line */}
+        {/* Rating area — three-way conditional per drill-primary UX (RESEARCH.md §Q3 Option A)
+            1. isAlreadyRatedSong: whole-song already rated → show rating label
+            2. drillRatedToday (B1 fix): drill rated → show locked message (CONTEXT.md-locked)
+            3. default: show RatingPills */}
         {isAlreadyRatedSong ? (
           <Text style={styles.ratedLine}>Rated: {LABELS[alreadyRated]}</Text>
+        ) : drillRatedToday ? (
+          <Text style={styles.ratedLine}>
+            {'Drills rated. The song-level rating is off — trust the drills.'}
+          </Text>
         ) : (
           <RatingPills
             onSelect={handleRatingSelect}
