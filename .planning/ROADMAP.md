@@ -203,7 +203,28 @@ Plans:
 - Drill history / analytics
 - Redefining Phase 5 — Phase 5 stays as-is after this insertion
 
-**Plans**: TBD
+**Plans**: 5 plans in 4 waves (revised 2026-09-14 per checker feedback — B1/B2/B4 fixes added tasks; Plan 04 grew from 3 → 5 tasks; Plan 02 grew from 3 → 4 tasks to add BreakdownEnvelope for server-derived drill state)
+
+Plans:
+
+**Wave 1**
+
+- [ ] 04.1-01-PLAN.md — Slice 1 · Server-side drill emission: Drill Pydantic model (bpm/rep constraints + target_bpm>start_bpm validator per W2) + Breakdown.drills field (min_length=2/max_length=4 per Landmine #3) + SYSTEM_PROMPT DRILLS block + _format_user_message pair-passing + breakdowns endpoint hallucinated-id drop-filter + Landmine #3 soft-fail (ValidationError → drills=[], never 500) + schema + endpoint tests [DRILL-01]
+
+**Wave 2** *(blocked on Wave 1 — Drill Pydantic contract required for downstream)*
+
+- [ ] 04.1-02-PLAN.md — Slice 2 · Rating write path + BreakdownEnvelope: Alembic 0005 (drill_index + target_skill_node_id columns + COALESCE partial-unique index + CHECK constraint) + UserSession ORM extension + SessionCreate/SessionResponse Pydantic extension + submit_rating drill branch (surgical single-node UPDATE) + drill-primary 409 policy (SONG_RATING_BLOCKED_BY_DRILL) + **B1 FIX: BreakdownEnvelope wrapper adds server-derived drill_rated_today_indices to GET /breakdown response** + alembic 0005 + sessions + envelope tests [DRILL-03]
+
+- [ ] 04.1-03-PLAN.md — Slice 3 · Mobile drill list + envelope adapt: schema.d.ts regen (Drill + BreakdownEnvelope + SessionCreate.drill_index) + DrillCard component (compile-time contract tests per existing convention) + useBreakdown envelope-shape adaptation + DRILLS section inserted immediately below song header, above How-to-play-it (N2 clarification) + W1 shell semantics fix ( instead of fragile ) [DRILL-02]
+
+**Wave 3** *(blocked on Wave 2 for BreakdownEnvelope + Wave 3 for DrillCard component)*
+
+- [ ] 04.1-04-PLAN.md — Slice 4 · Drill-detail screen + rating mutation + drill-primary UI: **B4 FIX: schema-regen sanity check task** + useSubmitDrillRating hook + nested Expo Router route + focused drill screen (N3 fix: guard-clause route params, no  non-null assertions) + pure-fn helpers exported for testability + **B2 FIX: mobile/__tests__/app/breakdown/drill.test.tsx behavioral tests** + **B1 FIX: parent breakdown screen derives drillRatedToday from envelope.drill_rated_today_indices — DELETES the pre-revision QueryClient mutation-cache subscription pattern** [DRILL-02, DRILL-03]
+
+**Wave 4** *(blocked on all prior — manual eval + device verification)*
+
+- [ ] 04.1-05-PLAN.md — Slice 5 · Manual eval + human checkpoints: eval_drills.py (5 tuning-diverse songs, live Anthropic, W5 fix: real Postgres dev-DB required, no SQLite fallback) + skip-by-default pytest wrapper + eval-results doc + human checkpoint for landmine gate table + human checkpoint for on-device end-to-end verification (N1 fix: step o queries user_sessions to validate target_skill_node_id resolves to a real skill_nodes row — real-user L2 coverage that fake-uuid eval script cannot provide) [DRILL-01, DRILL-02, DRILL-03]
+
 **UI hint**: yes
 
 ### Phase 5: Library, Toolkit & Polish
