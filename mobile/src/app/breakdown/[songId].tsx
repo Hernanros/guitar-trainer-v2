@@ -30,6 +30,7 @@ import { BreakdownErrorCard } from '../../components/BreakdownErrorCard';
 import { ChordDiagram } from '../../components/ChordDiagram';
 import { TabNotation } from '../../components/TabNotation';
 import { FletcherLoader } from '../../components/FletcherLoader';
+import { DrillCard } from '../../components/DrillCard';
 import { useTodaySong, localCalendarDay } from '../../api/todaySong';
 import { useBreakdown } from '../../api/breakdown';
 import { getOrCreateUserId } from '../../api/mmkv';
@@ -157,8 +158,13 @@ export default function BreakdownScreen() {
     );
   }
 
-  // Breakdown success — bd is the source of truth for tab/chords/technique.
-  const bd = breakdown.data;
+  // Breakdown success — bd is the source of truth for tab/chords/technique/drills.
+  // Phase 4.1 B1: endpoint now returns BreakdownEnvelope; unwrap via `.breakdown` so
+  // downstream tab/chords/technique_notes access stays unchanged. envelope also
+  // carries `drill_rated_today_indices` for Plan 04's drill-primary UI state (not
+  // consumed here — this plan only makes the field accessible via the envelope typing).
+  const envelope = breakdown.data;
+  const bd = envelope.breakdown;
 
   // Already-rated read-only mode: server says rated, AND this is today's song
   const alreadyRated = today.rated?.rating ?? null;
@@ -188,6 +194,27 @@ export default function BreakdownScreen() {
           <Text style={styles.artist}>{song.artist}</Text>
           <MetaLine song={song} />
         </View>
+
+        {/* Drills — Phase 4.1 (N2 clarification: immediately below the song header,
+            immediately above 'How to play it'. Hidden entirely when drills is empty
+            or missing — Grace-B pattern preserves the pre-4.1 breakdown layout for
+            cached rows that predate drill emission).
+            Stable key uses target_skill_temp_id + index so an admin regen that
+            shuffles drill order does not cause stale-key remounts (RESEARCH.md
+            landmine #7 defense). */}
+        {bd.drills && bd.drills.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Drills</Text>
+            {bd.drills.map((drill, i) => (
+              <DrillCard
+                key={`${drill.target_skill_temp_id}-${i}`}
+                drill={drill}
+                drillIndex={i}
+                onStart={(idx) => router.push(`/breakdown/${songId}/drill/${idx}`)}
+              />
+            ))}
+          </View>
+        )}
 
         {/* Technique Notes */}
         <View style={styles.section}>
