@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 
 ## Current Position
 
-Phase: 04.1 (AI Drills) — INSERTED 2026-09-14 after birdseye product review; recovers drills-in-service-of-songs vision
-Plan: 0 of TBD (not planned yet — next step /gsd:discuss-phase 4.1 → /gsd:plan-phase 4.1)
-Status: Phase 4 done through Slice D + Task #16 tuning-awareness quick tasks; Phase 4.1 inserted 2026-09-14 to close the "songs without drills" gap surfaced by product-viability-review
-Last activity: 2026-09-14 -- Inserted Phase 4.1 (AI Drills) into ROADMAP + PROJECT.md; DRILL-01/02/03 requirements added. Prior: 2026-09-10 quick task 260910-01 mobile refresh affordances (commit 1e3a12f); 2026-09-09 tuning-aware Sonnet (af3fdef + ffdf2e7 correction); 2026-09-08 9 fixes end-to-end.
+Phase: 04.1 (AI Drills) — EXECUTING — Waves 1+2 shipped, Waves 3+4 pending
+Plan: 3 of 5 complete (Plans 01, 02, 03 shipped; Plans 04, 05 pending)
+Status: Wave 1 (04.1-01 server drill emission) + Wave 2 (04.1-02 drill rating write + 04.1-03 mobile drill list) shipped 2026-09-14. Tree state verified: Alembic 0005 present, BreakdownEnvelope live, DrillCard mounted, drill_rated_today_indices wired both sides, 76 server tests pass + mobile tsc clean. Deployments PENDING: Railway (server changes for Wave 4 eval) + EAS iOS (mobile changes for on-device verify). Wave 3 = Plan 04.1-04 (mobile drill-detail screen, 5 tasks, single-plan — no race risk).
+Last activity: 2026-09-14 -- Phase 4.1 Waves 1+2 executed (8 commits shipped). Prior: 2026-09-14 inserted Phase 4.1 + captured CONTEXT + RESEARCH + 5 PLAN.md files (plan-checker PASS round 2). 2026-09-10 quick 260910-01 mobile refresh affordances. 2026-09-09 tuning-aware Sonnet (af3fdef + ffdf2e7 correction). 2026-09-08 9 fixes end-to-end.
 
 Progress: [██████████████░] Phase 1 iOS ✓, Phase 2 iOS ✓, Phase 3 ✓, Phase 4 ✓, Phase 4.1 planning next, Phase 5 after
 
@@ -107,6 +107,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14 (birdseye product review → Phase 4.1 AI Drills inserted + CONTEXT.md captured)
-Stopped at: Phase 4.1 context gathered. Product-viability-review flagged V2 as "songs without drills" (V1's failure mirrored). Phase 4.1 inserted into ROADMAP + PROJECT.md + STATE.md (uncommitted). CONTEXT.md locks: (a) drills inline in the breakdown Sonnet call, hybrid song_specific+foundational (Sonnet decides per drill), (b) tab_snippet is canonical shape Sonnet-composes per call (no schema change), (c) manual tap-to-advance rep counter. Rating write semantics + drill_id storage shape deferred to planner. Metronome integration deferred to Phase 5. Prior: 2026-09-10 quick 260910-01 (refresh affordances + E♭ standard); 2026-09-09 260909-01 (tuning-aware Sonnet); 2026-09-08 9 fixes end-to-end.
-Resume file: .planning/phases/04.1-ai-drills/04.1-CONTEXT.md (context ready for /gsd:plan-phase 4.1)
+Last session: 2026-09-14 (Phase 4.1 planning + Waves 1+2 executed — pause point)
+Stopped at: Waves 1+2 of Phase 4.1 shipped end-to-end. 8 commits on main. Server: Drill Pydantic model + SYSTEM_PROMPT DRILLS block + Landmine #3 soft-fail + Alembic 0005 (user_sessions.drill_index + target_skill_node_id) + BreakdownEnvelope with drill_rated_today_indices + submit_rating drill-primary 409 policy. Mobile: schema regen (Path B manual edit — Wave 3 Plan 04 Task 1 has sanity check for drift) + DrillCard component + DRILLS section on breakdown screen with envelope adapter. 76 server tests pass, mobile tsc clean. Real incident: parallel-execution git race in Wave 2 tangled commit boundaries between Plans 02+03 (749315c bundles both) — content correct, audit trail muddled, future-infra note filed.
+Resume file: .planning/phases/04.1-ai-drills/04.1-04-PLAN.md (Wave 3 = single plan, 5 tasks; no race risk since only one executor)
