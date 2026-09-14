@@ -2,19 +2,33 @@
 # POST /api/v1/sessions — atomic session rating write + mastery update.
 #
 # Slice C (03-03): closes the daily loop. No LLM in this path (SKILL-03).
+# Plan 04.1-02: extended with per-drill rating write path + drill-primary
+#               aggregation policy (RESEARCH.md §Q3 Option A).
 #
 # Transaction pattern: `async with db.begin():` wraps ALL database operations.
 # This works because db.begin() is called BEFORE any autobegin trigger fires
 # (no db.execute/scalar before the begin block). Per PATTERNS.md lines 1097-1101
 # and RESEARCH §5: plain begin(), NO SAVEPOINT (no LLM call in this path).
 #
-# Idempotency: two layers per T-03-03-02:
-#   (a) App-level SELECT COUNT before INSERT → immediate 409 on match (legibility)
-#   (b) DB partial-unique index uq_user_sessions_daily_rating catches concurrent races
+# Idempotency: two layers per T-03-03-02 (Phase 3) + drill-scope extension (Phase 4.1):
+#   (a) App-level SELECT COUNT before INSERT → immediate 409 on match (legibility).
+#       Scoped to the drill slot: whole-song rating checks drill_index IS NULL;
+#       drill rating checks drill_index = body.drill_index.
+#   (b) DB partial-unique index uq_user_sessions_daily_rating (recreated in migration
+#       0005 with COALESCE(drill_index, -1) in the key) catches concurrent races.
+#
+# Drill-primary aggregation policy (Plan 04.1-02, RESEARCH.md §Q3 Option A):
+#   If ANY drill rating exists for (user, song, today), a subsequent whole-song
+#   rating (drill_index=NULL) returns 409 with code SONG_RATING_BLOCKED_BY_DRILL.
+#   The reverse order (song rating first, then drill ratings) IS allowed — song
+#   rating cannot follow drills, but drills after a song rating are fine.
 #
 # Access control (T-03-03-01):
 #   - SELECT song WHERE id=body.song_id AND user_id=x_user_id → 404 if not found
 #   - SkillNode.user_id == user_id in UPDATE WHERE clause (defense in depth)
+#   - Drill path (Plan 04.1-02, T-04.1-05): SkillNode.id == body.target_skill_node_id
+#     AND SkillNode.user_id == user_id → if rowcount==0 → 404 (crafted UUID
+#     targeting another user's node caught here, cannot mutate mastery)
 #
 # SKILL-03 compliance: no LLM imports in this write path.
 import logging
@@ -23,7 +37,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Numeric, bindparam, cast, func, literal, select, text, update
+from sqlalchemy import Numeric, cast, func, literal, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,7 +50,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # D-08: Fixed additive mastery shifts per rating tier.
-# D-07: Equal-weight — all attached skill_nodes shift by the same amount.
+# D-07: Equal-weight — all attached skill_nodes shift by the same amount
+#       (applies to whole-song rating path; drill path writes to exactly one node).
 # NOTE: D-07 equal-weight — no junction-table weight column is read in this path.
 RATING_SHIFTS: dict[str, Decimal] = {
     "not_my_tempo": Decimal("-0.05"),
@@ -52,7 +67,14 @@ async def submit_rating(
     tz_offset_minutes: int = Depends(get_tz_offset_minutes),
     db: AsyncSession = Depends(get_db),
 ) -> SessionResponse:
-    """Record a session rating and atomically update mastery on all attached skill_nodes.
+    """Record a session rating and atomically update mastery.
+
+    Two write paths (Plan 04.1-02):
+      1. Whole-song rating (body.drill_index is None) — UPDATE mastery on every
+         leaf skill_node in song_skills for this song (existing D-07 equal-weight path).
+      2. Drill rating (body.drill_index is not None) — UPDATE mastery on exactly ONE
+         skill_node (body.target_skill_node_id), guarded by SkillNode.user_id == user_id
+         (T-04.1-05 defense in depth).
 
     Single `async with db.begin():` transaction wraps ALL operations (reads + writes).
     No LLM call — deterministic writes principle (SKILL-03, D-08).
@@ -88,24 +110,56 @@ async def submit_rating(
                     detail="Song not found or not owned by user.",
                 )
 
-            # 3. Application-level idempotency guard — T-03-03-02 layer (a)
-            #    Check before INSERT for legibility; the DB constraint below catches
-            #    concurrent double-taps that slip through this SELECT.
-            already = await db.scalar(
-                select(func.count(UserSession.id)).where(
-                    UserSession.user_id == user_id,
-                    UserSession.song_id == body.song_id,
-                    UserSession.local_calendar_day == local_day,
-                    UserSession.is_reroll_marker == False,  # noqa: E712 — SQLAlchemy col comparison
+            # 3. Plan 04.1-02: drill-primary aggregation policy (RESEARCH.md §Q3 Option A).
+            #    Only fires when this is a whole-song rating (drill_index is None).
+            #    If any drill rating already exists for (user, song, today), block the
+            #    song-level write with 409 SONG_RATING_BLOCKED_BY_DRILL.
+            #    Note: this fires BEFORE the app-level idempotency check so the drill-primary
+            #    error takes precedence over "Already rated this song today" for users who
+            #    somehow have both patterns.
+            if body.drill_index is None:
+                existing_drill_ratings = await db.scalar(
+                    select(func.count(UserSession.id)).where(
+                        UserSession.user_id == user_id,
+                        UserSession.song_id == body.song_id,
+                        UserSession.local_calendar_day == local_day,
+                        UserSession.drill_index.isnot(None),
+                        UserSession.is_reroll_marker == False,  # noqa: E712
+                    )
                 )
+                if existing_drill_ratings and existing_drill_ratings > 0:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "SONG_RATING_BLOCKED_BY_DRILL: "
+                            "Rate the drills you did — the whole-song rating is off after drills."
+                        ),
+                    )
+
+            # 4. Application-level idempotency guard — T-03-03-02 layer (a), extended
+            #    for drill scope (Plan 04.1-02). Whole-song and per-drill ratings are
+            #    checked against their own slots (drill_index=NULL vs drill_index=N).
+            #    The DB constraint (COALESCE(drill_index, -1) partial-unique index from
+            #    migration 0005) below catches concurrent double-taps that slip through.
+            already_q = select(func.count(UserSession.id)).where(
+                UserSession.user_id == user_id,
+                UserSession.song_id == body.song_id,
+                UserSession.local_calendar_day == local_day,
+                UserSession.is_reroll_marker == False,  # noqa: E712
             )
+            if body.drill_index is None:
+                already_q = already_q.where(UserSession.drill_index.is_(None))
+            else:
+                already_q = already_q.where(UserSession.drill_index == body.drill_index)
+            already = await db.scalar(already_q)
             if already:
+                label = "drill" if body.drill_index is not None else "song"
                 raise HTTPException(
                     status_code=409,
-                    detail="Already rated this song today.",
+                    detail=f"Already rated this {label} today.",
                 )
 
-            # 4. INSERT session row
+            # 5. INSERT session row (with drill columns populated when present)
             session_row = UserSession(
                 id=uuid.uuid4(),
                 user_id=user_id,
@@ -114,43 +168,71 @@ async def submit_rating(
                 local_calendar_day=local_day,
                 tz_offset_minutes=tz_offset_minutes,
                 is_reroll_marker=False,
+                drill_index=body.drill_index,
+                target_skill_node_id=body.target_skill_node_id,
             )
             db.add(session_row)
 
-            # 5. UPDATE mastery on every leaf skill_node in song_skills for this song.
+            # 6. UPDATE mastery — two branches per Plan 04.1-02.
             # T-03-03-03: SQL-side clamp with typed numeric literals (RESEARCH §8 landmine 11).
-            # RESEARCH §9 Q5: explicit updated_at=func.now() — SQLAlchemy onupdate does NOT
-            #   fire on bulk UPDATE via execute(); must be stated explicitly.
-            # T-03-03-07 D-07: equal-weight — no song_skill weight column read.
-            # T-03-03-01 defense-in-depth: SkillNode.user_id == user_id filter ensures
-            #   even a crafted body.song_id cannot shift another user's mastery.
-            # T-03-03-03: SQL clamp with typed numeric literals (RESEARCH §8 landmine 11).
-            # asyncpg does not support Postgres `::numeric` cast syntax in parameterized queries.
-            # Use SQLAlchemy's func.least / func.greatest / cast() instead — produces valid
-            # parameterized SQL without `::` syntax and satisfies the landmine 11 requirement.
-            # RESEARCH §9 Q5: explicit updated_at=func.now() bump.
-            # T-03-03-07 D-07: equal-weight — no song_skill weight column read.
-            await db.execute(
-                update(SkillNode)
-                .where(
-                    SkillNode.id.in_(
-                        select(SongSkill.skill_node_id).where(
-                            SongSkill.song_id == body.song_id
-                        )
-                    ),
-                    SkillNode.user_id == user_id,
-                )
-                .values(
-                    mastery=func.least(
-                        cast(literal(Decimal("1.0")), Numeric(4, 3)),
-                        func.greatest(
-                            cast(literal(Decimal("0.0")), Numeric(4, 3)),
-                            SkillNode.mastery + cast(literal(shift), Numeric(4, 3)),
+            # asyncpg does not support Postgres `::numeric` cast syntax in parameterized
+            # queries — use func.least / func.greatest / cast() instead.
+            # RESEARCH §9 Q5: explicit updated_at=func.now() (bulk UPDATE via execute()
+            # does NOT fire SQLAlchemy onupdate hook).
+            if body.drill_index is not None:
+                # Drill write path (Plan 04.1-02, T-04.1-08):
+                # UPDATE ONLY the specific target_skill_node_id row. The
+                # SkillNode.user_id == user_id filter (T-04.1-05) ensures a crafted
+                # target_skill_node_id UUID cannot mutate another user's mastery.
+                # rowcount==0 → 404 (target not owned by this user).
+                result = await db.execute(
+                    update(SkillNode)
+                    .where(
+                        SkillNode.id == body.target_skill_node_id,
+                        SkillNode.user_id == user_id,
+                    )
+                    .values(
+                        mastery=func.least(
+                            cast(literal(Decimal("1.0")), Numeric(4, 3)),
+                            func.greatest(
+                                cast(literal(Decimal("0.0")), Numeric(4, 3)),
+                                SkillNode.mastery + cast(literal(shift), Numeric(4, 3)),
+                            ),
                         ),
-                    ),
-                    updated_at=func.now(),
+                        updated_at=func.now(),
+                    )
                 )
-            )
+                if result.rowcount == 0:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="target_skill_node_id not found or not owned by user.",
+                    )
+            else:
+                # Whole-song rating path (existing D-07 equal-weight behavior, unchanged
+                # from Phase 3 Slice C). UPDATE mastery on every leaf skill_node in
+                # song_skills for this song. Defense in depth: SkillNode.user_id filter
+                # ensures cross-user tampering via a crafted body.song_id is neutered.
+                await db.execute(
+                    update(SkillNode)
+                    .where(
+                        SkillNode.id.in_(
+                            select(SongSkill.skill_node_id).where(
+                                SongSkill.song_id == body.song_id
+                            )
+                        ),
+                        SkillNode.user_id == user_id,
+                    )
+                    .values(
+                        mastery=func.least(
+                            cast(literal(Decimal("1.0")), Numeric(4, 3)),
+                            func.greatest(
+                                cast(literal(Decimal("0.0")), Numeric(4, 3)),
+                                SkillNode.mastery + cast(literal(shift), Numeric(4, 3)),
+                            ),
+                        ),
+                        updated_at=func.now(),
+                    )
+                )
             # db.begin() context manager commits on clean exit, rolls back on exception.
             # No explicit db.commit() call needed here — it's implicit on __aexit__.
 
@@ -160,11 +242,13 @@ async def submit_rating(
         raise
     except IntegrityError as exc:
         # T-03-03-02 layer (b): DB partial-unique index caught a concurrent race.
-        # Map to 409 regardless of which constraint fires (both mean "already rated").
+        # Plan 04.1-02: disambiguate drill vs song in the 409 message so the client
+        # can tell whether it double-tapped the drill or the song rating.
         if "uq_user_sessions_daily_rating" in str(exc):
+            label = "drill" if body.drill_index is not None else "song"
             raise HTTPException(
                 status_code=409,
-                detail="Already rated this song today.",
+                detail=f"Already rated this {label} today.",
             )
         raise
 
@@ -184,4 +268,6 @@ async def submit_rating(
         ),
         local_calendar_day=local_day.isoformat(),
         rated_at=session_row.rated_at.isoformat(),
+        drill_index=session_row.drill_index,
+        target_skill_node_id=session_row.target_skill_node_id,
     )

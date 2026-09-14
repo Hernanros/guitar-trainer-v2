@@ -606,3 +606,355 @@ def test_session_response_has_drill_fields():
     # Both should be optional (default None)
     assert fields["drill_index"].default is None, "drill_index must default to None"
     assert fields["target_skill_node_id"].default is None, "target_skill_node_id must default to None"
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.1 Plan 04.1-02 Task 3 — submit_rating drill write path + drill-primary
+# 409 aggregation policy
+# ---------------------------------------------------------------------------
+
+
+async def _seed_user_song_multiple_skills(
+    db: AsyncSession,
+    user_id: str,
+    *,
+    n_skills: int = 3,
+    mastery: float = 0.20,
+) -> tuple[str, list[str]]:
+    """Seed a user + song + n_skills leaf skill_nodes, each linked to the song via song_skills.
+
+    Returns (song_id, [skill_node_id, ...]).
+    """
+    import uuid as _uuid_mod
+    from sqlalchemy.dialects.postgresql import insert as _pg_insert
+    from app.models.db import Song as SongModel, User as UserModel
+
+    await db.execute(
+        _pg_insert(UserModel).values(
+            id=_uuid_mod.UUID(user_id), preferences={}
+        ).on_conflict_do_nothing(index_elements=["id"])
+    )
+
+    breakdown_data = {
+        "tab": {
+            "measures": [
+                {
+                    "beats": [{"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]}],
+                    "time_signature": "4/4",
+                }
+            ],
+            "tuning": ["E", "A", "D", "G", "B", "e"],
+        },
+        "chords": [],
+        "technique_notes": [],
+    }
+    song_obj = SongModel(
+        title="Test Song Multi",
+        artist="Test Artist",
+        genre="Blues",
+        difficulty="intermediate",
+        bpm=120,
+        key="E",
+        breakdown=breakdown_data,
+        user_id=_uuid_mod.UUID(user_id),
+        category="working_on",
+    )
+    db.add(song_obj)
+    await db.flush()
+    song_id = song_obj.id
+
+    node_ids = []
+    for i in range(n_skills):
+        nid = str(uuid4())
+        node_ids.append(nid)
+        await db.execute(
+            text(
+                "INSERT INTO skill_nodes (id, user_id, name, level, mastery) "
+                f"VALUES ('{nid}', '{user_id}', 'Test Skill {i}', 'leaf', {mastery})"
+            )
+        )
+        await db.execute(
+            text(
+                f"INSERT INTO song_skills (song_id, skill_node_id) "
+                f"VALUES ({song_id}, '{nid}')"
+            )
+        )
+
+    await db.commit()
+    return str(song_id), node_ids
+
+
+@pytest.mark.asyncio
+async def test_drill_rating_writes_only_target_node():
+    """POST with (drill_index=0, target_skill_node_id=A) returns 201 and shifts ONLY A's mastery.
+    Nodes B and C attached to the song via SongSkill are UNCHANGED."""
+    user_id = str(uuid4())
+    async with _make_session() as db:
+        song_id, node_ids = await _seed_user_song_multiple_skills(
+            db, user_id, n_skills=3, mastery=0.20
+        )
+    a, b, c = node_ids
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                "/api/v1/sessions",
+                json={
+                    "song_id": int(song_id),
+                    "rating": "getting_closer",
+                    "drill_index": 0,
+                    "target_skill_node_id": a,
+                },
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["drill_index"] == 0
+        assert data["target_skill_node_id"] == a
+
+        # Only A should have shifted (0.20 + 0.05 = 0.25); B and C unchanged
+        async with _make_session() as db:
+            a_mast = (
+                await db.execute(
+                    text(f"SELECT mastery FROM skill_nodes WHERE id = '{a}'")
+                )
+            ).scalar_one()
+            b_mast = (
+                await db.execute(
+                    text(f"SELECT mastery FROM skill_nodes WHERE id = '{b}'")
+                )
+            ).scalar_one()
+            c_mast = (
+                await db.execute(
+                    text(f"SELECT mastery FROM skill_nodes WHERE id = '{c}'")
+                )
+            ).scalar_one()
+        assert abs(float(a_mast) - 0.25) < 0.001, (
+            f"A should be 0.25 after getting_closer on 0.20, got {a_mast}"
+        )
+        assert abs(float(b_mast) - 0.20) < 0.001, (
+            f"B should stay at 0.20 (drill did not target it), got {b_mast}"
+        )
+        assert abs(float(c_mast) - 0.20) < 0.001, (
+            f"C should stay at 0.20 (drill did not target it), got {c_mast}"
+        )
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_drill_rating_defense_in_depth_user_id_filter():
+    """POST with target_skill_node_id owned by a DIFFERENT user returns 404 (T-04.1-05)."""
+    victim_user_id = str(uuid4())
+    attacker_user_id = str(uuid4())
+
+    # Seed victim: 1 song + 1 skill_node owned by victim
+    async with _make_session() as db:
+        _victim_song_id, victim_nodes = await _seed_user_song_multiple_skills(
+            db, victim_user_id, n_skills=1
+        )
+    victim_node_id = victim_nodes[0]
+
+    # Seed attacker: 1 song (different) owned by attacker
+    async with _make_session() as db:
+        attacker_song_id, _attacker_nodes = await _seed_user_song_multiple_skills(
+            db, attacker_user_id, n_skills=1
+        )
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            # Attacker POSTs a drill rating pointing at the victim's skill_node
+            resp = await client.post(
+                "/api/v1/sessions",
+                json={
+                    "song_id": int(attacker_song_id),
+                    "rating": "thats_what_im_looking_for",
+                    "drill_index": 0,
+                    "target_skill_node_id": victim_node_id,
+                },
+                headers={"X-User-ID": attacker_user_id, "X-Timezone-Offset": "0"},
+            )
+        # Expect 404 from the UPDATE ... WHERE SkillNode.user_id filter
+        assert resp.status_code == 404, resp.text
+        assert "target_skill_node_id" in resp.json().get("detail", "").lower() or (
+            "not found" in resp.json().get("detail", "").lower()
+        )
+
+        # Victim's mastery must be UNCHANGED (0.20)
+        async with _make_session() as db:
+            v_mast = (
+                await db.execute(
+                    text(f"SELECT mastery FROM skill_nodes WHERE id = '{victim_node_id}'")
+                )
+            ).scalar_one()
+        assert abs(float(v_mast) - 0.20) < 0.001, (
+            f"Victim's mastery must remain 0.20, got {v_mast}"
+        )
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, victim_user_id)
+            await _cleanup(db, attacker_user_id)
+
+
+@pytest.mark.asyncio
+async def test_song_rating_blocked_when_drill_exists():
+    """Sequence: (1) drill rating → 201 ; (2) song-level rating same day → 409 with
+    SONG_RATING_BLOCKED_BY_DRILL in body."""
+    user_id = str(uuid4())
+    async with _make_session() as db:
+        song_id, node_ids = await _seed_user_song_multiple_skills(db, user_id, n_skills=2)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            # Step 1: drill rating
+            resp1 = await client.post(
+                "/api/v1/sessions",
+                json={
+                    "song_id": int(song_id),
+                    "rating": "getting_closer",
+                    "drill_index": 0,
+                    "target_skill_node_id": node_ids[0],
+                },
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+            assert resp1.status_code == 201, resp1.text
+
+            # Step 2: whole-song rating — should 409 SONG_RATING_BLOCKED_BY_DRILL
+            resp2 = await client.post(
+                "/api/v1/sessions",
+                json={"song_id": int(song_id), "rating": "getting_closer"},
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp2.status_code == 409, resp2.text
+        assert "SONG_RATING_BLOCKED_BY_DRILL" in resp2.json().get("detail", ""), (
+            f"Expected SONG_RATING_BLOCKED_BY_DRILL, got: {resp2.json()}"
+        )
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_song_rating_first_then_drill_succeeds():
+    """Sequence: (1) whole-song rating → 201 ; (2) drill rating same day → 201.
+    Drill-primary policy allows drills AFTER song rating, blocks song rating AFTER drills."""
+    user_id = str(uuid4())
+    async with _make_session() as db:
+        song_id, node_ids = await _seed_user_song_multiple_skills(db, user_id, n_skills=2)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp1 = await client.post(
+                "/api/v1/sessions",
+                json={"song_id": int(song_id), "rating": "getting_closer"},
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+            assert resp1.status_code == 201, resp1.text
+
+            resp2 = await client.post(
+                "/api/v1/sessions",
+                json={
+                    "song_id": int(song_id),
+                    "rating": "getting_closer",
+                    "drill_index": 0,
+                    "target_skill_node_id": node_ids[0],
+                },
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp2.status_code == 201, resp2.text
+        assert resp2.json()["drill_index"] == 0
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_drill_index_returns_409():
+    """Two POSTs with drill_index=0 for the same (user, song, day) — second returns 409."""
+    user_id = str(uuid4())
+    async with _make_session() as db:
+        song_id, node_ids = await _seed_user_song_multiple_skills(db, user_id, n_skills=1)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp1 = await client.post(
+                "/api/v1/sessions",
+                json={
+                    "song_id": int(song_id),
+                    "rating": "getting_closer",
+                    "drill_index": 0,
+                    "target_skill_node_id": node_ids[0],
+                },
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+            assert resp1.status_code == 201, resp1.text
+
+            resp2 = await client.post(
+                "/api/v1/sessions",
+                json={
+                    "song_id": int(song_id),
+                    "rating": "not_my_tempo",
+                    "drill_index": 0,
+                    "target_skill_node_id": node_ids[0],
+                },
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp2.status_code == 409, resp2.text
+        detail = resp2.json().get("detail", "")
+        assert "drill" in detail.lower(), (
+            f"Expected 'drill' in 409 detail, got: {detail}"
+        )
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_two_different_drill_indices_succeed():
+    """POST drill_index=0 + POST drill_index=1 for the same (user, song, day) — both 201."""
+    user_id = str(uuid4())
+    async with _make_session() as db:
+        song_id, node_ids = await _seed_user_song_multiple_skills(db, user_id, n_skills=2)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp1 = await client.post(
+                "/api/v1/sessions",
+                json={
+                    "song_id": int(song_id),
+                    "rating": "getting_closer",
+                    "drill_index": 0,
+                    "target_skill_node_id": node_ids[0],
+                },
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+            assert resp1.status_code == 201, resp1.text
+
+            resp2 = await client.post(
+                "/api/v1/sessions",
+                json={
+                    "song_id": int(song_id),
+                    "rating": "thats_what_im_looking_for",
+                    "drill_index": 1,
+                    "target_skill_node_id": node_ids[1],
+                },
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+        assert resp2.status_code == 201, resp2.text
+        assert resp2.json()["drill_index"] == 1
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
