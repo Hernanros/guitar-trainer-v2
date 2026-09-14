@@ -529,6 +529,258 @@ def test_format_user_message_empty_target_skills_fallback():
     assert "no target skills specified" in msg
 
 
+# ---------------------------------------------------------------------------
+# Phase 4.1 Plan 04.1-01 Task 3 — endpoint drill wiring + hallucinated-id filter
+# ---------------------------------------------------------------------------
+
+
+def _drill_dict(target_skill_temp_id: str, **overrides) -> dict:
+    """Construct a valid Drill kwargs dict.
+
+    tab_snippet is a real Tab instance (not a bare dict) so model_construct
+    doesn't emit PydanticSerializationUnexpectedValue warnings during response
+    serialization downstream.
+    """
+    d = {
+        "name": "Isolate slide",
+        "target_skill_temp_id": target_skill_temp_id,
+        "song_specific": True,
+        "what": "Play the slide alone.",
+        "tab_snippet": Tab(
+            measures=[
+                Measure(
+                    beats=[Beat(notes=[Note(string=1, fret=0, duration="quarter")])],
+                    time_signature="4/4",
+                )
+            ],
+            tuning=["E", "A", "D", "G", "B", "e"],
+        ),
+        "start_bpm": 60,
+        "target_bpm": 70,
+        "repetitions": 20,
+        "success_criterion": "Clean on the beat.",
+        "common_trap": None,
+    }
+    d.update(overrides)
+    return d
+
+
+async def _seed_skill_and_link(
+    db: AsyncSession, user_id: str, song_id: int, skill_name: str = "Slide"
+) -> str:
+    """Insert a leaf skill_node owned by user and link it to song_id via song_skills."""
+    skill_id = str(uuid.uuid4())
+    await db.execute(
+        text(
+            "INSERT INTO skill_nodes (id, user_id, name, level, mastery) "
+            "VALUES (:sid, :uid, :name, 'leaf', 0.3)"
+        ),
+        {"sid": skill_id, "uid": user_id, "name": skill_name},
+    )
+    await db.execute(
+        text(
+            "INSERT INTO song_skills (song_id, skill_node_id) VALUES (:sid, :skid)"
+        ),
+        {"sid": song_id, "skid": skill_id},
+    )
+    await db.commit()
+    return skill_id
+
+
+def _make_breakdown_with_drills(drills: list[dict]) -> Breakdown:
+    """Build a Breakdown via model_construct (skips validation) so we can inject
+    the AFTER-soft-fail state that reaches the endpoint. Drills are constructed
+    with model_construct too, matching the same skip-validation strategy so we
+    can simulate hallucinated ids without tripping the endpoint's OWN filter."""
+    from app.models.song import Drill
+    drill_objs = [Drill.model_construct(**d) for d in drills]
+    return Breakdown.model_construct(
+        tab=_canned_breakdown().tab,
+        chords=[],
+        technique_notes=[],
+        drills=drill_objs,
+    )
+
+
+@pytest.mark.asyncio
+async def test_breakdown_response_includes_drills_from_sonnet(monkeypatch):
+    """Happy path: run_technique_breakdown returns Breakdown with 2 valid drills →
+    endpoint 200 with drills in response payload."""
+    user_id = str(uuid.uuid4())
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(db, user_id)
+        skill_id = await _seed_skill_and_link(db, user_id, song_id, "Slide")
+
+    async def _fake(*args, **kwargs) -> Breakdown:
+        return _make_breakdown_with_drills([
+            _drill_dict(skill_id, name="Drill A"),
+            _drill_dict(skill_id, name="Drill B"),
+        ])
+
+    monkeypatch.setattr("app.api.v1.breakdowns.run_technique_breakdown", _fake)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id},
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "drills" in data
+        assert len(data["drills"]) == 2
+        names = {d["name"] for d in data["drills"]}
+        assert names == {"Drill A", "Drill B"}
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_breakdown_drops_drill_with_hallucinated_skill_id(monkeypatch, caplog):
+    """Landmine #2: a drill referencing a skill_node UUID NOT owned by the user is
+    silently dropped by the endpoint's post-generation filter (log warning, no 500)."""
+    import logging
+    user_id = str(uuid.uuid4())
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(db, user_id)
+        real_skill_id = await _seed_skill_and_link(db, user_id, song_id, "Slide")
+
+    hallucinated_id = str(uuid.uuid4())  # NOT owned by user
+
+    async def _fake(*args, **kwargs) -> Breakdown:
+        return _make_breakdown_with_drills([
+            _drill_dict(real_skill_id, name="Real drill 1"),
+            _drill_dict(hallucinated_id, name="Hallucinated drill"),
+            _drill_dict(real_skill_id, name="Real drill 2"),
+        ])
+
+    monkeypatch.setattr("app.api.v1.breakdowns.run_technique_breakdown", _fake)
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="app.api.v1.breakdowns"):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get(
+                    f"/api/v1/songs/{song_id}/breakdown",
+                    headers={"X-User-ID": user_id},
+                )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        # Hallucinated drill dropped; 2 real drills survive
+        assert len(data["drills"]) == 2, (
+            f"Expected 2 drills after hallucinated-id drop, got {len(data['drills'])}"
+        )
+        names = {d["name"] for d in data["drills"]}
+        assert names == {"Real drill 1", "Real drill 2"}
+        assert "Hallucinated drill" not in names
+
+        # Warning was logged
+        assert any(
+            "hallucinated" in r.message.lower() or "hallucinated_target" in r.message.lower()
+            for r in caplog.records
+        ), f"Expected a warning about the hallucinated drill; got: {[r.message for r in caplog.records]}"
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_breakdown_target_skills_passed_as_id_name_pairs(monkeypatch):
+    """The endpoint MUST pass target_skills as list[dict{id,name}] (not list[str])."""
+    user_id = str(uuid.uuid4())
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(db, user_id)
+        skill_id = await _seed_skill_and_link(db, user_id, song_id, "Blues Shuffle")
+
+    captured: dict = {}
+
+    async def _fake(*args, **kwargs) -> Breakdown:
+        # positional: (song_title, song_artist, target_skills, user_level)
+        captured["target_skills"] = args[2] if len(args) >= 3 else kwargs.get("target_skills")
+        return _make_breakdown_with_drills([
+            _drill_dict(skill_id), _drill_dict(skill_id)
+        ])
+
+    monkeypatch.setattr("app.api.v1.breakdowns.run_technique_breakdown", _fake)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id},
+            )
+
+        assert resp.status_code == 200, resp.text
+        target_skills = captured["target_skills"]
+        assert isinstance(target_skills, list), "target_skills must be a list"
+        assert len(target_skills) == 1
+        assert isinstance(target_skills[0], dict), (
+            "target_skills entries must be dicts, not bare strings — Landmine #2 requirement"
+        )
+        assert set(target_skills[0].keys()) == {"id", "name"}
+        assert target_skills[0]["id"] == skill_id
+        assert target_skills[0]["name"] == "Blues Shuffle"
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_breakdown_cached_pre_4_1_row_has_empty_drills(mock_breakdown_never_called):
+    """Backward compat: a cached JSONB without a `drills` key returns drills=[].
+
+    Uses `mock_breakdown_never_called` fixture to guarantee Sonnet is NOT called
+    (cache-hit path). The pre-4.1 JSONB has {tab, chords, technique_notes} only —
+    Breakdown.model_validate uses default_factory=list, so drills is []."""
+    user_id = str(uuid.uuid4())
+    # Cached JSONB from a pre-4.1 breakdown row — no `drills` key at all
+    pre_4_1_cached = {
+        "tab": _canned_breakdown().tab.model_dump(),
+        "chords": [],
+        "technique_notes": [],
+    }
+    cached_ts = datetime(2026, 8, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(
+            db,
+            user_id,
+            breakdown_generated_at=cached_ts,
+            existing_breakdown=pre_4_1_cached,
+        )
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id},
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "drills" in data, "Response must always expose the drills key"
+        assert data["drills"] == [], (
+            "Pre-4.1 cached row (no drills key) must read back as drills=[] "
+            "via default_factory (backward-compat)"
+        )
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
 def test_no_savepoint_in_endpoint():
     """Endpoint uses direct await db.commit(), NOT db.begin_nested() (RESEARCH §5).
 

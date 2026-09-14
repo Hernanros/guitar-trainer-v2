@@ -10,6 +10,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+import pydantic
 from anthropic import APIError, APITimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -302,7 +303,29 @@ async def run_technique_breakdown(
             raise RuntimeError(
                 "Sonnet did not emit a tool_use block despite forced tool_choice."
             )
-        return Breakdown.model_validate(tool_use.input)
+        # Landmine #3 soft-fail (Plan 04.1-01 Task 3): drills-shape violations
+        # (min_length=2, max_length=4, per-drill target_bpm>start_bpm model_validator)
+        # should NOT bubble as AIBreakdownError and 500 the endpoint. Strip the
+        # drills key and re-parse — users still see tab/chords/technique_notes.
+        # Structural failures in tab/chords/technique_notes (pre-existing Phase 3
+        # failure surface) still propagate as ValidationError → AIBreakdownError.
+        raw_input = tool_use.input
+        try:
+            return Breakdown.model_validate(raw_input)
+        except pydantic.ValidationError as ve:
+            logger.warning(
+                "Drills validation failed for song %r — dropping drills and returning "
+                "breakdown without drills (Landmine #3 soft-fail). ValidationError: %s",
+                song_title, ve,
+            )
+            raw_input_no_drills = (
+                {k: v for k, v in raw_input.items() if k != "drills"}
+                if isinstance(raw_input, dict)
+                else raw_input
+            )
+            # Second parse — if THIS fails, the outer try/except of run_technique_breakdown
+            # wraps it as AIBreakdownError (real structural failure, not a drills problem).
+            return Breakdown.model_validate(raw_input_no_drills)
 
     try:
         try:

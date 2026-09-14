@@ -137,6 +137,7 @@ async def get_breakdown(
         )
     ).all()
     target_skills = [{"id": str(sid), "name": sname} for sid, sname in skill_rows]
+    valid_skill_ids: set[str] = {s["id"] for s in target_skills}
 
     user_level_scalar = await db.scalar(
         select(func.coalesce(func.avg(SkillNode.mastery), 0.5)).where(
@@ -193,6 +194,24 @@ async def get_breakdown(
             status_code=503,
             detail="Fletcher stepped away from the desk. Give me another second and try again.",
         )
+
+    # 5a. Landmine #2 defense: drop drills with target_skill_temp_id NOT in the
+    # user's resolved skill_node ids (Sonnet hallucination). Log a warning per
+    # dropped drill; keep the rest. Endpoint NEVER 500s from a hallucinated id.
+    # The filtered list is what gets persisted, so subsequent cache-hit reads
+    # never see the bad drill either.
+    if breakdown.drills:
+        validated_drills = []
+        for d in breakdown.drills:
+            if d.target_skill_temp_id in valid_skill_ids:
+                validated_drills.append(d)
+            else:
+                logger.warning(
+                    "Dropping drill with hallucinated target_skill_temp_id=%s "
+                    "(not in user's %d target_skills) for song_id=%s user_id=%s drill_name=%r",
+                    d.target_skill_temp_id, len(valid_skill_ids), song_id, user_id, d.name,
+                )
+        breakdown.drills = validated_drills
 
     # 6. Persist atomically — write both fields + commit in one shot.
     # SQLAlchemy autobegin means the session already has a transaction open from
