@@ -285,4 +285,4 @@ A few things this project takes seriously that a lot of AI apps don't:
 ## Author
 
 Built by **Hernan Rosenblum** — Senior Data Scientist / Applied ML Engineer.
-Reach me on [LinkedIn](https://www.linkedin.com/in/YOUR-HANDLE) or at [hernan.rosenblum89@gmail.com](mailto:hernan.rosenblum89@gmail.com).
+Reach me on [LinkedIn](https://www.linkedin.com/in/hernanros) or at [hernan.rosenblum89@gmail.com](mailto:hernan.rosenblum89@gmail.com).
