@@ -255,11 +255,21 @@ class UserSession(Base):
     is_reroll_marker=True rows record daily re-roll events (rating=NULL).
     is_reroll_marker=False rows record real ratings (rating not NULL).
 
-    Partial-unique indexes (from migration 0003):
-      - uq_user_sessions_daily_reroll: (user_id, local_calendar_day) WHERE is_reroll_marker=true
-        (one re-roll per day)
-      - uq_user_sessions_daily_rating: (user_id, song_id, local_calendar_day) WHERE is_reroll_marker=false
-        (one rating per song per day — allows reroll marker + rating coexist for same song+day)
+    Partial-unique indexes:
+      - uq_user_sessions_daily_reroll (from migration 0003):
+          (user_id, local_calendar_day) WHERE is_reroll_marker=true
+          (one re-roll per day)
+      - uq_user_sessions_daily_rating (RECREATED in migration 0005):
+          (user_id, song_id, local_calendar_day, COALESCE(drill_index, -1))
+          WHERE is_reroll_marker=false
+          (one rating per (song, drill_slot) per day — COALESCE(-1) treats a
+          whole-song rating as its own slot alongside drill_index=0..N; allows
+          reroll marker + rating to coexist for same song+day)
+
+    Phase 4.1 (migration 0005) added drill_index + target_skill_node_id nullable
+    columns for per-drill rating write path. Both-or-neither is enforced by the
+    ck_drill_index_pairs_skill_node CHECK constraint on the table AND by the
+    @model_validator on SessionCreate at the API boundary (defense in depth).
     """
     __tablename__ = "user_sessions"
 
@@ -285,6 +295,23 @@ class UserSession(Base):
     tz_offset_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     rated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # Phase 4.1 (migration 0005): drill rating columns.
+    # Both are nullable and the DB enforces both-or-neither via CHECK constraint
+    # ck_drill_index_pairs_skill_node. NULL = whole-song rating (existing behavior).
+    drill_index: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Drill rating: 0-based index into Breakdown.drills. NULL = whole-song rating.",
+    )
+    target_skill_node_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("skill_nodes.id"),
+        nullable=True,
+        doc=(
+            "The single skill_node this drill rating writes to. NULL when drill_index is NULL. "
+            "CHECK constraint ck_drill_index_pairs_skill_node enforces both-or-neither at the DB."
+        ),
     )
     is_reroll_marker: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")

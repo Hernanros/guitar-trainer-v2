@@ -516,3 +516,93 @@ async def test_migration_0003_has_partial_unique_index():
         "uq_user_sessions_daily_rating partial-unique index not found — "
         "migration 0003 must create it (Revision C)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.1 Plan 04.1-02 Task 2 — UserSession ORM extension + SessionCreate/Response
+# with optional drill_index + target_skill_node_id and both-or-neither validator
+# ---------------------------------------------------------------------------
+
+
+def test_user_session_orm_has_drill_columns():
+    """UserSession.__table__.columns contains drill_index (Integer nullable) and
+    target_skill_node_id (UUID nullable, FK skill_nodes.id)."""
+    from sqlalchemy import Integer as _Integer
+    from sqlalchemy.dialects.postgresql import UUID as _PGUUID
+
+    cols = UserSession.__table__.columns
+    assert "drill_index" in cols, "UserSession must have drill_index column"
+    assert "target_skill_node_id" in cols, "UserSession must have target_skill_node_id column"
+
+    di = cols["drill_index"]
+    assert di.nullable is True, "drill_index must be nullable"
+    assert isinstance(di.type, _Integer), f"drill_index must be Integer, got {di.type!r}"
+
+    tsni = cols["target_skill_node_id"]
+    assert tsni.nullable is True, "target_skill_node_id must be nullable"
+    assert isinstance(tsni.type, _PGUUID), (
+        f"target_skill_node_id must be PGUUID, got {tsni.type!r}"
+    )
+    # Verify the FK targets skill_nodes.id
+    fks = list(tsni.foreign_keys)
+    assert len(fks) == 1, f"target_skill_node_id must have exactly one FK, got {fks}"
+    assert fks[0].column.table.name == "skill_nodes", (
+        f"target_skill_node_id FK must point to skill_nodes, got {fks[0].column.table.name}"
+    )
+
+
+def test_session_create_both_absent_validates():
+    """SessionCreate with no drill fields validates cleanly (existing whole-song rating shape)."""
+    from app.models.session import SessionCreate
+
+    m = SessionCreate(song_id=1, rating="getting_closer")
+    assert m.drill_index is None
+    assert m.target_skill_node_id is None
+
+
+def test_session_create_both_present_validates():
+    """SessionCreate with drill_index + target_skill_node_id validates."""
+    from app.models.session import SessionCreate
+
+    tsni = uuid4()
+    m = SessionCreate(
+        song_id=1,
+        rating="getting_closer",
+        drill_index=0,
+        target_skill_node_id=tsni,
+    )
+    assert m.drill_index == 0
+    assert m.target_skill_node_id == tsni
+
+
+def test_session_create_drill_index_alone_raises():
+    """SessionCreate with drill_index but no target_skill_node_id raises ValidationError."""
+    from pydantic import ValidationError
+    from app.models.session import SessionCreate
+
+    with pytest.raises(ValidationError) as exc_info:
+        SessionCreate(song_id=1, rating="getting_closer", drill_index=0)
+    assert "drill_index and target_skill_node_id" in str(exc_info.value)
+
+
+def test_session_create_target_alone_raises():
+    """SessionCreate with target_skill_node_id but no drill_index raises ValidationError."""
+    from pydantic import ValidationError
+    from app.models.session import SessionCreate
+
+    with pytest.raises(ValidationError) as exc_info:
+        SessionCreate(song_id=1, rating="getting_closer", target_skill_node_id=uuid4())
+    assert "drill_index and target_skill_node_id" in str(exc_info.value)
+
+
+def test_session_response_has_drill_fields():
+    """SessionResponse has optional drill_index + target_skill_node_id so callers can
+    round-trip what they POSTed."""
+    from app.models.session import SessionResponse
+
+    fields = SessionResponse.model_fields
+    assert "drill_index" in fields, "SessionResponse must expose drill_index"
+    assert "target_skill_node_id" in fields, "SessionResponse must expose target_skill_node_id"
+    # Both should be optional (default None)
+    assert fields["drill_index"].default is None, "drill_index must default to None"
+    assert fields["target_skill_node_id"].default is None, "target_skill_node_id must default to None"
