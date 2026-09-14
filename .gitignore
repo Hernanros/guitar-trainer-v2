@@ -56,3 +56,7 @@ yarn-error.log*
 
 # EAS
 .eas/
+
+# Claude Code / AI agent instructions (personal, not part of the public artifact)
+CLAUDE.md
+AGENTS.md
