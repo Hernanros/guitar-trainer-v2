@@ -14,6 +14,8 @@
 //   - Silent state sync: invalidate today-song so the rated field repopulates from server.
 //   - No error toast or UI error state.
 //   - All other errors propagate to the caller's error state.
+//
+// Plan 04.1-04 Task 2: adds useSubmitDrillRating below useSubmitRating.
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { components } from './generated/schema';
 import { apiFetch } from './apiClient';
@@ -67,6 +69,73 @@ export function useSubmitRating() {
       }
       // Other errors (500/503/network): do not handle — TanStack Query surfaces them
       // to the mutation's error state and the caller's onError callback.
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// useSubmitDrillRating — Plan 04.1-04 Task 2
+// ---------------------------------------------------------------------------
+// Mirrors useSubmitRating but POSTs drill-specific fields (drill_index +
+// target_skill_node_id) so the server can write mastery on the targeted skill node.
+//
+// songId is passed to the hook (not the mutate call) because it is needed for
+// the ['breakdown', songId] invalidation that triggers the BreakdownEnvelope
+// refetch — which carries the fresh drill_rated_today_indices back to the
+// parent breakdown screen (B1 fix: server-derived drill-primary UI state).
+//
+// 409 handling:
+//   "Already rated this drill today." → silent state sync (invalidate + swallow).
+//   "SONG_RATING_BLOCKED_BY_DRILL: …" → this code only fires on whole-song POSTs,
+//   not drill POSTs. If a drill POST ever surfaces it, that is a server bug — we
+//   propagate it as an error rather than silently swallowing it.
+
+interface DrillRatingBody {
+  song_id: number;
+  rating: RatingLiteral;
+  drill_index: number;
+  target_skill_node_id: string; // UUID string matching Drill.target_skill_temp_id
+}
+
+export function useSubmitDrillRating(songId: number | null) {
+  const qc = useQueryClient();
+  const userId = getOrCreateUserId();
+
+  return useMutation({
+    mutationFn: (body: DrillRatingBody) =>
+      apiFetch<SessionResponse>('/api/v1/sessions', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    onSuccess: () => {
+      const localDay = localCalendarDay();
+      qc.invalidateQueries({ queryKey: ['today-song', userId, localDay] });
+      // B1 FIX: invalidating ['breakdown', songId] forces a refetch of the
+      // BreakdownEnvelope, which returns the fresh drill_rated_today_indices
+      // that the parent breakdown screen reads for its drill-primary UI state.
+      // This is the durable replacement for the fragile QueryClient mutation-cache
+      // subscribe pattern from the pre-revision plan.
+      if (songId != null) {
+        qc.invalidateQueries({ queryKey: ['breakdown', songId] });
+      }
+      qc.invalidateQueries({ queryKey: ['skill-graph', userId] });
+    },
+
+    onError: async (err: Error) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('HTTP 409')) {
+        // 409 = drill already rated today (idempotency). Silent state sync:
+        // invalidate so the envelope refetches and drill_rated_today_indices
+        // populates — the drill-detail screen can then show the rated state.
+        const localDay = localCalendarDay();
+        await qc.invalidateQueries({ queryKey: ['today-song', userId, localDay] });
+        if (songId != null) {
+          await qc.invalidateQueries({ queryKey: ['breakdown', songId] });
+        }
+        return; // swallow — do not re-throw
+      }
+      // 500 / network / other → propagate to caller's onError callback.
     },
   });
 }

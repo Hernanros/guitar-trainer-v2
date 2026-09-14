@@ -7,10 +7,12 @@
 //   - onSuccess: does NOT invalidate today-song or breakdown (RESEARCH §7)
 //   - onError 409: silent state-sync (invalidates today-song; no throw)
 //   - onError 500: propagates to caller
+//
+// Plan 04.1-04 Task 2: adds 4 useSubmitDrillRating tests below useSubmitRating tests.
 import { renderHook, act } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
-import { useSubmitRating } from './sessions';
+import { useSubmitRating, useSubmitDrillRating } from './sessions';
 
 // Mock the native modules that cannot run in Node.js test environment
 jest.mock('react-native-mmkv', () => ({
@@ -216,6 +218,157 @@ describe('useSubmitRating', () => {
     });
 
     // For 500 errors, the mutation enters isError state (not swallowed like 409)
+    expect(result.current.isError).toBe(true);
+    expect(result.current.error?.message).toContain('HTTP 500');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useSubmitDrillRating — Task 2 (Plan 04.1-04)
+// ---------------------------------------------------------------------------
+describe('useSubmitDrillRating', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    qc.clear();
+  });
+
+  it('posts correct body including drill_index and target_skill_node_id', async () => {
+    const fakeResponse = {
+      id: 'abc',
+      user_id: 'test-user-id-1234-5678-9012-345678901234',
+      song_id: 1,
+      rating: 'getting_closer' as const,
+      local_calendar_day: '2026-07-29',
+      rated_at: '2026-07-29T10:00:00Z',
+      drill_index: 2,
+      target_skill_node_id: 'uuid-A',
+    };
+    mockApiFetch.mockResolvedValueOnce(fakeResponse);
+
+    const { result } = await renderHook(() => useSubmitDrillRating(1), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await act(async () => {
+      result.current.mutate({
+        song_id: 1,
+        rating: 'getting_closer',
+        drill_index: 2,
+        target_skill_node_id: 'uuid-A',
+      });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    expect(mockApiFetch).toHaveBeenCalledWith('/api/v1/sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        song_id: 1,
+        rating: 'getting_closer',
+        drill_index: 2,
+        target_skill_node_id: 'uuid-A',
+      }),
+    });
+  });
+
+  it('onSuccess invalidates today-song, breakdown, and skill-graph query keys', async () => {
+    const fakeResponse = {
+      id: 'abc',
+      user_id: 'test-user-id-1234-5678-9012-345678901234',
+      song_id: 1,
+      rating: 'getting_closer' as const,
+      local_calendar_day: '2026-07-29',
+      rated_at: '2026-07-29T10:00:00Z',
+      drill_index: 0,
+      target_skill_node_id: 'uuid-B',
+    };
+    mockApiFetch.mockResolvedValueOnce(fakeResponse);
+
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries');
+
+    const { result } = await renderHook(() => useSubmitDrillRating(1), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await act(async () => {
+      result.current.mutate({
+        song_id: 1,
+        rating: 'getting_closer',
+        drill_index: 0,
+        target_skill_node_id: 'uuid-B',
+      });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    // Must invalidate all three query key families
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryKey: ['today-song', 'test-user-id-1234-5678-9012-345678901234', '2026-07-29'],
+      }),
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['breakdown', 1] }),
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryKey: ['skill-graph', 'test-user-id-1234-5678-9012-345678901234'],
+      }),
+    );
+  });
+
+  it('409 drill-already-rated is swallowed silently (state sync — still invalidates)', async () => {
+    mockApiFetch.mockRejectedValueOnce(
+      new Error('HTTP 409 POST /api/v1/sessions'),
+    );
+
+    const invalidateSpy = jest.spyOn(qc, 'invalidateQueries');
+
+    const { result } = await renderHook(() => useSubmitDrillRating(1), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await act(async () => {
+      result.current.mutate({
+        song_id: 1,
+        rating: 'getting_closer',
+        drill_index: 0,
+        target_skill_node_id: 'uuid-C',
+      });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    // 409 is swallowed — enters error state but still invalidates for state sync
+    const todaySongInvalidated = invalidateSpy.mock.calls.some(
+      (call: Parameters<typeof qc.invalidateQueries>) =>
+        JSON.stringify(call[0]).includes('today-song'),
+    );
+    expect(todaySongInvalidated).toBe(true);
+  });
+
+  it('500 error propagates to mutation error state', async () => {
+    mockApiFetch.mockRejectedValueOnce(new Error('HTTP 500 POST /api/v1/sessions'));
+
+    const { result } = await renderHook(() => useSubmitDrillRating(1), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await act(async () => {
+      result.current.mutate({
+        song_id: 1,
+        rating: 'getting_closer',
+        drill_index: 0,
+        target_skill_node_id: 'uuid-D',
+      });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
     expect(result.current.isError).toBe(true);
     expect(result.current.error?.message).toContain('HTTP 500');
   });
