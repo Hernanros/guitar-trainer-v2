@@ -81,5 +81,35 @@ Check Railway logs (Project → Deployments → latest → Logs) for this line t
 
 ---
 
+## Section 4 — Shipping a Mid-Pilot Fix Without a Rebuild (FLE-27)
+
+The app uses `expo-updates`. JS-and-asset-only fixes ship over the air and
+consume **no EAS build quota** and **no tester reinstall**.
+
+```
+cd mobile && eas update --branch preview --message "<what you fixed>"
+```
+
+Testers get it on their next cold start (downloads in background, applies on the
+one after). No prompt, nothing for them to do.
+
+**The pilot build must be cut from a commit that includes `expo-updates`** —
+built before that, the binary has no updates client and `eas update` reaches
+nobody:
+
+```
+cd mobile && eas build --profile preview --platform all
+```
+
+**A rebuild is still required** for any native change — new native dependency,
+config plugin change, Expo SDK bump. The `fingerprint` runtime-version policy
+detects this and refuses to serve the update rather than crashing testers.
+
+Full decision record, including the FLE-10 telemetry assessment and the limits
+this does not remove: `.planning/quick/260915-02-expo-updates-ota/PLAN.md`.
+
+---
+
 *Phase: 04-cost-governor-node-verification*
 *Created: Slice B (04-02)*
+*Section 4 added: FLE-27 (2026-09-15)*

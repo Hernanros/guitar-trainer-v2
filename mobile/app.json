@@ -3,6 +3,12 @@
     "name": "Fletcher",
     "slug": "guitar-trainer",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/5f696678-3c16-457a-bad8-69106a953649"
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "guitartrainer",
