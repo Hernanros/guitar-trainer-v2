@@ -106,25 +106,64 @@ After the main tab/chords/technique_notes, emit 2-4 short practice drills.
 Each drill isolates ONE skill from the target_skills list and must be
 playable in under 60 seconds per rep.
 
-For each drill, tag song_specific: true if the drill's `what` copy
-explicitly references THIS song (e.g., "the b3→3 slide SRV uses in Lenny's
-intro"). Tag song_specific: false if the drill is a foundational
-technique any guitarist could benefit from regardless of song context
-(e.g., "isolate the E-shape barre chord in position VII").
+SONG_SPECIFIC — this is a mechanical test, not a judgement call:
+If the drill's `what` text contains the song title or the artist name
+anywhere, then `song_specific` MUST be true. There is no exception, and it
+does not matter how incidental the mention is. If you intend a foundational
+drill that any guitarist could use regardless of song, then do not mention
+the song title or the artist in `what` at all — rewrite the copy to describe
+the mechanic only. Scan `what` for both strings before you emit.
 
 For `tab_snippet`: compose a CANONICAL EXERCISE SHAPE that isolates the
 technique. It MUST NOT be a slice of the main song tab. The snippet should
 be 1-2 measures maximum and exercise ONE mechanic per drill.
 
-BAD: `tab_snippet` is measures 3-4 from the main song tab.
-GOOD: `tab_snippet` is just the two-note slide on one string, played
-      alone, no bass, no chord — isolated so the user drills the mechanic
-      not the song.
+SELF-CHECK, run this on every drill before emitting it:
+Compare the snippet against every measure of the main tab you just wrote.
+Compare ONLY the ordered sequence of (string, fret) pairs — ignore the time
+signature, ignore note durations, and ignore notes added or removed at
+either end. If 3 or more consecutive (string, fret) pairs appear in the same
+order in any main-tab measure, the snippet is a slice: rewrite it.
+Relabelling the time signature, appending a note, or shifting by an octave
+does NOT stop it being a slice.
 
-Order drills easiest→hardest. Start_bpm should be a comfortable warmup
-tempo, target_bpm should be a stretch (10-40 BPM higher, in 5-BPM
-increments to match the skill graph's 5-bpm bins). Repetitions: 8-30
-per tempo step.
+BAD: `tab_snippet` is measures 3-4 from the main song tab.
+BAD: main tab measure is [6/7] [5/9] [4/9] [3/8] [2/8] in 12/8, and the
+     snippet is [6/7] [5/9] [4/9] [3/8] [2/8] [3/8] relabelled 4/4. Five
+     pairs match in order. This is a slice wearing a disguise.
+GOOD (single-note mechanic): `tab_snippet` is just the two-note slide on
+     one string, played alone, no bass, no chord — isolated so the user
+     drills the mechanic not the song.
+GOOD (chord or barre mechanic): reduce the shape, never quote the song.
+     Play only the two or three strings that carry the mechanic, or hold
+     the full shape and drill the attack alone on a rhythm you invented.
+     For an E-shape barre at position VII: [6/7] [5/9], then
+     [6/7] [5/9] [4/9], then the full shape struck on each beat. Do not
+     reproduce the song measure that contains that chord.
+
+DRILL ORDER — easiest to hardest, defined so you can check it:
+Rate every drill on these five dimensions, reading its own tab_snippet:
+  (a) number of distinct fretted shapes
+  (b) whether changing between shapes is required (no / yes)
+  (c) the most strings sounded together in any one beat (1-6)
+  (d) whether the fretting hand must shift position (no / yes)
+  (e) whether the rhythm is even or displaced/syncopated (even / displaced)
+
+Drill 1 MUST be the simplest mechanic you emit: one shape, no change, no
+shift, even rhythm. Then, reading the drills in order, no dimension may go
+DOWN from one drill to the next, and at least one dimension MUST go UP. If
+your drills cannot be ordered that way, change the drills — simplify an
+early one, or emit fewer — rather than emitting them out of order.
+As a specific case of that rule: a drill that is one static shape must
+NEVER appear after a drill containing a chord change.
+
+TEMPO IS NOT THE DIFFICULTY SIGNAL. Do not try to make start_bpm or
+target_bpm rise across drills. A harder mechanic is often drilled SLOWER
+than an easy one, and that is correct. Set each drill's tempo from its own
+note density alone: start_bpm is a comfortable warmup for that specific
+mechanic, target_bpm is a stretch 10-40 BPM higher, both in 5-BPM
+increments to match the skill graph's 5-bpm bins. Repetitions: 8-30 per
+tempo step.
 
 target_skill_temp_id MUST be one of the ids listed in the user message.
 Do not invent ids. If none of the listed skills fit a drill you'd
@@ -206,7 +245,7 @@ async def run_technique_breakdown(
     *,
     db: AsyncSession,
     user_id: UUID,
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> Breakdown:
     """Single Sonnet 4.6 call. Mirrors run_onboarding_parse structure exactly.
 
