@@ -23,6 +23,7 @@ All tests use the session-scoped event loop from conftest.py.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import uuid
@@ -764,6 +765,94 @@ async def test_endpoint_429_days_remaining_is_integer(monkeypatch):
     days = int(match.group(1))
     assert 1 <= days <= 8, (
         f"Expected days_remaining in [1, 8], got {days}. Message: {message!r}"
+    )
+
+    async with _make_session() as db:
+        await _cleanup_user(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_failed_breakdown_does_not_consume_cap(monkeypatch):
+    """FLE-18: a call that errors must NOT decrement the 3-per-7d allowance.
+
+    The audit row is INSERTed before dispatch and stamped with error_code by
+    _update_error on failure. _check_cap filters on `error_code IS NULL`, so the
+    failed row stays in the table for audit but stops counting against the cap.
+
+    Regression guard for the user-visible bug: three transient Anthropic failures
+    used to lock a user out of breakdowns for a full week without ever having
+    delivered one.
+    """
+    import app.ai.breakdown as breakdown_mod
+    from app.ai.breakdown import AIBreakdownError, run_technique_breakdown
+
+    user_id = str(uuid.uuid4())
+    sonnet_call_count = {"n": 0}
+
+    mock_client = MagicMock()
+
+    # Fail every dispatch. run_technique_breakdown retries once, so each
+    # run_technique_breakdown() call increments this twice.
+    async def _always_fail(**kwargs):
+        sonnet_call_count["n"] += 1
+        raise asyncio.TimeoutError("simulated Anthropic timeout")
+
+    mock_client.messages.create = _always_fail
+    mock_client.messages.count_tokens = AsyncMock(
+        return_value=_fake_count_tokens_response(42)
+    )
+    monkeypatch.setattr(breakdown_mod, "get_client", lambda: mock_client)
+
+    async with _make_session() as db:
+        await _seed_user(db, user_id)
+        await _seed_song(db, user_id)
+
+    # 3 failed calls — under the old behaviour these consumed the entire cap.
+    for _ in range(3):
+        async with _make_session() as db:
+            with pytest.raises(AIBreakdownError):
+                await run_technique_breakdown(
+                    "Sweet Home Chicago", "Robert Johnson", [], 0.3,
+                    db=db, user_id=uuid.UUID(user_id),
+                )
+
+    # All three rows must be present for audit, and all three must carry error_code.
+    async with _make_session() as db:
+        total = await db.scalar(
+            text(
+                "SELECT COUNT(*) FROM governor_calls "
+                "WHERE user_id = :u AND feature = 'breakdown'"
+            ),
+            {"u": user_id},
+        )
+        errored = await db.scalar(
+            text(
+                "SELECT COUNT(*) FROM governor_calls "
+                "WHERE user_id = :u AND feature = 'breakdown' "
+                "AND error_code IS NOT NULL"
+            ),
+            {"u": user_id},
+        )
+    assert total == 3, f"All 3 failed calls must still be audited, got {total}"
+    assert errored == 3, f"All 3 audit rows must carry error_code, got {errored}"
+
+    # The 4th call must still be allowed through to Sonnet — the cap is intact.
+    dispatches_before = sonnet_call_count["n"]
+    mock_client.messages.create = AsyncMock(return_value=_fake_sonnet_response())
+
+    async with _make_session() as db:
+        result = await run_technique_breakdown(
+            "Sweet Home Chicago", "Robert Johnson", [], 0.3,
+            db=db, user_id=uuid.UUID(user_id),
+        )
+    assert result is not None, (
+        "4th call after 3 FAILED calls must succeed — failures must not consume the cap"
+    )
+    assert mock_client.messages.create.await_count == 1, (
+        "4th call must actually dispatch to Sonnet, not be short-circuited by the cap"
+    )
+    assert dispatches_before == 6, (
+        f"Expected 3 failed calls x 2 attempts (1 retry) = 6 dispatches, got {dispatches_before}"
     )
 
     async with _make_session() as db:

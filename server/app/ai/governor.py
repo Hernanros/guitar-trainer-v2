@@ -89,12 +89,20 @@ async def _check_cap(
     """COUNT current window rows; if >= cap, fetch MIN(created_at) for resets_at and raise.
 
     D-01: rolling 7-day window using created_at > now() - interval '7 days'.
+
+    FLE-18: `AND error_code IS NULL` excludes failed calls from the cap. The audit
+    row is INSERTed before dispatch and stamped with error_code only on failure
+    (_update_error), so an in-flight call still counts — concurrent requests cannot
+    race past the cap — while a call that errored does not. Without this, three
+    transient Anthropic failures locked a user out of breakdowns for a full week
+    despite never having received one.
     """
     count = await db.scalar(
         text(
             "SELECT COUNT(*) FROM governor_calls "
             "WHERE user_id = :u AND feature = :f "
-            "AND created_at > now() - interval '7 days'"
+            "AND created_at > now() - interval '7 days' "
+            "AND error_code IS NULL"
         ),
         {"u": str(user_id), "f": feature},
     )
@@ -107,7 +115,8 @@ async def _check_cap(
             text(
                 "SELECT MIN(created_at) FROM governor_calls "
                 "WHERE user_id = :u AND feature = :f "
-                "AND created_at > now() - interval '7 days'"
+                "AND created_at > now() - interval '7 days' "
+                "AND error_code IS NULL"
             ),
             {"u": str(user_id), "f": feature},
         )

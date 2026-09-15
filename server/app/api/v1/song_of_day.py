@@ -137,7 +137,8 @@ async def get_song_of_day(
         text(
             "SELECT COUNT(*) FROM governor_calls "
             "WHERE user_id = :user_id AND feature = 'breakdown' "
-            "AND created_at > now() - interval '7 days'"
+            "AND created_at > now() - interval '7 days' "
+            "AND error_code IS NULL"
         ),
         {"user_id": str(user_id)},
     )
@@ -145,7 +146,8 @@ async def get_song_of_day(
         text(
             "SELECT MIN(created_at) FROM governor_calls "
             "WHERE user_id = :user_id AND feature = 'breakdown' "
-            "AND created_at > now() - interval '7 days'"
+            "AND created_at > now() - interval '7 days' "
+            "AND error_code IS NULL"
         ),
         {"user_id": str(user_id)},
     )
@@ -256,7 +258,8 @@ async def reroll_today_song(
         text(
             "SELECT COUNT(*) FROM governor_calls "
             "WHERE user_id = :user_id AND feature = 'breakdown' "
-            "AND created_at > now() - interval '7 days'"
+            "AND created_at > now() - interval '7 days' "
+            "AND error_code IS NULL"
         ),
         {"user_id": str(user_id)},
     )
@@ -264,7 +267,8 @@ async def reroll_today_song(
         text(
             "SELECT MIN(created_at) FROM governor_calls "
             "WHERE user_id = :user_id AND feature = 'breakdown' "
-            "AND created_at > now() - interval '7 days'"
+            "AND created_at > now() - interval '7 days' "
+            "AND error_code IS NULL"
         ),
         {"user_id": str(user_id)},
     )
