@@ -150,11 +150,56 @@ def _check_env_and_normalise_db_url() -> str:
 _SEPARATOR = "=" * 80
 _SUBSEP = "-" * 60
 
+# EVAL FIX (2026-09-15): timeout override.
+#
+# run_technique_breakdown defaults to timeout_seconds=30.0, doubled to 60.0 on
+# the single retry. A measured full breakdown (Lenny, 8 measures + 4 drills)
+# takes ~76s wall-clock, so BOTH attempts time out and every song fails with
+# AIBreakdownError before emitting a single drill — which is exactly what the
+# first eval run produced (5/5 TimeoutError, 453.3s ≈ 5 × (30+60)).
+#
+# The eval widens the timeout so drill QUALITY can be graded at all. This is a
+# measurement-harness setting and does NOT fix the underlying production
+# default, which is too tight for this call — see the results doc.
+_EVAL_TIMEOUT_SECONDS = float(os.environ.get("EVAL_TIMEOUT_SECONDS", "300"))
+
 
 def _print_song_header(idx: int, song: dict) -> None:
     print(f"\n{_SEPARATOR}")
     print(f"SONG {idx + 1}/5: {song['title']} — {song['artist']}")
     print(_SEPARATOR)
+
+
+def _render_measures(measures) -> list[str]:
+    """Render measures as compact 'm1: [6/3 5/5] [4/7]' lines.
+
+    Each beat becomes a bracket group; each note inside is string/fret.
+    Used to make L1 (snippet must NOT be a slice of the main tab) gradeable
+    by eye — you can only judge "is this a slice" if you can see BOTH.
+    """
+    lines = []
+    for m_idx, measure in enumerate(measures):
+        beats = []
+        for beat in measure.beats:
+            notes = " ".join(f"{n.string}/{n.fret}" for n in beat.notes)
+            beats.append(f"[{notes}]")
+        lines.append(f"m{m_idx + 1} ({measure.time_signature}): " + " ".join(beats))
+    return lines
+
+
+def _print_main_tab(breakdown) -> None:
+    """Print the MAIN song tab.
+
+    EVAL FIX (2026-09-15): the original script printed only drill tab_snippets.
+    L1 — 'tab_snippet is a canonical isolated shape, NOT a slice of the main
+    song tab' — is the single most likely quality gap per RESEARCH.md, and it
+    is impossible to grade honestly without seeing the main tab to compare
+    against. Printing it here makes L1 a real gate instead of a guess.
+    """
+    tab = breakdown.tab
+    print(f"\n  MAIN SONG TAB — {len(tab.measures)} measure(s), tuning={tab.tuning}")
+    for line in _render_measures(tab.measures):
+        print(f"    {line}")
 
 
 def _print_drill(drill_idx: int, drill, target_skills: list[dict]) -> None:
@@ -178,6 +223,9 @@ def _print_drill(drill_idx: int, drill, target_skills: list[dict]) -> None:
     # tab_snippet — print measures count + raw JSON for reviewer inspection
     measures = drill.tab_snippet.measures
     print(f"\n    tab_snippet   : {len(measures)} measure(s), tuning={drill.tab_snippet.tuning}")
+    # Compact render first — this is what you diff against the main tab for L1.
+    for line in _render_measures(measures):
+        print(f"      {line}")
     snippet_dict = drill.tab_snippet.model_dump()
     snippet_json = json.dumps(snippet_dict, indent=6)
     for line in snippet_json.splitlines():
@@ -235,20 +283,35 @@ async def _cleanup_throwaway_user(db, uid: uuid.UUID) -> None:
     await db.commit()
 
 
-async def _query_total_tokens(db, uid: uuid.UUID) -> dict:
-    """Return total input + output token spend for the throwaway eval user from governor_calls."""
+async def _query_total_tokens(db, uids: list[uuid.UUID]) -> dict:
+    """Return total input + output token spend for the throwaway eval users.
+
+    EVAL FIX (2026-09-15): column names corrected to match the real
+    governor_calls schema (migration 0004): prompt_tokens_actual /
+    output_tokens_actual. The previous names (actual_input_tokens /
+    actual_output_tokens) do not exist and raised UndefinedColumn in the
+    finally block — i.e. AFTER all 5 paid Anthropic calls had been made.
+
+    Also takes a LIST of uids, because the eval now seeds one throwaway user
+    per song (see run_eval) to stay under the @governed cap=3/user/7d.
+    """
     from sqlalchemy import text
     result = await db.execute(
         text(
-            "SELECT COALESCE(SUM(actual_input_tokens), 0) AS total_in, "
-            "       COALESCE(SUM(actual_output_tokens), 0) AS total_out "
+            "SELECT COALESCE(SUM(prompt_tokens_actual), 0) AS total_in, "
+            "       COALESCE(SUM(output_tokens_actual), 0) AS total_out, "
+            "       COALESCE(SUM(dollars_actual), 0) AS total_dollars "
             "FROM governor_calls "
-            "WHERE user_id = :uid"
+            "WHERE user_id = ANY(CAST(:uids AS uuid[]))"
         ),
-        {"uid": str(uid)},
+        {"uids": [str(u) for u in uids]},
     )
     row = result.fetchone()
-    return {"total_input_tokens": int(row[0]), "total_output_tokens": int(row[1])}
+    return {
+        "total_input_tokens": int(row[0]),
+        "total_output_tokens": int(row[1]),
+        "total_dollars_actual": float(row[2]),
+    }
 
 # ---------------------------------------------------------------------------
 # Core eval loop
@@ -284,17 +347,31 @@ async def run_eval() -> None:
     engine = _make_engine(db_url)
     session_factory = _make_session_factory(engine)
 
-    # Seed a throwaway user so @governed has a valid FK for governor_calls rows
-    throwaway_uid = uuid.uuid4()
-    async with session_factory() as db:
-        await _seed_throwaway_user(db, throwaway_uid)
-    print(f"\nThrowaway eval user seeded: {throwaway_uid}")
+    # EVAL FIX (2026-09-15): ONE THROWAWAY USER PER SONG.
+    #
+    # run_technique_breakdown is wrapped with @governed(feature='breakdown',
+    # cap=3, window='7d'). The original eval reused a single throwaway user for
+    # all 5 songs, so songs 4 and 5 would raise BudgetExceededError and land in
+    # the error list — silently producing a 3-of-5 eval and leaving 12 of the
+    # 30 landmine gates ungradeable.
+    #
+    # The cap is a PRODUCTION SPEND CONTROL, not part of drill quality, so
+    # sidestepping it with a fresh user per song is faithful to what this eval
+    # measures. Real spend is still bounded by the 5-song catalogue and is
+    # reported from governor_calls.dollars_actual below.
+    throwaway_uids: list[uuid.UUID] = []
 
     errors: list[tuple[str, Exception]] = []
 
     try:
         for idx, song in enumerate(EVAL_SONGS):
             _print_song_header(idx, song)
+
+            throwaway_uid = uuid.uuid4()
+            async with session_factory() as db:
+                await _seed_throwaway_user(db, throwaway_uid)
+            throwaway_uids.append(throwaway_uid)
+            print(f"\n  Throwaway eval user for this song: {throwaway_uid}")
 
             # Build fake target_skills: {id, name} pairs with uuid4 IDs.
             # N1: these IDs are NOT backed by real skill_nodes rows — only gross
@@ -319,6 +396,7 @@ async def run_eval() -> None:
                         user_level=0.5,  # intermediate — representative eval level
                         db=db,
                         user_id=throwaway_uid,
+                        timeout_seconds=_EVAL_TIMEOUT_SECONDS,
                     )
 
                 drills = breakdown.drills
@@ -329,6 +407,7 @@ async def run_eval() -> None:
                         f"  drill count (< 2 or > 4), downgraded to drills=[] per Plan 01 fix."
                     )
                 else:
+                    _print_main_tab(breakdown)
                     print(f"\n  Drills emitted: {len(drills)}")
                     for drill_idx, drill in enumerate(drills):
                         _print_drill(drill_idx, drill, target_skills)
@@ -346,9 +425,16 @@ async def run_eval() -> None:
 
     finally:
         # Query actual token spend from governor_calls before cleanup
-        async with session_factory() as db:
-            token_totals = await _query_total_tokens(db, throwaway_uid)
-            await _cleanup_throwaway_user(db, throwaway_uid)
+        token_totals = {
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_dollars_actual": 0.0,
+        }
+        if throwaway_uids:
+            async with session_factory() as db:
+                token_totals = await _query_total_tokens(db, throwaway_uids)
+                for uid in throwaway_uids:
+                    await _cleanup_throwaway_user(db, uid)
 
         await engine.dispose()
 
@@ -374,6 +460,7 @@ async def run_eval() -> None:
     output_cost = token_totals["total_output_tokens"] / 1_000_000 * 15.0
     total_cost = input_cost + output_cost
     print(f"  Estimated cost      : ${total_cost:.4f} (input ${input_cost:.4f} + output ${output_cost:.4f})")
+    print(f"  Governor dollars_actual: ${token_totals['total_dollars_actual']:.4f}")
     print(f"  Budget remaining    : $20/mo cap — this eval used ~${total_cost:.2f}")
     print()
     print("Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md")
