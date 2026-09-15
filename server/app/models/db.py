@@ -7,13 +7,15 @@
 #                  Song.breakdown_generated_at column.
 # Phase 4 (04-01): GovernorCall, SkillNodeProposal, SkillNodeRejection, DecayRun ORM classes;
 #                  SkillNode gains canonical_node_id + last_decayed_at (migration 0004).
+# FLE-8 Task 3: Drill, DrillAttempt, DrillDedupeQueue ORM classes (migration 0006) — drills
+#               become first-class so a drill survives the song that spawned it.
 import enum
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Enum as SAEnum, ForeignKey, Integer, Numeric, String, func, text
+from sqlalchemy import Boolean, Date, DateTime, Enum as SAEnum, ForeignKey, Integer, Numeric, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -434,3 +436,180 @@ class DecayRun(Base):
     )
     nodes_affected: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     error: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+
+
+# -------------------------------------------------------------------------
+# Drill bank ORM models (FLE-8 Task 3 — migration 0006)
+#
+# Before 0006 a drill's identity was (song_id, drill_index) into one song's
+# cached breakdown JSONB. These three tables make a drill first-class so it can
+# be handed to the user tomorrow when the song is different.
+#
+# Naming note: `app.models.song.Drill` is the PYDANTIC wire/LLM shape emitted
+# inside a breakdown. `db.Drill` below is the PERSISTED bank row. They are
+# deliberately separate — import as `db.Drill` vs `song.Drill` at call sites.
+# -------------------------------------------------------------------------
+
+class Drill(Base):
+    """A banked practice drill — persists independently of the song that spawned it.
+
+    Dedup (FLE-8: "duplicates collapse on write") is scoped to
+    (user_id, skill_node_id): two similarly-named drills targeting DIFFERENT
+    skills are not duplicates. Classification runs rapidfuzz only, via
+    app.ai.drill_dedupe — no LLM in the write path, per the FLE-8 constraint.
+
+      >= 85  reuse the existing canonical, write no new row
+      70-84  write a DrillDedupeQueue row, write no drill row
+      < 70   insert a new canonical
+
+    canonical_drill_id NULL means THIS row is canonical. The partial-unique index
+    uq_drills_canonical_identity (user_id, skill_node_id, name_normalized)
+    WHERE canonical_drill_id IS NULL is the DB-level backstop for
+    exact-after-normalization collisions; rapidfuzz covers the fuzzy band above it.
+
+    origin_song_id / origin_drill_index are ADVISORY PROVENANCE, not identity.
+    origin_song_id is ON DELETE SET NULL so the drill outlives its song. There is
+    intentionally no both-or-neither CHECK on the pair — SET NULL cannot null
+    origin_drill_index, so such a constraint would make song deletion fail. Once
+    origin_song_id is nulled, origin_drill_index is retained but meaningless.
+    """
+    __tablename__ = "drills"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name_normalized: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="app.ai.skill_dedupe.normalize(name). Dedup key component and DB collision backstop.",
+    )
+    skill_node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("skill_nodes.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="The single skill this drill exercises. Dedup scope.",
+    )
+    canonical_drill_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("drills.id", ondelete="CASCADE"),
+        nullable=True,
+        doc="NULL = this row IS canonical. Set = collapsed duplicate.",
+    )
+    dedupe_score: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, doc="rapidfuzz token_set_ratio vs canonical at write time."
+    )
+    # Drill content — mirrors app.models.song.Drill field-for-field.
+    song_specific: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    what: Mapped[str] = mapped_column(Text, nullable=False)
+    tab_snippet: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    start_bpm: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_bpm: Mapped[int] = mapped_column(Integer, nullable=False)
+    repetitions: Mapped[int] = mapped_column(Integer, nullable=False)
+    success_criterion: Mapped[str] = mapped_column(Text, nullable=False)
+    common_trap: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Provenance — nullable by design.
+    origin_song_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("songs.id", ondelete="SET NULL"), nullable=True
+    )
+    origin_drill_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class DrillAttempt(Base):
+    """One recorded attempt at a banked drill — the per-drill history FLE-8 asks for.
+
+    Records what ACTUALLY happened: tempo reached (not the drill's target_bpm),
+    reps completed, when. A user_sessions row records a 3-choice verdict and
+    nothing about the attempt; this is the substrate v2 feedback needs.
+
+    Append-only, and deliberately WITHOUT a one-per-day unique index. Contrast
+    uq_user_sessions_daily_rating, which enforces one verdict per slot per day:
+    three attempts at three tempos in one sitting is real data, not a conflict.
+
+    user_session_id is ON DELETE SET NULL — attempt history outlives the rating
+    row it came from, and attempts logged outside a rated session have it NULL.
+    """
+    __tablename__ = "drill_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    drill_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("drills.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    user_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("user_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    local_calendar_day: Mapped[date] = mapped_column(
+        Date, nullable=False, doc="Client-local day, same convention as user_sessions."
+    )
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    tempo_reached_bpm: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, doc="Tempo ACTUALLY reached. CHECK: 20-400 when set."
+    )
+    reps_completed: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, doc="CHECK: >= 0 when set."
+    )
+    rating: Mapped[Optional[str]] = mapped_column(
+        SAEnum(
+            RatingLevel,
+            name="rating_level",
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,  # created by migration 0003 raw SQL
+        ),
+        nullable=True,
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class DrillDedupeQueue(Base):
+    """The 70-84 uncertain dedup band — curator queue. Mirrors SkillNodeProposal.
+
+    A row here means "rapidfuzz was not confident, so a human or an async job
+    decides" — and NO drill row was written. This is the async escape hatch that
+    lets the write path stay LLM-free (FLE-8 constraint) while still extending the
+    Phase 4 machinery rather than building a parallel mechanism.
+
+    payload holds the full proposed drill so approval can insert it without
+    regenerating — no Sonnet call on the resolve path either.
+    """
+    __tablename__ = "drill_dedupe_queue"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    proposed_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    skill_node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("skill_nodes.id", ondelete="CASCADE"), nullable=False
+    )
+    candidate_drill_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("drills.id", ondelete="CASCADE"), nullable=False
+    )
+    fuzzy_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default=text("'pending'")
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

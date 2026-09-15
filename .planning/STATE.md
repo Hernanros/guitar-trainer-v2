@@ -136,6 +136,7 @@ them. Checklist: `.planning/phases/04.1-ai-drills/04.1-05-DEVICE-VERIFICATION.md
 | 260908-01 | Wire useBreakdown hook + call from breakdown screen (closes Slice B deviation §3) | 2026-09-08 | 3c67c77 | [260908-01-wire-usebreakdown-hook](./quick/260908-01-wire-usebreakdown-hook/) |
 | 260909-01 | Tuning-aware Sonnet + mobile tuning label (closes Task #16 tuning-quality investigation) | 2026-09-09 | af3fdef | [260909-01-sonnet-tuning-awareness](./quick/260909-01-sonnet-tuning-awareness/) |
 | 260910-01 | Mobile refresh affordances — pull-to-refresh + dev Settings button + E♭/D standard KNOWN_TUNINGS entries | 2026-09-10 | 1e3a12f | [260910-01-mobile-refresh-batch](./quick/260910-01-mobile-refresh-batch/) |
+| 260915-01 | FLE-8 drill bank — migration 0006 (drills + drill_attempts + drill_dedupe_queue), rapidfuzz dedup-on-write, per-drill tempo/reps history. **Backfill deliberately excluded — blocked on drill quality (04.1-05 REVISE)** | 2026-09-15 | _pending_ | [260915-01-drill-bank-schema](./quick/260915-01-drill-bank-schema/) |
 
 ## Deferred Items
 
