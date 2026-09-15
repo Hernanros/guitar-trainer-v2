@@ -21,6 +21,24 @@ from app.models.song import Breakdown
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Call timeout (FLE-18)
+# ---------------------------------------------------------------------------
+# A real breakdown-with-drills call measured 72.1s mean across the 5 songs of the
+# Phase 4.1 eval (360.4s total — .planning/phases/04.1-ai-drills/
+# 04.1-05-EVAL-RAW-OUTPUT.txt:2072). The previous default of 30.0s — doubled to
+# 60.0s by the single retry below — sat UNDER that mean, so every cache-miss
+# breakdown timed out twice and returned 503. The first eval run demonstrated this
+# exactly: 5/5 TimeoutError in 453.3s (~5 x (30+60)).
+#
+# 150s is ~2.1x the measured mean. The eval recorded only the aggregate, not
+# per-song times, so the slowest song is bounded rather than known: with 5 songs
+# totalling 360.4s, the slowest cannot exceed ~140s even if the other four ran at
+# an implausible ~55s floor. 150s clears that bound; the retry doubles to 300s,
+# which is the value the eval harness proved sufficient via EVAL_TIMEOUT_SECONDS.
+_DEFAULT_TIMEOUT_SECONDS = 150.0
+
+
 class AIBreakdownError(Exception):
     """Raised when the Sonnet breakdown call fails after retry, or when structured
     output validation fails.
