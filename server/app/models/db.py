@@ -216,10 +216,18 @@ class SongSkill(Base):
 # -------------------------------------------------------------------------
 
 class SongCatalog(Base):
-    """Global seed song catalog — 10 hand-curated songs shipped with Fletcher.
+    """Global seed song catalog — 64 hand-curated songs shipped with Fletcher.
 
     Provides a bank for new users with empty working_on and for the 25% random override.
     difficulty: [0, 1] on the same scale as skill_nodes.mastery for direct comparison.
+
+    Migration 0003 seeded the first 10; migration 0007 added `tuning` and expanded
+    the catalog to 64 across genre, difficulty and tuning (FLE-6 Task 8). The tagging
+    contract for difficulty / primary_skill_root / tuning is documented at the top of
+    0007_song_catalog_tuning_and_expansion.py — read it before adding a row, because
+    the session generator reads these fields and a sloppy tag becomes a bad session.
+    The spread is tabulated in
+    .planning/quick/260915-01-expand-song-catalog/260915-01-CATALOG.md.
     """
     __tablename__ = "song_catalog"
 
@@ -240,6 +248,13 @@ class SongCatalog(Base):
     )
     difficulty: Mapped[Decimal] = mapped_column(
         Numeric(4, 3), nullable=False
+    )
+    # Canonical recorded tuning (migration 0007). One of ALLOWED_TUNINGS in that
+    # migration, enforced DB-side by song_catalog_tuning_check. Dual default
+    # mirrors the SongCatalog.difficulty pattern: `default` covers ORM inserts,
+    # `server_default` covers raw-SQL inserts, so the column is never None on read.
+    tuning: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="standard", server_default=text("'standard'")
     )
     breakdown: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
