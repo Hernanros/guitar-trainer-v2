@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 04.1-05 Task 1 shipped — eval script infrastructure on main. Wave 4 paused at Task 2 HUMAN CHECKPOINT (live-Anthropic eval run + landmine gate table).
-last_updated: "2026-09-14T00:00:00.000Z"
+stopped_at: 04.1-05 Task 2 eval RAN — disposition REVISE (25/30 gates). Wave 4 paused at Task 3 HUMAN CHECKPOINT (on-device walk), which is blocked on FLE-18 + the REVISE remediation.
+last_updated: "2026-09-15T08:45:00.000Z"
 last_activity: 2026-09-14 -- Phase 4.1 Wave 4 Task 1 shipped (513a1c4): eval_drills.py + skip-by-default pytest wrapper. Executor cleanly hit Task 2 checkpoint — no invented eval results. Worktree base drift did NOT recur this run (explicit EXPECTED_BASE anchor + guard in executor prompt worked). Prior: 2026-09-14 Wave 3 shipped via cherry-pick recovery after worktree base drift. 2026-09-14 Waves 1+2 executed.
 progress:
   total_phases: 5
@@ -27,6 +27,22 @@ See: .planning/PROJECT.md (updated 2026-07-15)
 
 Phase: 04.1 (AI Drills) — EXECUTING — Waves 1+2+3 + Wave 4 Task 1 shipped, Wave 4 Tasks 2+3 pending human checkpoints
 Plan: 4 of 5 complete + Plan 05 Task 1 shipped (Plan 05 pending human eval + on-device verify)
+### 2026-09-15 — FLE-3 release ops (push / deploy / build)
+
+- **`main` pushed to `origin`.** 21 commits, `ee44834..0db7955`. Phase 4.1 no longer exists only on
+  one disk. Two follow-up commits added: eval-harness fixes + raw eval output captured, and
+  `RECOVERED-DESIGN.md` — which CLAUDE.md cites as the locked-stack authority and which was untracked
+  and not gitignored despite being written to survive session crashes.
+- **Railway deploy live.** The push auto-triggered it (GitHub-connected). `/healthz` 200. Verified it
+  carries Phase 4.1 rather than a healthy old image: prod `/openapi.json` exposes `Drill` (10 fields),
+  `BreakdownEnvelope`, and `SessionCreate.drill_index`.
+- **EAS builds on commit `0db7955`,** both preview/internal:
+  iOS `1c973cf7-835e-4a73-b907-90171bf74b6e` · Android `7d99fdbe-ded2-474a-a89d-d63726c850fb`.
+  **PLAT-02 unblocked** — no Android build had ever run; the gap was a missing keystore, generated in
+  the cloud by EAS (no local `keytool`). No Apple purchase needed: existing Individual team
+  `7X5579VC7F`, cert/profile valid to 2027-06-23, one provisioned iPhone.
+- **Device walk NOT performed** — needs a human on provisioned hardware. See Blockers.
+
 Status: Wave 4 Task 1 (513a1c4) shipped 2026-09-14 — server/scripts/eval_drills.py (5 tuning-diverse songs: Lenny/Kashmir/Little Wing/Beat It/Wonderwall) + server/tests/test_drill_eval_live.py (skip-by-default via ANTHROPIC_EVAL_RUN=1). W5 fix respected: Postgres-only, exits with clear instructions if DATABASE_URL absent/non-postgres. Task 2 CHECKPOINT: awaiting user to run live eval (~$0.35 budget), fill EVAL-RESULTS.md with 5 songs × 6 landmines = 30-gate table, disposition SHIP/REVISE PROMPT/REVISE SCHEMA/DEFER. Task 3 CHECKPOINT: awaiting Railway deploy + fresh EAS iOS build (batched with 6 Phase 3+4 device-verify items per memory).
 Last activity: 2026-09-14 -- Phase 4.1 Wave 3 shipped (Plan 04 via cherry-pick recovery). Prior: 2026-09-14 Waves 1+2 executed (8 commits shipped). 2026-09-14 inserted Phase 4.1 + captured CONTEXT + RESEARCH + 5 PLAN.md files.
 
@@ -91,7 +107,27 @@ None yet.
 
 ### Blockers/Concerns
 
-None yet.
+**FLE-18 (critical) — breakdown timeout default is below real call latency.**
+`app/ai/breakdown.py:209` defaults `timeout_seconds=30.0`, doubled to 60s on the single retry;
+`app/api/v1/breakdowns.py:226` does not override it. Real breakdowns measured **72.1s average**
+(360.4s / 5 songs, `04.1-05-EVAL-RAW-OUTPUT.txt:2072`). Both attempts fall short, so every
+**cache-miss** breakdown returns 503. Cached breakdowns still serve, which is why earlier phases
+never hit it. Blocks device items 2 and 7. `app/ai/onboarding.py:84` has the same 30s default and
+may share the defect.
+
+**FLE-19 (medium) — governor cost audit trail is empty.**
+`governor_calls.dollars_estimated` / `dollars_actual` are declared at `app/models/db.py:347-348`
+but never written anywhere in `app/`. The eval spent ~$0.49 of real tokens and the governor still
+summed `dollars_actual` to $0.00. Enforcement is unaffected (the per-user cap is count-based and
+the $20/mo ceiling is the Anthropic Console hard cap), but the app has no internal spend visibility.
+
+**Plan 05 Task 2 disposition = REVISE (not SHIP).** 25/30 landmine gates pass. L5 (ordering) fails
+on 3/5 songs and L1 (snippet isolation) fails on Lenny. See `04.1-05-EVAL-RESULTS.md`. Task 3's
+on-device walk should not start until the REVISE remediation and FLE-18 land — otherwise it burns
+a device session and 3-per-7d breakdown quota grading drills that are already known-bad.
+
+**Seven device-verify items remain UNVERIFIED.** Builds exist and are installable; nobody has walked
+them. Checklist: `.planning/phases/04.1-ai-drills/04.1-05-DEVICE-VERIFICATION.md`.
 
 ### Quick Tasks Completed
 
