@@ -6,6 +6,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import List, Literal, Optional
 from uuid import UUID, uuid4
 
@@ -103,6 +104,58 @@ _CATEGORY_PRIORITY: dict[str, int] = {
     "aspirational": 1,
     "can_play": 0,
 }
+
+
+# Initial mastery seeded onto a leaf skill_node from what the user told us at
+# onboarding (FLE-49). Before this, every leaf started at 0.0 and stayed there until
+# the first session rating, so AVG(mastery) — the player_level every downstream
+# consumer reads — was 0.00 for all 16 production users, collapsing the 64-song
+# catalog to a single reachable song.
+#
+# This does NOT violate D-11 ("Sonnet writes STRUCTURE, never mastery"). Sonnet still
+# emits no mastery value; SonnetSkillNodeProposal has no such field. The server derives
+# these numbers deterministically from the category Sonnet already assigns each song,
+# which is the same class of write as any other server-side default.
+#
+# The scale, deliberately conservative:
+#   can_play    0.50 — the user states they can play a song exercising this skill.
+#                      Mid-catalog: a claim of competence, not of mastery.
+#   working_on  0.30 — actively practising it. Real exposure, unproven execution.
+#   aspirational     — no entry on purpose. Wanting to play Eruption is evidence about
+#                      taste, not about hands. Those leaves stay at 0.0.
+#
+# A leaf referenced by several songs takes the highest value (see _initial_leaf_mastery):
+# can_play evidence is not erased by the same skill also appearing in a working_on song.
+_ONBOARDING_SEED_MASTERY: dict[str, Decimal] = {
+    "can_play": Decimal("0.50"),
+    "working_on": Decimal("0.30"),
+}
+
+
+def _initial_leaf_mastery(
+    songs: list[SonnetSongProposal],
+) -> dict[str, Decimal]:
+    """Map skill temp_id -> seeded mastery, from the can_play / working_on split.
+
+    Reads the RAW Sonnet song list, not the coalesced one. `_coalesce_song_proposals`
+    collapses a song mentioned in two wizard sections down to a single category by
+    _CATEGORY_PRIORITY, where working_on outranks can_play — correct for deciding
+    which row to store, wrong here. A user who says they can play a song AND are
+    working on it has told us the stronger thing; taking the max over the raw list
+    keeps that 0.50 instead of letting the dedupe rewrite it to 0.30.
+
+    temp_ids that no song references are simply absent from the result, leaving those
+    nodes at the 0.0 server_default — genuinely unobserved, which is the honest value.
+    """
+    seeded: dict[str, Decimal] = {}
+    for prop in songs:
+        value = _ONBOARDING_SEED_MASTERY.get(prop.category)
+        if value is None:            # aspirational — no skill evidence
+            continue
+        for temp_id in prop.skill_temp_ids:
+            if seeded.get(temp_id, Decimal("0")) < value:
+                seeded[temp_id] = value
+    return seeded
 
 
 def _coalesce_song_proposals(
@@ -568,6 +621,12 @@ async def _persist_bootstrap(
     level_order = {"root": 0, "sub": 1, "leaf": 2}
     ordered = sorted(output.skill_graph, key=lambda p: level_order[p.level])
 
+    # temp_id -> the leaf SkillNode we just added, so step 6 can seed mastery onto it
+    # once the song categories are known (FLE-49). Leaves only: player_level averages
+    # over level='leaf', and keying off prop.level here (a plain string) avoids
+    # depending on whether the ORM hands back a str or a SkillLevel after flush.
+    leaf_nodes_by_temp_id: dict[str, SkillNode] = {}
+
     for prop in ordered:
         # Honor pipeline drop marker (verdict='no' or deferred_overflow skips user-scoped insert)
         if getattr(prop, _DROPPED_ATTR, False):
@@ -590,7 +649,7 @@ async def _persist_bootstrap(
             # Curator-queued, uncertain, or root → NULL
             canonical_node_id = None
 
-        db.add(SkillNode(
+        node = SkillNode(
             id=temp_to_uuid[prop.temp_id],
             user_id=user_id,
             name=prop.name,
@@ -599,8 +658,14 @@ async def _persist_bootstrap(
             tempo_bin_low=prop.tempo_bin_low,
             tempo_bin_high=prop.tempo_bin_high,
             canonical_node_id=canonical_node_id,
-            # mastery defaults to 0.0 via server_default (D-11 deterministic-writes principle)
-        ))
+            # mastery left at the 0.0 server_default here; leaves backed by a
+            # can_play/working_on song are seeded in step 6, once the song
+            # categories have been read (FLE-49). Sonnet still never supplies a
+            # mastery value — D-11 holds.
+        )
+        db.add(node)
+        if prop.level == "leaf":
+            leaf_nodes_by_temp_id[prop.temp_id] = node
 
     await db.flush()   # make SkillNode IDs available for song_skills FK
 
@@ -674,6 +739,35 @@ async def _persist_bootstrap(
                 )
                 continue
             db.add(SongSkill(song_id=song_id, skill_node_id=skill_uuid))
+
+    # 6) Seed leaf mastery from the onboarding can_play / working_on split (FLE-49).
+    #
+    #    Leaves used to start — and stay — at 0.0 until the first session rating, so
+    #    AVG(mastery) over leaves was 0.00 for every real user. That average IS
+    #    player_level, and at 0.00 the selector's +/-0.15 catalog window matched
+    #    exactly 1 of 64 songs, served on repeat, reroll included.
+    #
+    #    Onboarding already asks the question that settles this: someone whose
+    #    can_play list contains Sweet Child o' Mine is not a 0.00 player, and we knew
+    #    that at signup. This turns that answer into a starting position.
+    #
+    #    Leaves only — player_level averages over level='leaf' (selectors/today_song.py).
+    #    Non-leaf and verifier-dropped temp_ids are absent from leaf_nodes_by_temp_id,
+    #    so they fall out here without a special case.
+    seeded_count = 0
+    for temp_id, value in _initial_leaf_mastery(output.songs).items():
+        node = leaf_nodes_by_temp_id.get(temp_id)
+        if node is None:
+            continue
+        node.mastery = value
+        seeded_count += 1
+
+    logger.info(
+        "Seeded initial mastery on %d/%d leaf skill_nodes for user %s from onboarding categories.",
+        seeded_count,
+        len(leaf_nodes_by_temp_id),
+        user_id,
+    )
 
     await db.flush()
 

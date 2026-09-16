@@ -408,13 +408,27 @@ async def test_selector_setseed_present():
 
 
 @pytest.mark.asyncio
-async def test_selector_player_level_coalesce_present():
-    """Verify the CTE SQL uses COALESCE(AVG(mastery), 0.5) for new users (D-03 + D-04)."""
+async def test_selector_player_level_expression_present():
+    """Verify the CTE computes player_level from the shared expression.
+
+    Two guarantees in one assertion:
+      - COALESCE(..., 0.5) — the no-leaf-nodes fallback (D-03 + D-04).
+      - GREATEST(..., floor) — the FLE-49 floor. A user with leaves that are all
+        mastery 0 gets AVG = 0.0, NOT NULL, so COALESCE never fires for them; without
+        the floor they land at player_level 0.00, where the +/-0.15 catalog window
+        matches exactly 1 of the 64 rows. That was true of all 16 production users.
+    """
+    from app.selectors.player_level import PLAYER_LEVEL_SQL
     from app.selectors.today_song import _SELECTOR_CTE
     cte_text = str(_SELECTOR_CTE)
+    assert PLAYER_LEVEL_SQL in cte_text, (
+        f"CTE no longer computes player_level as {PLAYER_LEVEL_SQL!r} — it must use the "
+        "shared expression from selectors/player_level.py, not an inline copy"
+    )
     assert "COALESCE(AVG(mastery), 0.5)" in cte_text, (
         "CTE missing player_level fallback COALESCE(AVG(mastery), 0.5)"
     )
+    assert "GREATEST(" in cte_text, "CTE missing the FLE-49 player_level floor"
 
 
 @pytest.mark.asyncio

@@ -46,6 +46,7 @@ from app.api.deps import get_tz_offset_minutes, get_user_id
 from app.db.session import get_db
 from app.models.db import SkillNode, Song, SongSkill, UserSession
 from app.models.song import Breakdown, BreakdownEnvelope
+from app.selectors.player_level import floor_player_level
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -209,12 +210,17 @@ async def get_breakdown(
     target_skills = [{"id": str(sid), "name": sname} for sid, sname in skill_rows]
     valid_skill_ids: set[str] = {s["id"] for s in target_skills}
 
-    user_level_scalar = await db.scalar(
-        select(func.coalesce(func.avg(SkillNode.mastery), 0.5)).where(
+    # player_level for the teaching prompt. Floored via floor_player_level for the
+    # same reason the selector floors it (FLE-49): AVG returns 0.0 — not NULL — for a
+    # user whose leaves exist but have never been rated, and the breakdown prompt
+    # documents 0.0 as "beginner". Unfloored, every production user was being taught
+    # as an absolute beginner. See selectors/player_level.py.
+    avg_mastery = await db.scalar(
+        select(func.avg(SkillNode.mastery)).where(
             SkillNode.user_id == user_id, SkillNode.level == "leaf"
         )
     )
-    user_level = float(user_level_scalar) if user_level_scalar is not None else 0.5
+    user_level = float(floor_player_level(avg_mastery))
 
     # 5. Sonnet call — NO SAVEPOINT (RESEARCH §5, plain transaction on cache write)
     # Phase 4: pass db + user_id to run_technique_breakdown for @governed decorator.

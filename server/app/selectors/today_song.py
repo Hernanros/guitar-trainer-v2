@@ -35,6 +35,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.selectors.player_level import PLAYER_LEVEL_SQL
+
 logger = logging.getLogger(__name__)
 
 BankSource = Literal["user_bench", "seed_catalog"]
@@ -91,7 +93,7 @@ def difficulty_label(value: Optional[Union[Decimal, float, int, str]]) -> Option
 # today_song_id is NULL if BOTH working_on AND bank are empty.
 
 _SELECTOR_CTE = text(
-    """
+    f"""
 WITH
   -- 1. Seed the RNG deterministically per (user, day, optional reroll).
   --    hashtext() returns int4; setseed expects -1..1 double.
@@ -104,9 +106,12 @@ WITH
       / 2147483647.0
     )
   ),
-  -- 2. Player level: AVG(mastery) over leaf skill_nodes. Fallback 0.5 for new users.
+  -- 2. Player level: AVG(mastery) over leaf skill_nodes, floored at
+  --    PLAYER_LEVEL_FLOOR; 0.5 when the user has no leaves at all.
+  --    See selectors/player_level.py for why the floor exists (FLE-49) — without it
+  --    every production user resolved to 0.00 and the 64-song catalog served 1 song.
   player_level_cte AS (
-    SELECT COALESCE(AVG(mastery), 0.5)::numeric(4,3) AS player_level
+    SELECT {PLAYER_LEVEL_SQL}::numeric(4,3) AS player_level
     FROM skill_nodes
     WHERE user_id = CAST(:user_id AS uuid)
       AND level = 'leaf'

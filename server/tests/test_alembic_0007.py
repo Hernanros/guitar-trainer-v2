@@ -67,8 +67,17 @@ VALID_SKILL_ROOTS = {
     "rhythm", "lead", "chord_voicings", "fingerstyle", "music_theory", "timing",
 }
 
+# Imported, not re-declared: the selector's floor and its SQL expression are the
+# things under test here, so drift between them and this file must be impossible.
+from app.selectors.player_level import PLAYER_LEVEL_FLOOR, PLAYER_LEVEL_SQL  # noqa: E402
+
 # selectors/today_song.py: ABS(sc.difficulty - pl.player_level) <= 0.15
 SELECTOR_BAND = Decimal("0.15")
+
+# Minimum catalog rows a window must hold for the daily reroll to mean anything.
+# 2 would technically let the reroll differ; 3 is the floor for it to not feel like
+# a coin flip between the same two songs.
+MIN_CANDIDATES_PER_WINDOW = 3
 
 
 # ---------------------------------------------------------------------------
@@ -251,29 +260,44 @@ async def test_seed_0003_tunings_backfilled(db: AsyncSession) -> None:
 # 3. Selector coverage — the assertion that protects the daily loop
 # ---------------------------------------------------------------------------
 
+def _reachable_levels() -> list[Decimal]:
+    """player_level values a real user can actually hold, swept at 0.05.
+
+    Starts at PLAYER_LEVEL_FLOOR rather than 0.00: selectors/today_song.py floors
+    player_level, so levels below it are unreachable and asserting on them would be
+    testing arithmetic the selector never performs. test_selector_floors_player_level
+    is what holds the floor itself in place — if that floor is ever lowered, this
+    sweep widens with it and the density assertion below is what fails.
+    """
+    levels = []
+    level = PLAYER_LEVEL_FLOOR
+    while level <= Decimal("1.00"):
+        levels.append(level)
+        level += Decimal("0.05")
+    return levels
+
+
 async def test_no_empty_selector_window(db: AsyncSession) -> None:
-    """Every plausible player_level must have at least one catalog candidate.
+    """Every reachable player_level must have at least one catalog candidate.
 
     selectors/today_song.py picks catalog songs with
     ABS(difficulty - player_level) <= 0.15. If a player_level lands in a window
     with no songs, catalog_pick returns nothing and the user gets no song on a
-    bank draw. Swept at 0.05 resolution across the reachable player_level range.
+    bank draw.
 
-    player_level = AVG(mastery) over leaf skill_nodes, so it is bounded by the
-    mastery scale [0, 1]; new users fall back to 0.5.
+    player_level = AVG(mastery) over leaf skill_nodes floored at PLAYER_LEVEL_FLOOR,
+    so it is bounded by [PLAYER_LEVEL_FLOOR, 1]; users with no leaves fall back to 0.5.
     """
     difficulties = [
         d for (d,) in (await db.execute(text("SELECT difficulty FROM song_catalog"))).all()
     ]
     assert difficulties, "song_catalog is empty"
 
-    empty_windows = []
-    level = Decimal("0.00")
-    while level <= Decimal("1.00"):
-        candidates = [d for d in difficulties if abs(d - level) <= SELECTOR_BAND]
-        if not candidates:
-            empty_windows.append(str(level))
-        level += Decimal("0.05")
+    empty_windows = [
+        str(level)
+        for level in _reachable_levels()
+        if not [d for d in difficulties if abs(d - level) <= SELECTOR_BAND]
+    ]
 
     assert not empty_windows, (
         "player_level values with ZERO catalog candidates (user would get no song "
@@ -281,22 +305,69 @@ async def test_no_empty_selector_window(db: AsyncSession) -> None:
     )
 
 
-async def test_selector_window_density_at_anchors(db: AsyncSession) -> None:
-    """Beginner / intermediate / advanced anchors each need real choice, not one song.
+async def test_selector_window_density_across_range(db: AsyncSession) -> None:
+    """EVERY reachable player_level needs real choice, not one song.
 
-    A single candidate in a window means every bank draw at that level returns
-    the same song — the churn failure this task exists to prevent. 3 is the
-    floor for "the reroll can actually produce something different".
+    Supersedes the old test_selector_window_density_at_anchors, which checked the
+    >= 3 floor at 0.20 / 0.50 / 0.80 only. That is the test that let FLE-49 through:
+    100% of production users sat at player_level 0.00, which was not an anchor, and
+    the companion zero-candidate sweep passed there because 0.00 had exactly one
+    candidate. A floor of 1 is not a floor — one candidate means every bank draw and
+    every reroll at that level return the identical song. So the >= 3 requirement now
+    applies across the whole reachable sweep, not at three hand-picked points.
     """
     difficulties = [
         d for (d,) in (await db.execute(text("SELECT difficulty FROM song_catalog"))).all()
     ]
-    thin = {}
-    for anchor in (Decimal("0.20"), Decimal("0.50"), Decimal("0.80")):
-        n = len([d for d in difficulties if abs(d - anchor) <= SELECTOR_BAND])
-        if n < 3:
-            thin[str(anchor)] = n
-    assert not thin, f"Difficulty anchors with fewer than 3 candidates: {thin}"
+    assert difficulties, "song_catalog is empty"
+
+    thin = {
+        str(level): n
+        for level in _reachable_levels()
+        if (n := len([d for d in difficulties if abs(d - level) <= SELECTOR_BAND]))
+        < MIN_CANDIDATES_PER_WINDOW
+    }
+    assert not thin, (
+        f"player_level values with fewer than {MIN_CANDIDATES_PER_WINDOW} catalog "
+        f"candidates (reroll cannot produce a different song there): {thin}"
+    )
+
+
+async def test_selector_floors_player_level(db: AsyncSession) -> None:
+    """The floor is applied in SQL, not just asserted about in Python.
+
+    _reachable_levels() above starts its sweep at PLAYER_LEVEL_FLOOR, which is only
+    an honest bound if the selector actually clamps there. This runs the selector's
+    own player_level expression against a user whose leaves are all mastery 0 — the
+    exact production shape — and checks it does not come back 0.00.
+    """
+    user_id = uuid.uuid4()
+    await db.execute(
+        text("INSERT INTO users (id) VALUES (CAST(:uid AS uuid))"), {"uid": str(user_id)}
+    )
+    for name in ("leaf-a", "leaf-b"):
+        await db.execute(
+            text(
+                "INSERT INTO skill_nodes (id, user_id, name, level, mastery) "
+                "VALUES (gen_random_uuid(), CAST(:uid AS uuid), :name, 'leaf', 0.0)"
+            ),
+            {"uid": str(user_id), "name": name},
+        )
+
+    level = await db.scalar(
+        text(
+            f"SELECT {PLAYER_LEVEL_SQL}::numeric(4,3) FROM skill_nodes "
+            "WHERE user_id = CAST(:uid AS uuid) AND level = 'leaf'"
+        ),
+        {"uid": str(user_id)},
+    )
+    await db.rollback()
+
+    assert level == PLAYER_LEVEL_FLOOR, (
+        f"All-zero-mastery user resolved to player_level {level}, expected the floor "
+        f"{PLAYER_LEVEL_FLOOR}. This is the FLE-49 collapse: at 0.00 the +/-0.15 "
+        "window matches one catalog row and every user gets the same song forever."
+    )
 
 
 # ---------------------------------------------------------------------------
