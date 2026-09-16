@@ -9,14 +9,15 @@
  * pass every one of those tests.
  *
  * So this file renders the real component against the expo-audio manual mock
- * (__mocks__/expo-audio.ts) and asserts the three things the wiring must do:
- * build players from the click assets, configure the audio session so a phone
- * on the silent switch still clicks, and drive the tempo from the `bpm` prop
- * rather than from user input.
+ * (__mocks__/expo-audio.ts) and asserts what the wiring must do: build players
+ * from the click assets, configure the audio session so a phone on the silent
+ * switch still clicks, drive the tempo from the `bpm` prop rather than from
+ * user input, hold the screen awake for the length of the run, and surface the
+ * timing diagnostics the hardware walk is judged on.
  */
 
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { MetronomeControl } from '../../src/components/MetronomeControl';
+import { MetronomeControl, TIMING_TOGGLE_HINT } from '../../src/components/MetronomeControl';
 import { DEFAULT_VOICES_PER_SOUND } from '../../src/metronome/audioEmitter';
 import { __audioModes, __players, __resetAudioMock } from '../../__mocks__/expo-audio';
 import {
@@ -34,6 +35,23 @@ beforeEach(() => {
 async function pressToggle(view: { getByRole: (r: string, o: { name: RegExp }) => unknown }) {
   await act(async () => {
     fireEvent.press(view.getByRole('button', { name: /click at/ }) as never);
+  });
+}
+
+/**
+ * Long-presses the tempo readout to toggle the timing diagnostics.
+ *
+ * Wrapped in `act` for the same reason pressToggle is. A bare
+ * `fireEvent(el, 'longPress')` leaves the resulting state update unflushed, so
+ * the panel never appears AND the next test in the file fails to find the
+ * readout at all — the failure surfaces one test later than its cause.
+ */
+async function longPressReadout(
+  view: { getByRole: (r: string, o: { name: string }) => unknown },
+  bpmLabel: string,
+) {
+  await act(async () => {
+    fireEvent(view.getByRole('button', { name: bpmLabel }) as never, 'longPress');
   });
 }
 
@@ -162,6 +180,21 @@ describe('MetronomeControl — tempo comes from the drill, not the user', () => 
     expect(__players.every((p) => !p.removed)).toBe(true);
   });
 
+  it('leaves the tempo readout as a display, not an input, even though it is now pressable', async () => {
+    // The readout gained a long-press (timing diagnostics), which makes it a
+    // button. The acceptance criterion is about not TYPING a tempo, so the
+    // thing to pin is that pressing it cannot change the tempo.
+    const view = await render(<MetronomeControl bpm={72} />);
+
+    await act(async () => {
+      fireEvent.press(view.getByRole('button', { name: '72 BPM' }) as never);
+    });
+    await longPressReadout(view, '72 BPM');
+
+    expect(view.getByText('72 BPM')).toBeTruthy();
+    expect(view.queryByRole('slider')).toBeNull();
+  });
+
   it('clamps a model-authored tempo instead of trusting it', async () => {
     // target_bpm arrives from Sonnet-generated drill content; 0 would divide by
     // zero in the scheduler and 4000 would be a timer storm.
@@ -171,5 +204,99 @@ describe('MetronomeControl — tempo comes from the drill, not the user', () => 
 
     const ceilinged = await render(<MetronomeControl bpm={4000} />);
     expect(ceilinged.getByText('300 BPM')).toBeTruthy();
+  });
+});
+
+describe('MetronomeControl — timing diagnostics', () => {
+  // The Done-when is verified by a human with a phone on a music stand. Until
+  // this readout existed, their only instrument was a second metronome app and
+  // an ear, which cannot separate an accumulating grid from per-beat jitter
+  // from the OS suspending the app — three different bugs that all sound like
+  // "it drifted" — and leaves no number behind for whoever has to fix it.
+  //
+  // What these tests pin is the seam no unit test can reach: that the numbers
+  // are actually REACHABLE on a device, and that they are not shipped in the
+  // face of a guitarist who just wants a tempo.
+
+  /** The diagnostics line is monospaced; matching on its shape, not its values. */
+  const TIMING_LINE = /beats? · grid /;
+
+  it('ships hidden — a practicing guitarist gets a tempo, not telemetry', async () => {
+    const view = await render(<MetronomeControl bpm={90} />);
+
+    expect(view.queryByText(TIMING_LINE)).toBeNull();
+    expect(view.queryByText(/max jitter/)).toBeNull();
+  });
+
+  it('is reachable by long-pressing the tempo readout', async () => {
+    // Long press, not tap: the tester must be able to open this mid-walk, and
+    // nobody reaching for the transport must open it by accident.
+    const view = await render(<MetronomeControl bpm={90} />);
+
+    await longPressReadout(view, '90 BPM');
+
+    // Nothing has run yet, so it must say so rather than render a clean pass.
+    expect(view.getByText('No beats yet')).toBeTruthy();
+  });
+
+  it('advertises itself to a screen reader, since nothing on screen hints at it', async () => {
+    const view = await render(<MetronomeControl bpm={90} />);
+    const readout = view.getByRole('button', { name: '90 BPM' });
+
+    expect(readout.props.accessibilityHint).toBe(TIMING_TOGGLE_HINT);
+  });
+
+  it('reports the run once beats have fired', async () => {
+    const view = await render(<MetronomeControl bpm={90} />);
+
+    await pressToggle(view); // beat 0 fires on start, synchronously
+    await longPressReadout(view, '90 BPM');
+
+    // Singular, because "1 beats" is the kind of thing a tester screenshots.
+    expect(view.getByText(/1 beat · grid \+0ms/)).toBeTruthy();
+    expect(view.getByText(/0 skipped · 0 dropped/)).toBeTruthy();
+    // Jitter in ms is unjudgeable without the tempo beside it.
+    expect(view.getByText(/max jitter 0\.0% of a beat/)).toBeTruthy();
+
+    await view.unmount();
+  });
+
+  it('survives the stop, because the tester reads the result off a stopped screen', async () => {
+    const view = await render(<MetronomeControl bpm={90} />);
+
+    await pressToggle(view); // start
+    await longPressReadout(view, '90 BPM');
+    await pressToggle(view); // stop, 45 minutes later
+
+    // stop() clears the current beat; it must not clear the measurement.
+    expect(view.queryByText('No beats yet')).toBeNull();
+    expect(view.getByText(/1 beat · grid/)).toBeTruthy();
+
+    await view.unmount();
+  });
+
+  it('starts a fresh measurement on each run, so a stray tap cannot poison a walk', async () => {
+    const view = await render(<MetronomeControl bpm={90} />);
+    await longPressReadout(view, '90 BPM');
+
+    await pressToggle(view); // a stray tap
+    await pressToggle(view);
+    expect(view.getByText(/1 beat · grid/)).toBeTruthy();
+
+    await pressToggle(view); // the real run begins
+    // Still 1 beat, not 2 — the counter reset rather than carrying the tap in.
+    expect(view.getByText(/1 beat · grid/)).toBeTruthy();
+
+    await view.unmount();
+  });
+
+  it('closes again, so it cannot be left on over a drill', async () => {
+    const view = await render(<MetronomeControl bpm={90} />);
+
+    await longPressReadout(view, '90 BPM');
+    expect(view.getByText('No beats yet')).toBeTruthy();
+
+    await longPressReadout(view, '90 BPM');
+    expect(view.queryByText('No beats yet')).toBeNull();
   });
 });

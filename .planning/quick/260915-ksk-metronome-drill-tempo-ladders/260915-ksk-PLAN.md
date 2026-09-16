@@ -195,24 +195,114 @@ is the fix for that, not churn.
   four tests pinning the acquire/release pairing (none until started, on start, on stop, on unmount
   — a lock taken and never released would pin the screen forever, which is worse than the bug).
 
+### D9 — The walk had no instrument, so its result would not have been a measurement (added 260916)
+
+FLE-42 closed: the audio build is cut and binary-verified, so the last Done-when clause is now just a
+human with a phone. Which surfaced the gap this decision closes — **what exactly does that human
+write in the blank?**
+
+Item 8's pass criterion was "no audible/visible drift against a second metronome app, beat indicator
+still on the reference's downbeat at 45 minutes". Two problems, and neither is about the tester.
+
+**It cannot separate the three ways this feature fails.** They all sound like "it drifted":
+
+| What the tester hears | What actually happened | Fix |
+|---|---|---|
+| Slowly slides out of phase | Accumulated error | Absolute deadlines (D2) — already done |
+| Beats wobble, phase holds | Per-beat JS-thread jitter | Bounded, not fixable in JS (D2) |
+| Click stops, then resumes | OS suspended the app | Wake lock / background audio (D8) |
+
+A "fail" against a second app is therefore unactionable: it could mean the scheduler is broken, or
+that jitter is merely audible, or that the phone locked. Those have three different owners.
+
+**And two metronome apps cannot be phase-compared by ear anyway.** They are started by hand, so they
+begin up to a beat apart, and the reference app has its own jitter. The instrument is less precise
+than the thing it measures.
+
+Meanwhile the engine has been computing the exact number since its first commit. `MetronomeBeat.driftMs`
+carries `actualAt - scheduledAt`, with a comment in `types.ts` reading *"Surfaced so device testing
+can measure it."* **Nothing consumed it.** No accumulator, no readout — the measurement existed and
+was thrown away on every beat.
+
+So: fold the beats into a snapshot and put it on screen.
+
+- **`gridErrorMs`** — the last beat's own distance from `anchor + n × interval`. Deliberately *not*
+  a sum of `driftMs`: summing reports 400 beats × 20ms as a grid 8 seconds out, failing a walk the
+  engine passed. This is the "holds tempo" number, and it stays bounded by one beat's jitter over
+  5400 beats.
+- **`maxAbsDriftMs` / mean** — the jitter the hardware exists to measure, plus
+  `maxDriftAsBeatFraction`, because 8ms is inaudible at 60 BPM and obvious at 280. A raw
+  millisecond figure is unjudgeable without the tempo beside it.
+- **`skippedBeats`** — counted from gaps in `beatIndex`, which the D3 stall resync creates. This is
+  the suspension detector: 30s of auto-lock reads as 59 skipped beats while `gridErrorMs` stays
+  under 500ms, because the grid never moved. Exactly the failure D8 predicted, now legible instead
+  of inferred.
+- **`lateBeats`** — clicks the emitter swallowed as out-of-position. Audible dropouts.
+
+Three implementation notes, each a thing that would have made the instrument lie:
+
+1. **A ladder push is not a skip.** `setBpm` re-anchors and restarts `beatIndex`, so a rung change
+   goes (…41, 42, 0, 1). A plain gap check reads that as minus forty-two; `Math.max`-ing it to zero
+   hides it but corrupts the baseline for the rest of the run. A non-increasing index is treated as
+   a new segment and counted as a tempo change.
+2. **No extra render per beat.** Stats live in a ref with a `readDriftStats()` getter, read during
+   the render the beat already triggers. Publishing them as state would add a second render per
+   beat to the thread that owes the next beat a deadline — the same reasoning that turned
+   `updateInterval` down to 60s in D7.
+3. **Reset on start, retained through stop.** The tester reads the result off a *stopped* screen 45
+   minutes later, so `stop()` must not clear it; and a stray practice tap must not poison the run
+   that follows.
+
+**Hidden behind a long press on the tempo readout.** A practicing guitarist wants a tempo, not
+telemetry, and this is the daily-driver drill screen — but the numbers have to be reachable on a
+device with no debugger attached. Long press rather than tap so nobody reaching for the transport
+opens it mid-drill.
+
+**This costs no EAS build.** Verified rather than assumed: `expo-updates fingerprint:generate`
+returns the identical hash with and without this change on both platforms
+(iOS `4d91c7cb…`, Android `5400fef0…`), and `git diff b2499a6..HEAD -- mobile/` is empty, so those
+hashes are the shipped `0b5cd58c` / `86bc0bba` binaries' own. JS-only, same runtime fingerprint,
+deliverable with `eas update`. Given MEMORY's "EAS build quota is scarce", an instrument that needed
+its own build would not have been worth having.
+
+- **T14** — `src/metronome/driftStats.ts` (pure accumulator + formatters), `readDriftStats()` on
+  `useMetronome`, long-press readout in `MetronomeControl`, 18 tests in `driftStats.test.ts` driving
+  the real engine through jitter / stalls / ladder pushes, and 7 render tests on the panel.
+  **106 tests green across 4 files**, up from 76.
+
 ## Verification
 
 - `npx jest __tests__/metronome` green, including the 5400-beat drift assertion.
   (260916: 67 tests green across both files, re-run on `main` after FLE-29 landed on top.
-  Final: **76 tests green across 3 files** at `f84db65`, re-run on a clean `main` before handoff.)
+  76 tests green across 3 files at `f84db65`, re-run on a clean `main` before handoff.
+  Final: **106 tests green across 4 files** after D9/T14.)
 - `npx tsc --noEmit` clean.
   (260916: the only error reported repo-wide is a pre-existing expo-router route-type mismatch in
   `src/components/app-tabs.web.tsx`, an untouched file. No metronome file appears in the output.)
 - Existing drill tests still green (the screen is edited).
-- **Not verifiable here:** physical iOS/Android hold-tempo run. Needs the EAS batch + a human on
-  provisioned hardware. Reported as outstanding against the Done-when.
-  (260916: tracked as **FLE-42** — `expo-audio` is a native module, so the existing `3521d41`
-  artifacts cannot reach it over OTA. That build is the unblock action; the device walk is a human.)
+  (260916, D9: **three suites fail repo-wide and all three are pre-existing** — confirmed by
+  stashing this change and re-running: identical failures. `TabNotation.test.tsx` has a genuine
+  multi-measure assertion failure, and `drill.test.tsx` + `(tabs)/index.test.tsx` fail to *run* at
+  all on `SyntaxError: Cannot use import statement outside a module` from `expo-router`, a
+  `transformIgnorePatterns` gap. Not caused here and not repaired here, but recorded rather than
+  left to look like collateral: the drill screen's own tests are currently not executing, so the
+  claim above is weaker than it reads and the render tests in `metronomeControl.render.test.tsx`
+  are what actually covers that call site.)
+- **Not verifiable here:** physical iOS/Android hold-tempo run. Needs a human on provisioned
+  hardware. Reported as outstanding against the Done-when.
+  (260916: was tracked as **FLE-42** — `expo-audio` is a native module, so the `3521d41` artifacts
+  could not reach it over OTA. **FLE-42 is now closed**: `0b5cd58c` (iOS) and `86bc0bba` (Android)
+  are cut from `b2499a6` and differentially verified against the old silent IPA. The build is no
+  longer the blocker; the device walk is, and it is a human.)
+- **D9 ships without a build.** `expo-updates fingerprint:generate` returns the same hash with and
+  without this change — iOS `4d91c7cb80c3414d0a06b923915e23d0608e4ff0`, Android
+  `5400fef0d268946ab0af930ca16fab38f7a7c8ae` — and `git diff b2499a6..HEAD -- mobile/` is empty, so
+  those are the shipped binaries' own fingerprints. Delivered by `eas update`, not `eas build`.
 
 ## Outstanding against the Done-when, at handoff
 
 | Done-when clause | State |
 |---|---|
 | "starting a drill sets the tempo without the user typing a number" | **Met.** The drill screen passes `currentLadder.currentBpm` into the control; there is no number entry anywhere in the path, and a ladder push retunes without rebuilding the voice pool. |
-| "the click holds tempo on physical iOS and Android hardware over a full session-length run" | **Unmet, and not satisfiable from a laptop.** Blocked on the FLE-42 build, then a human device walk. The grid math is proven against a virtual clock (5400 beats, jitter on every beat); what hardware measures that the clock cannot is per-beat jitter under a real JS thread. 260916: the walk would have failed on auto-lock rather than on drift — fixed in D8/T13 *before* the build, so the slot measures timing instead of discovering that the screen went dark. |
+| "the click holds tempo on physical iOS and Android hardware over a full session-length run" | **Unmet, and not satisfiable from a laptop — but now instrumented.** FLE-42 closed, so the build exists (`0b5cd58c` iOS / `86bc0bba` Android, both at `b2499a6`) and everything code-side is done. What remains is one human sitting with a phone for 45 minutes. The grid math is proven against a virtual clock (5400 beats, jitter on every beat); what hardware measures that the clock cannot is per-beat jitter under a real JS thread. 260916: the walk would have failed on auto-lock rather than on drift — fixed in D8/T13 *before* the build. And it would have returned an unactionable verdict — fixed in D9/T14, which puts the grid error, the jitter and the skipped-beat count on screen, so the walk returns numbers instead of an opinion. |
 | Scope bullet: "usable inside the session player alongside the session clock" | **Unmet by design (D4).** The session player is FLE-10 and does not exist yet. The metronome is a self-contained module whose only coupling is a BPM number, so it is a drop-in consumer when FLE-10 lands. |

@@ -21,8 +21,8 @@
 // Expo v57 / RN 0.86 surface only — Animated and Pressable are React Native
 // core, so this adds no dependency.
 
-import { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as ExpoAudio from 'expo-audio';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useMetronome } from '../metronome/useMetronome';
@@ -32,6 +32,7 @@ import {
   prepareClickAudioMode,
 } from '../metronome/audioEmitter';
 import { DEFAULT_BEATS_PER_BAR } from '../metronome/scheduler';
+import { formatDriftSummary, maxDriftAsBeatFraction } from '../metronome/driftStats';
 
 /** Scopes the wake lock to the metronome, so releasing it cannot cancel another
  *  screen's lock (expo-keep-awake reference-counts by tag). */
@@ -72,6 +73,19 @@ export function activeDotIndex(barBeat: number | null, running: boolean): number
   return barBeat;
 }
 
+/**
+ * Worst-case jitter stated as a share of the beat, because milliseconds alone
+ * are not judgeable: 8ms is inaudible at 60 BPM and obvious at 280. Under 1%
+ * of a beat is not hearable by anyone; the tester records the number either
+ * way rather than deciding what counts as a pass on the spot.
+ */
+export function formatJitterShare(fraction: number): string {
+  return `max jitter ${(fraction * 100).toFixed(1)}% of a beat`;
+}
+
+/** The hint that makes the timing readout discoverable without shipping it visible. */
+export const TIMING_TOGGLE_HINT = 'Long press to show timing diagnostics';
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -80,7 +94,7 @@ export function MetronomeControl({
   bpm,
   beatsPerBar = DEFAULT_BEATS_PER_BAR,
 }: MetronomeControlProps) {
-  const { running, beat, toggle, bpm: activeBpm } = useMetronome({
+  const { running, beat, toggle, bpm: activeBpm, readDriftStats } = useMetronome({
     bpm,
     beatsPerBar,
     // Called once, on first render (see useMetronome). Allocating the native
@@ -146,6 +160,26 @@ export function MetronomeControl({
     }).start();
   }, [beat, flash]);
 
+  // Timing diagnostics — hidden by default, revealed by a long press on the
+  // tempo readout.
+  //
+  // This exists because the Done-when ("the click holds tempo on physical iOS
+  // and Android hardware over a full session-length run") is measured by a
+  // human on a device, and until now the only instrument was a second
+  // metronome app and an ear. That cannot tell an accumulating grid from
+  // per-beat jitter from the OS having suspended the app, which are three
+  // different bugs with three different fixes — and it leaves no number behind
+  // for whoever has to fix it. The engine has emitted the evidence all along
+  // (driftStats.ts); this is the display.
+  //
+  // Not shown by default, because a practicing guitarist wants a tempo, not
+  // telemetry. Long press rather than tap, so it cannot be opened by someone
+  // reaching for the transport mid-drill.
+  const [showTiming, setShowTiming] = useState(false);
+  // Read during render, not subscribed to: the component already re-renders on
+  // every beat off `beat`, so this costs nothing and is never a beat stale.
+  const stats = showTiming ? readDriftStats() : null;
+
   const active = activeDotIndex(beat?.barBeat ?? null, running);
   const dots = Array.from({ length: Math.max(1, beatsPerBar) }, (_, i) => i);
 
@@ -168,10 +202,16 @@ export function MetronomeControl({
           </Text>
         </Pressable>
 
-        <View style={styles.readout}>
+        <Pressable
+          style={styles.readout}
+          onLongPress={() => setShowTiming((shown) => !shown)}
+          accessibilityRole="button"
+          accessibilityLabel={formatBpmLabel(activeBpm)}
+          accessibilityHint={TIMING_TOGGLE_HINT}
+        >
           <Text style={styles.bpmLabel}>{formatBpmLabel(activeBpm)}</Text>
           <Text style={styles.bpmSource}>From this drill</Text>
-        </View>
+        </Pressable>
       </View>
 
       {/* Bar position — the downbeat dot is the beat that plays the accent sound. */}
@@ -188,6 +228,19 @@ export function MetronomeControl({
           />
         ))}
       </View>
+
+      {stats !== null && (
+        <View style={styles.timing}>
+          <Text style={styles.timingLine} selectable>
+            {formatDriftSummary(stats)}
+          </Text>
+          {stats.beatsEmitted > 0 && (
+            <Text style={styles.timingLine} selectable>
+              {formatJitterShare(maxDriftAsBeatFraction(stats, activeBpm))}
+            </Text>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -256,5 +309,21 @@ const styles = StyleSheet.create({
   },
   dotActive: {
     backgroundColor: '#E07B39',
+  },
+  timing: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+    gap: 3,
+  },
+  timingLine: {
+    // Monospace so the digits do not jump sideways as they tick over — the
+    // tester is watching this line for 45 minutes. RN has no cross-platform
+    // monospace alias: 'monospace' is Android-only and 'Courier' is iOS-only,
+    // and naming the wrong one silently falls back to the system sans.
+    fontFamily: Platform.select({ ios: 'Courier', default: 'monospace' }),
+    fontSize: 10,
+    color: '#8A8A8A',
   },
 });

@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MetronomeEngine } from './MetronomeEngine';
 import { silentClickEmitter, withBeatListener } from './emitters';
 import { clampBpm, DEFAULT_BEATS_PER_BAR } from './scheduler';
+import { emptyDriftStats, observeBeat, type DriftStats } from './driftStats';
 import type { ClickEmitter, MetronomeBeat } from './types';
 
 export interface UseMetronomeOptions {
@@ -36,6 +37,20 @@ export interface UseMetronomeResult {
   start: () => void;
   stop: () => void;
   toggle: () => void;
+  /**
+   * Timing telemetry for the current run — read, not subscribed to.
+   *
+   * A getter rather than state on purpose. Stats change on every beat, and
+   * publishing them as state would add a second render per beat on a thread
+   * that owes the next beat a deadline (the same reasoning that turned
+   * expo-audio's `updateInterval` down to 60s — see D7). The component already
+   * re-renders every beat off `beat`, so calling this during that render is
+   * free and always current.
+   *
+   * Reset by start(); retained through stop(), because the device tester reads
+   * the run's result off a stopped screen.
+   */
+  readDriftStats: () => DriftStats;
 }
 
 export function useMetronome({
@@ -46,13 +61,24 @@ export function useMetronome({
   const [running, setRunning] = useState(false);
   const [beat, setBeat] = useState<MetronomeBeat | null>(null);
 
+  const statsRef = useRef<DriftStats>(emptyDriftStats());
+
   const engineRef = useRef<MetronomeEngine | null>(null);
   if (engineRef.current === null) {
-    // setBeat is a stable useState setter, so this listener never needs rebinding.
+    // setBeat is a stable useState setter and statsRef is stable, so this
+    // listener never needs rebinding.
     const base = createEmitter ? createEmitter() : silentClickEmitter;
     engineRef.current = new MetronomeEngine(
       { bpm, beatsPerBar },
-      { emitter: withBeatListener(base, setBeat) },
+      {
+        emitter: withBeatListener(base, (nextBeat) => {
+          // Fold BEFORE publishing the beat: setBeat is what triggers the
+          // re-render that reads these stats, so the ref has to be current by
+          // the time React gets there or the readout trails a beat behind.
+          statsRef.current = observeBeat(statsRef.current, nextBeat);
+          setBeat(nextBeat);
+        }),
+      },
     );
   }
 
@@ -76,6 +102,10 @@ export function useMetronome({
   }, []);
 
   const start = useCallback(() => {
+    // Each run is its own measurement. Carrying the previous run's jitter into
+    // a fresh one would make a 45-minute walk unmeasurable after a single
+    // practice tap.
+    statsRef.current = emptyDriftStats();
     engineRef.current?.start();
     setRunning(true);
   }, []);
@@ -94,5 +124,7 @@ export function useMetronome({
     }
   }, [start, stop]);
 
-  return { running, bpm: clampBpm(bpm), beat, start, stop, toggle };
+  const readDriftStats = useCallback(() => statsRef.current, []);
+
+  return { running, bpm: clampBpm(bpm), beat, start, stop, toggle, readDriftStats };
 }
