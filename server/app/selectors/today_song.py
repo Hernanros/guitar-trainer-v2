@@ -28,7 +28,8 @@
 # for safe ON CONFLICT DO NOTHING under concurrent-reroll races.
 import logging
 from datetime import date
-from typing import Literal
+from decimal import Decimal
+from typing import Literal, Optional, Union
 from uuid import UUID
 
 from sqlalchemy import text
@@ -37,6 +38,44 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 BankSource = Literal["user_bench", "seed_catalog"]
+
+DifficultyLabel = Literal["beginner", "intermediate", "advanced"]
+
+# Nearest-anchor midpoints over the catalog tagging contract's anchors
+# (0007_song_catalog_tuning_and_expansion.py, "Tagging contract"):
+#   0.20 beginner · 0.50 intermediate · 0.80 advanced
+_BEGINNER_MAX = Decimal("0.35")
+_INTERMEDIATE_MAX = Decimal("0.65")
+
+
+def difficulty_label(value: Optional[Union[Decimal, float, int, str]]) -> Optional[DifficultyLabel]:
+    """Map song_catalog.difficulty (NUMERIC(4,3) in [0,1]) to a songs.difficulty label.
+
+    The two columns share a name but not a type or a meaning:
+      song_catalog.difficulty  NUMERIC(4,3) — the selector's axis, compared against
+                               player_level (migration 0003).
+      songs.difficulty         String(50)   — a 3-tier human label rendered verbatim
+                               into the SongOfDayCard badge (migration 0001;
+                               models/song.py:245; SongOfDayCard.tsx:58).
+
+    Binding the Decimal straight through raised
+    ``asyncpg.exceptions.DataError: invalid input for query argument $4`` and 500'd
+    every cold-start GET /api/v1/song-of-day. Casting with str() would have written
+    "0.550" into the badge, so the numeric value is bucketed instead.
+
+    Returns None for None so a NULL catalog difficulty stays NULL rather than
+    silently becoming "beginner" (songs.difficulty is nullable, and the mobile card
+    already hides the badge when it is empty).
+    """
+    if value is None:
+        return None
+    # str() first: float -> Decimal direct would inherit binary float error.
+    number = value if isinstance(value, Decimal) else Decimal(str(value))
+    if number < _BEGINNER_MAX:
+        return "beginner"
+    if number < _INTERMEDIATE_MAX:
+        return "intermediate"
+    return "advanced"
 
 # ---------------------------------------------------------------------------
 # The 75/25 deterministic CTE (RESEARCH §4 verbatim + refinements)
@@ -197,7 +236,9 @@ async def _ensure_catalog_song_as_user_song(
             "title": cat["title"],
             "artist": cat["artist"],
             "genre": cat["genre"],
-            "difficulty": cat["difficulty"],
+            # songs.difficulty is a 3-tier String(50) label, song_catalog.difficulty is
+            # NUMERIC(4,3) — bucket, never bind the Decimal through. See difficulty_label().
+            "difficulty": difficulty_label(cat["difficulty"]),
             "breakdown": '{"tab":{"measures":[],"tuning":["E","A","D","G","B","e"]},"chords":[],"technique_notes":[]}',
             "user_id": str(user_id),
         },
