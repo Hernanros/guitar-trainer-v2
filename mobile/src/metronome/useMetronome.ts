@@ -20,8 +20,9 @@ export interface UseMetronomeOptions {
   /**
    * Factory for the sound backend. Called ONCE, on first render — the engine
    * holds the emitter for its lifetime, so changing this later has no effect.
-   * Defaults to the silent emitter, which is all that exists until expo-audio
-   * is approved (see emitters.ts).
+   * Defaults to the silent emitter; MetronomeControl passes the expo-audio one
+   * (see audioEmitter.ts). Keeping this a parameter rather than an import is
+   * what keeps the hook free of any native module.
    */
   createEmitter?: () => ClickEmitter;
 }

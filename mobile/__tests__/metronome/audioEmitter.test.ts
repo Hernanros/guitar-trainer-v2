@@ -1,12 +1,12 @@
 /**
  * Audio click emitter + click assets — FLE-5 (Task 7).
  *
- * `expo-audio` is not installed (the dependency decision is still open on
- * FLE-5), so the adapter takes the player module as an argument instead of
- * importing it. That is what makes this file possible: the behaviour that would
- * otherwise be written for the first time against a physical device — voice
- * pooling, late-beat suppression, accent routing, teardown — is covered here
- * with a fake module, today, with nothing installed.
+ * `expo-audio` is installed now, but the adapter still takes the player module
+ * as an argument instead of importing it. That is what makes this file
+ * possible: the behaviour that would otherwise be verifiable only on a physical
+ * device — voice pooling, late-beat suppression, accent routing, teardown,
+ * surviving a native throw — is covered here against a fake module, with no
+ * native mock and no build.
  *
  * The asset checks read the .wav files off disk rather than through a bundler,
  * so they assert the real bytes the device will decode.
@@ -15,12 +15,30 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
+  CLICK_PLAYER_OPTIONS,
   DEFAULT_VOICES_PER_SOUND,
   createAudioClickEmitter,
   prepareClickAudioMode,
 } from '../../src/metronome/audioEmitter';
 import type { AudioModuleLike, AudioPlayerLike } from '../../src/metronome/audioEmitter';
 import type { MetronomeBeat } from '../../src/metronome/types';
+import type * as ExpoAudio from 'expo-audio';
+
+// ---------------------------------------------------------------------------
+// Type-level test: the real module must satisfy the structural interface
+// ---------------------------------------------------------------------------
+//
+// Every runtime test below runs against a FAKE expo-audio, which is what keeps
+// them fast and device-free — but it also means they would all still pass if
+// `AudioModuleLike` had drifted away from the actual package. This assignment
+// closes that gap: it fails `tsc` if expo-audio's `createAudioPlayer`,
+// `setAudioModeAsync`, or the player's `play`/`seekTo`/`remove` ever stop
+// matching what the adapter calls — including across an SDK upgrade.
+//
+// `import type` is erased at compile time, so this costs the test run nothing
+// and never pulls a native module into Jest.
+const _expoAudioSatisfiesAdapter: AudioModuleLike = null as unknown as typeof ExpoAudio;
+void _expoAudioSatisfiesAdapter;
 
 // ---------------------------------------------------------------------------
 // Fake expo-audio
@@ -29,6 +47,8 @@ import type { MetronomeBeat } from '../../src/metronome/types';
 interface FakePlayer extends AudioPlayerLike {
   /** Which source this player was built from — lets a test tell tick from accent. */
   source: unknown;
+  /** The options expo-audio was asked to build this player with. */
+  options: Record<string, unknown> | undefined;
   calls: string[];
   removed: boolean;
   /** Set by a test to make the next play() throw, simulating a native failure. */
@@ -40,9 +60,10 @@ function createFakeAudio() {
   const modes: Record<string, unknown>[] = [];
 
   const audio: AudioModuleLike = {
-    createAudioPlayer(source: unknown) {
+    createAudioPlayer(source: unknown, options?: Record<string, unknown>) {
       const player: FakePlayer = {
         source,
+        options,
         calls: [],
         removed: false,
         failOnPlay: false,
@@ -114,6 +135,20 @@ describe('createAudioClickEmitter — allocation', () => {
 
     expect(forSource('tick.wav')).toHaveLength(1);
     expect(forSource('accent.wav')).toHaveLength(1);
+  });
+
+  it('turns status updates down on every player, keeping the bridge quiet between beats', () => {
+    // expo-audio defaults updateInterval to 500ms, so four players would post
+    // eight events a second onto the JS thread that owes the next beat a
+    // deadline — for a status nothing in this module ever reads.
+    const { audio, players } = createFakeAudio();
+    createAudioClickEmitter(audio, SOURCES);
+
+    expect(players).not.toHaveLength(0);
+    for (const player of players) {
+      expect(player.options).toEqual(CLICK_PLAYER_OPTIONS);
+      expect(player.options?.updateInterval).toBeGreaterThan(500);
+    }
   });
 });
 

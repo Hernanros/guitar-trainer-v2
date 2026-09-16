@@ -673,18 +673,29 @@ describe('MetronomeControl helpers', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Guard: the module must not acquire an audio dependency silently
+// Guard: exactly one audio dependency, and only the approved one
 // ---------------------------------------------------------------------------
 
 describe('dependency guard', () => {
-  it('ships no audio package — the escalation is unanswered', () => {
-    // If this fails, an audio dep landed. That is fine ONLY once Miagi has
-    // approved it on FLE-5; update this test in the same commit that installs.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pkg = require('../../package.json');
-    const deps = Object.keys(pkg.dependencies ?? {});
-    expect(deps).not.toContain('expo-audio');
+  // This test used to assert the opposite — that NO audio package was present —
+  // while the dependency decision was open on FLE-5. Miagi approved `expo-audio`
+  // and it was installed in the same commit that flipped this. The guard is kept
+  // rather than deleted because its job never was "stay silent"; it is "no audio
+  // dependency arrives without a decision", and that still holds for the others.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const pkg = require('../../package.json');
+  const deps = Object.keys(pkg.dependencies ?? {});
+
+  it('ships expo-audio — the approved backend', () => {
+    expect(deps).toContain('expo-audio');
+  });
+
+  it('ships no OTHER audio package', () => {
+    // expo-av is the deprecated predecessor: having both means two audio
+    // sessions fighting over the same iOS category. expo-haptics was rejected
+    // on FLE-5 (iOS ignores vibration duration; ~400ms buzz at 500ms/beat).
     expect(deps).not.toContain('expo-av');
     expect(deps).not.toContain('expo-haptics');
+    expect(deps).not.toContain('react-native-sound');
   });
 });

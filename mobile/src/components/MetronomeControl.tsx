@@ -9,13 +9,11 @@
 // only exists once a drill has actually loaded; the screen's early-return
 // guards would otherwise make the hook call conditional.
 //
-// HONESTY NOTE — read before wondering why it is quiet:
-// There is no audio dependency in mobile/package.json, so this control cannot
-// make a sound yet (see src/metronome/emitters.ts for the full reasoning and
-// the escalation). What ships is a VISUAL click: the pulse is driven by the
-// same drift-free grid the audio emitter will be, so the timing you see is the
-// timing you will hear. The subtitle says so in the UI rather than leaving the
-// user to discover silence and assume a bug.
+// This is the ONLY file that imports expo-audio (approved on FLE-5). Everything
+// else in src/metronome/ is written against the ClickEmitter interface, so the
+// engine, scheduler, hook and adapter all stay testable without a native mock.
+// The click is audible AND visual: the dots pulse off the same drift-free grid
+// that fires the sound, so what you see is what you hear.
 //
 // Fletcher voice (.planning/design/fletcher-identity.md): sharp, diagnostic,
 // no exclamation points. "Start click" / "Stop click", not "Let's go".
@@ -25,7 +23,13 @@
 
 import { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as ExpoAudio from 'expo-audio';
 import { useMetronome } from '../metronome/useMetronome';
+import {
+  createAudioClickEmitter,
+  loadClickSources,
+  prepareClickAudioMode,
+} from '../metronome/audioEmitter';
 import { DEFAULT_BEATS_PER_BAR } from '../metronome/scheduler';
 
 export interface MetronomeControlProps {
@@ -71,7 +75,26 @@ export function MetronomeControl({
   bpm,
   beatsPerBar = DEFAULT_BEATS_PER_BAR,
 }: MetronomeControlProps) {
-  const { running, beat, toggle, bpm: activeBpm } = useMetronome({ bpm, beatsPerBar });
+  const { running, beat, toggle, bpm: activeBpm } = useMetronome({
+    bpm,
+    beatsPerBar,
+    // Called once, on first render (see useMetronome). Allocating the native
+    // players here rather than on the first beat keeps file IO and decode off a
+    // beat deadline.
+    createEmitter: () => createAudioClickEmitter(ExpoAudio, loadClickSources()),
+  });
+
+  // Audio session config, once per mount. `playsInSilentMode` is the one that
+  // matters: a phone propped on a music stand is very often on the silent
+  // switch, and without it the metronome runs, keeps perfect time, and is
+  // completely inaudible — which reads as a bug, not as a setting.
+  // Failure here is not fatal; the click may just be quiet on a silenced phone.
+  useEffect(() => {
+    prepareClickAudioMode(ExpoAudio).catch(() => {
+      // Swallowed deliberately: a rejected audio-mode call must not blank the
+      // drill screen the user is mid-practice on.
+    });
+  }, []);
 
   // Flash on every beat. `beat` is a fresh object per emit, so identity change
   // is the trigger — no beat counter needed in the dependency array.
@@ -117,7 +140,7 @@ export function MetronomeControl({
         </View>
       </View>
 
-      {/* Bar position — the downbeat dot is the accent the audio emitter will play louder. */}
+      {/* Bar position — the downbeat dot is the beat that plays the accent sound. */}
       <View style={styles.dots} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         {dots.map((i) => (
           <Animated.View
@@ -131,8 +154,6 @@ export function MetronomeControl({
           />
         ))}
       </View>
-
-      <Text style={styles.pendingNote}>Visual click — audio pending a package decision</Text>
     </View>
   );
 }
@@ -201,11 +222,5 @@ const styles = StyleSheet.create({
   },
   dotActive: {
     backgroundColor: '#E07B39',
-  },
-  pendingNote: {
-    fontSize: 11,
-    color: '#666',
-    marginTop: 12,
-    fontStyle: 'italic',
   },
 });
