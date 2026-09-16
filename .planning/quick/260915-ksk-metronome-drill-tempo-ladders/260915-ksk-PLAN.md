@@ -171,10 +171,14 @@ Two ways to survive a locked screen; they are not equivalent:
   and the click stops when the user stops it. Chosen.
 
 So `prepareClickAudioMode` keeps `shouldPlayInBackground: false` — that stays correct, and now it is
-correct for a reason rather than by omission. **Note for FLE-42:** the in-flight `app.json` sets
-`enableBackgroundPlayback: true`, which is now unnecessary. On iOS it adds the `audio`
-`UIBackgroundModes` entitlement for a capability nothing uses. Harmless for ad hoc distribution, so
-it is not worth blocking a build over — flagged, their call.
+correct for a reason rather than by omission.
+
+**The two are complementary, not alternatives — an earlier draft of this decision got that wrong.**
+The wake lock defeats *auto*-lock only. A user who deliberately presses the power button still
+suspends the app, and there the plugin-level `enableBackgroundPlayback: true` that FLE-42 set in
+`2a71535` is what keeps the click alive. Keep it. It covers the case keep-awake cannot, and
+keep-awake covers the common case — a phone untouched on a music stand — that background audio alone
+would have "solved" by going dark and hiding the drill.
 
 The lock is keyed on `running` and lives in `MetronomeControl`, not on the drill screen keyed on
 mount. A paused drill still auto-locks, so the battery cost is bounded by the click itself, and
