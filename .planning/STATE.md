@@ -137,6 +137,7 @@ them. Checklist: `.planning/phases/04.1-ai-drills/04.1-05-DEVICE-VERIFICATION.md
 | 260909-01 | Tuning-aware Sonnet + mobile tuning label (closes Task #16 tuning-quality investigation) | 2026-09-09 | af3fdef | [260909-01-sonnet-tuning-awareness](./quick/260909-01-sonnet-tuning-awareness/) |
 | 260910-01 | Mobile refresh affordances — pull-to-refresh + dev Settings button + E♭/D standard KNOWN_TUNINGS entries | 2026-09-10 | 1e3a12f | [260910-01-mobile-refresh-batch](./quick/260910-01-mobile-refresh-batch/) |
 | 260915-01 | FLE-8 drill bank — migration 0006 (drills + drill_attempts + drill_dedupe_queue), rapidfuzz dedup-on-write, per-drill tempo/reps history. **Backfill deliberately excluded — blocked on drill quality (04.1-05 REVISE)** | 2026-09-15 | _pending_ | [260915-01-drill-bank-schema](./quick/260915-01-drill-bank-schema/) |
+| 260915-ksk | FLE-5 metronome — absolute-deadline (drift-free) engine, expo-audio click with voice pooling, wired to the drill tempo ladder. 76 tests green. **Hold-tempo-on-hardware unverified — needs the FLE-42 build + a human device walk** | 2026-09-16 | f84db65 | [260915-ksk-metronome-drill-tempo-ladders](./quick/260915-ksk-metronome-drill-tempo-ladders/) |
 
 ## Deferred Items
 

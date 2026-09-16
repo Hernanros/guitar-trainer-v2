@@ -123,13 +123,51 @@ MetronomeControl call site.
   RIFF-level assertions on the committed wavs (PCM/44.1k/16-bit/mono, <200 ms so clicks never
   overlap at the 300 BPM ceiling, first and last sample exactly zero so the click has no pop).
 
+### D7 — Miagi approved `expo-audio`, so D1's escalation is closed (260916)
+
+The confirmation card on FLE-5 was accepted. The change was the one D6 predicted and no larger:
+`npx expo install expo-audio` plus a `createEmitter` argument at the `MetronomeControl` call site.
+Nothing in `src/metronome/` changed shape — engine, scheduler, hook and adapter are still written
+against `ClickEmitter`, never against a player. The dependency guard test was kept and **inverted**
+(`expo-audio` must be present; `expo-av` / `expo-haptics` / `react-native-sound` must not), because
+its job was never "stay silent", it was "no audio dependency arrives without a decision".
+
+Three things the install surfaced that were invisible before it:
+
+1. `expo-audio` patches native prototypes at **module scope**, so merely importing it throws under
+   Jest — taking down every suite that transitively imports the drill screen. Fixed project-wide
+   with `__mocks__/expo-audio.ts`. Deliberately behaviour-free: the adapter still injects its own
+   fake, so no assertion about pooling, late-beat suppression, accent routing or teardown routes
+   through it.
+2. Runtime tests run against a fake module, so they would stay green if `AudioModuleLike` drifted
+   from the real package. Closed with a type-level assertion that `typeof import('expo-audio')`
+   satisfies the adapter's interface — tsc resolves the real `node_modules` types, not the mock.
+3. `expo-audio` defaults `updateInterval` to 500 ms; four pooled players would post eight status
+   events/sec onto the JS thread that owes the next beat a deadline, for a status nothing reads.
+   Turned down to 60 s.
+
+- **T12** — `__tests__/metronome/metronomeControl.render.test.tsx`: the call site itself, the one
+  seam no prior test could fail on — a drill screen rendering a beautiful, drift-free, *silent*
+  metronome (nobody passed `createEmitter`) passed all 67 earlier tests.
+
 ## Verification
 
 - `npx jest __tests__/metronome` green, including the 5400-beat drift assertion.
-  (260916: 67 tests green across both files, re-run on `main` after FLE-29 landed on top.)
+  (260916: 67 tests green across both files, re-run on `main` after FLE-29 landed on top.
+  Final: **76 tests green across 3 files** at `f84db65`, re-run on a clean `main` before handoff.)
 - `npx tsc --noEmit` clean.
   (260916: the only error reported repo-wide is a pre-existing expo-router route-type mismatch in
   `src/components/app-tabs.web.tsx`, an untouched file. No metronome file appears in the output.)
 - Existing drill tests still green (the screen is edited).
 - **Not verifiable here:** physical iOS/Android hold-tempo run. Needs the EAS batch + a human on
   provisioned hardware. Reported as outstanding against the Done-when.
+  (260916: tracked as **FLE-42** — `expo-audio` is a native module, so the existing `3521d41`
+  artifacts cannot reach it over OTA. That build is the unblock action; the device walk is a human.)
+
+## Outstanding against the Done-when, at handoff
+
+| Done-when clause | State |
+|---|---|
+| "starting a drill sets the tempo without the user typing a number" | **Met.** The drill screen passes `currentLadder.currentBpm` into the control; there is no number entry anywhere in the path, and a ladder push retunes without rebuilding the voice pool. |
+| "the click holds tempo on physical iOS and Android hardware over a full session-length run" | **Unmet, and not satisfiable from a laptop.** Blocked on the FLE-42 build, then a human device walk. The grid math is proven against a virtual clock (5400 beats, jitter on every beat); what hardware measures that the clock cannot is per-beat jitter under a real JS thread. |
+| Scope bullet: "usable inside the session player alongside the session clock" | **Unmet by design (D4).** The session player is FLE-10 and does not exist yet. The metronome is a self-contained module whose only coupling is a BPM number, so it is a drop-in consumer when FLE-10 lands. |
