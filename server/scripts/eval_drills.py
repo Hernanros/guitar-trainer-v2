@@ -38,8 +38,12 @@ rating and validate target_skill_node_id resolves to a real skill_nodes row.
     L2: target_skill_temp_id echoes one of the provided fake UUIDs (LIMITED per N1)
     L3: drill count in [2, 4] — if drills=[], Landmine #3 soft-fail fired
     L4: song_specific=true iff `what` copy explicitly names the song
-    L5: drills ordered easiest→hardest (difficulty ramps from drill 0 to drill N)
+    L5: drills emitted in non-decreasing mechanic_tier order (FLE-45 — replaced
+        the five-dimension dominance rule, which was unsatisfiable)
     L6: tab_snippet.measures.length in {1, 2}
+    A1: `what` and tab_snippet describe the same exercise — prose promising a
+        chord/barre/voicing/strum must have a snippet that sounds 2+ strings
+        together (promoted to a counted gate by FLE-45)
 """
 from __future__ import annotations
 
@@ -202,6 +206,18 @@ def _print_main_tab(breakdown) -> None:
         print(f"    {line}")
 
 
+# FLE-45: mirrors the MECHANIC TIERS list in breakdown.SYSTEM_PROMPT. Display
+# only — grade_eval.py reads the integer, never these strings.
+_TIER_LABELS = {
+    1: "single sustained note",
+    2: "two-string alternation",
+    3: "held shape struck",
+    4: "shape change",
+    5: "shape change with position shift",
+    6: "polyphonic independence",
+}
+
+
 def _print_drill(drill_idx: int, drill, target_skills: list[dict]) -> None:
     """Print one drill in reviewer-friendly format."""
     print(f"\n  DRILL {drill_idx + 1}: {drill.name}")
@@ -214,6 +230,10 @@ def _print_drill(drill_idx: int, drill, target_skills: list[dict]) -> None:
     )
     print(f"    target_skill  : {matched_name!r} (id={drill.target_skill_temp_id})")
     print(f"    tempo         : {drill.start_bpm} → {drill.target_bpm} BPM")
+    # FLE-45: the declared MECHANIC TIERS position. grade_eval.py parses this line
+    # for gate L5, so the `mechanic_tier : ` prefix is load-bearing — keep it in
+    # sync with _TIER_RE there. The label is for human readers only.
+    print(f"    mechanic_tier : {drill.mechanic_tier} ({_TIER_LABELS.get(drill.mechanic_tier, 'not declared')})")
     print(f"    repetitions   : {drill.repetitions}")
     print(f"\n    what          : {drill.what}")
     print(f"    success_criterion: {drill.success_criterion}")
@@ -244,8 +264,9 @@ def _print_landmine_checklist(song: dict, target_skills: list[dict]) -> None:
     print(f"  [ ] L2: all target_skill_temp_ids match IDs in the provided list?  (LIMITED per N1)")
     print(f"  [ ] L3: drill count in [2, 4]? (drills=[] means Landmine #3 soft-fail fired)")
     print(f"  [ ] L4: song_specific=true iff `what` explicitly names the song?")
-    print(f"  [ ] L5: drills ordered easiest→hardest (difficulty ramps from drill 0 → N)?")
+    print(f"  [ ] L5: mechanic_tier non-decreasing down the drill list? (equal tiers are OK)")
     print(f"  [ ] L6: tab_snippet.measures.length in {{1, 2}}?")
+    print(f"  [ ] A1: does each `what` describe the exercise its tab_snippet actually produces?")
     print()
     print(f"  SONG DISPOSITION: [ ] SHIP  [ ] REVISE PROMPT  [ ] REVISE SCHEMA  [ ] DEFER")
     print(f"  Notes: _________________________________________________________")

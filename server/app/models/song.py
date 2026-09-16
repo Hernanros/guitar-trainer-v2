@@ -120,7 +120,33 @@ class Drill(BaseModel):
         ...,
         description=(
             "1-2 sentences explaining what the user does. If song_specific=true, name "
-            "the song and the moment."
+            "the song and the moment. MUST describe the same exercise the tab_snippet "
+            "actually produces: do not promise a chord, barre, voicing or strum unless "
+            "the snippet sounds more than one string at once."
+        ),
+    )
+    # FLE-45: the ONE ordinal the drill order is graded on.
+    #
+    # Optional[int] rather than required, for the same backward-compat reason
+    # `Breakdown.drills` is default_factory=list: rows cached before this field
+    # existed have no `mechanic_tier` key, and a required field would make every
+    # pre-FLE-45 breakdown fail to read back. Fresh Sonnet output omitting it is
+    # therefore not a parse error — scripts/grade_eval.py fails gate L5 on a
+    # missing tier instead, which is the right split. Ordering is a quality
+    # signal the eval reports; it is not a correctness guarantee code can
+    # provide, because reordering drills here would silently mask the model's
+    # error and the tier is self-declared in the first place.
+    mechanic_tier: Optional[int] = Field(
+        None,
+        ge=1,
+        le=6,
+        description=(
+            "Which tier of the MECHANIC TIERS list in the system prompt this drill's "
+            "hardest moment sits in: 1 single sustained note, 2 two-string alternation, "
+            "3 held shape struck, 4 shape change, 5 shape change with position shift, "
+            "6 polyphonic independence. Drills MUST be emitted in non-decreasing tier "
+            "order. Equal tiers are allowed and are correct whenever a later drill "
+            "trades one difficulty for another rather than adding one."
         ),
     )
     tab_snippet: Tab = Field(

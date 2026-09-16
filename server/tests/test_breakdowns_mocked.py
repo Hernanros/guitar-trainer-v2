@@ -498,17 +498,110 @@ def test_system_prompt_contains_drills_block():
     assert "MUST NOT be a slice of the main song tab" in SYSTEM_PROMPT, (
         "SYSTEM_PROMPT must forbid slicing the main tab (Landmine #1 negative constraint)"
     )
-    assert "song_specific: true if" in SYSTEM_PROMPT, (
-        "SYSTEM_PROMPT must include the song_specific tagging phrasing"
+    # Asserted on INTENT, not on one literal sentence. This read
+    # `"song_specific: true if" in SYSTEM_PROMPT` and had been failing since the
+    # FLE-17 prompt rewrite replaced that phrasing with the mechanical
+    # "SONG_SPECIFIC — this is a mechanical test" paragraph. A test that pins
+    # exact prose breaks on every legitimate prompt edit while telling you
+    # nothing about whether the RULE survived, so match the block header.
+    assert "SONG_SPECIFIC" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must still tell the model how to set song_specific. It is "
+        "only a hint now — FLE-44 enforces the flag in code — but it steers the "
+        "`what` copy, so losing it silently would degrade the drills"
     )
-    # One BAD/GOOD example pair (Anthropic prompt-engineering best-practice per RESEARCH §Q1)
-    assert "BAD:" in SYSTEM_PROMPT and "GOOD:" in SYSTEM_PROMPT, (
+    # One BAD/GOOD example pair (Anthropic prompt-engineering best-practice per RESEARCH §Q1).
+    # Same staleness as the assertion above: the prompt's positive examples are
+    # labelled "GOOD (single-note mechanic):" / "GOOD (chord or barre mechanic):",
+    # so the literal "GOOD:" has never matched since those labels were introduced.
+    # Match the label prefix so the examples can keep their parentheticals.
+    assert "BAD:" in SYSTEM_PROMPT and "GOOD (" in SYSTEM_PROMPT, (
         "SYSTEM_PROMPT must contain a BAD/GOOD tab_snippet example pair"
     )
     # target_skill_temp_id id-constraint copy
     assert "target_skill_temp_id MUST be one of the ids" in SYSTEM_PROMPT, (
         "SYSTEM_PROMPT must constrain target_skill_temp_id to listed ids (Landmine #2)"
     )
+
+
+def test_system_prompt_orders_drills_by_mechanic_tier_not_dominance():
+    """FLE-45: the ordering rule is the tier list, and the dominance rule is GONE.
+
+    Both halves matter. The tier list being present is not enough — the 04.1-06
+    dominance rule ("no dimension may go DOWN... at least one MUST go UP") was
+    unsatisfiable, and leaving it in alongside the tier list would hand the model
+    two contradictory ordering rules, which is worse than either alone.
+    """
+    from app.ai.breakdown import SYSTEM_PROMPT
+
+    assert "MECHANIC TIERS" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must carry the ordered mechanic tier list — it is the one "
+        "ordinal gate L5 grades"
+    )
+    assert "NON-DECREASING" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must state the ordering rule as non-decreasing in tier"
+    )
+    assert "EQUAL TIERS ARE ALLOWED" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must permit equal tiers — forbidding trades between "
+        "difficulty dimensions is exactly what made the dominance rule unsatisfiable"
+    )
+    # All six tiers, in order, each reachable by name.
+    for tier_name in (
+        "single sustained note",
+        "two-string alternation",
+        "held shape struck",
+        "shape change",
+        "shape change with position shift",
+        "polyphonic independence",
+    ):
+        assert tier_name in SYSTEM_PROMPT, f"tier {tier_name!r} missing from the list"
+
+    # The retired rule must not linger.
+    for dead in ("no dimension may go", "at least one dimension MUST go UP", "five dimensions"):
+        assert dead not in SYSTEM_PROMPT, (
+            f"the retired dominance rule is still in the prompt ({dead!r}) — it "
+            "contradicts MECHANIC TIERS"
+        )
+
+
+def test_system_prompt_self_check_compares_beats_not_flattened_pairs():
+    """FLE-45 part 2: L1's wording contradicted the neck-region rule.
+
+    "3 or more consecutive (string, fret) pairs" over a flattened note list makes
+    a single three-note chord voicing a violation — so any drill reusing one of
+    the song's chords broke L1, while the neck-region rule (524352e) required
+    exactly that. The two rules could not both be satisfied. The unit is the BEAT.
+    """
+    from app.ai.breakdown import SYSTEM_PROMPT
+
+    assert "The comparison unit is the BEAT" in SYSTEM_PROMPT
+    assert "consecutive beats appear in the same order" in SYSTEM_PROMPT
+    # The self-contradicting phrasing is gone, including from the neck-region
+    # cross-reference further down the block.
+    assert "consecutive (string, fret) pairs appear" not in SYSTEM_PROMPT, (
+        "the flattened-pair reading of the self-check is back, and it makes the "
+        "neck-region rule unsatisfiable again"
+    )
+    assert "3-consecutive-(string, fret)-pair" not in SYSTEM_PROMPT, (
+        "the NECK REGION block still cross-references the old pair-based wording"
+    )
+    # The carve-out the Kashmir failure implies.
+    assert "CARVE-OUT" in SYSTEM_PROMPT, (
+        "a passage that IS one shape struck repeatedly has no isolation drill that "
+        "avoids reproducing it — the prompt must say so instead of demanding the "
+        "impossible"
+    )
+
+
+def test_system_prompt_requires_prose_tab_agreement():
+    """FLE-45 part 3: nothing told the model `what` must match `tab_snippet`.
+
+    Lenny D4 promised an E-shape barre change and shipped four single notes on
+    one string. Gate A1 grades this now, so the prompt has to state it.
+    """
+    from app.ai.breakdown import SYSTEM_PROMPT
+
+    assert "PROSE MUST MATCH THE TAB" in SYSTEM_PROMPT
+    assert "sound two or more strings together" in SYSTEM_PROMPT
 
 
 def test_format_user_message_emits_id_name_pairs():

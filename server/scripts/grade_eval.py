@@ -20,18 +20,40 @@ Gates, and exactly how each is computed here:
   L3  2 <= drill count <= 4.
   L4  song_specific is true IFF the song title or artist appears in `what`
       (case-insensitive substring, both directions checked).
-  L5  the dominance rule: rating each drill on five dimensions, no dimension
-      may decrease from one drill to the next and at least one must increase.
-      Tempo is NOT a dimension (retired, FLE-17 checkbox `retire-l5-tempo-gate`).
+  L5  drills are emitted in non-decreasing `mechanic_tier` order (FLE-45).
+      Tempo is NOT a difficulty signal (retired, FLE-17 checkbox
+      `retire-l5-tempo-gate`).
   L6  snippet measure count in {1, 2}.
   L7  NEW 31st gate (checkbox `optional-4th-neck-region`): a snippet's fretted
       span must overlap the fretted span of at least one main-tab measure.
       Open strings are excluded from a span; a snippet of only open strings is
       exempt, since the prompt's own exception allows it.
+  A1  prose/tab agreement: if `what` promises a chord/barre/voicing/strum/triad,
+      at least one beat of the snippet must sound 2+ strings together. Promoted
+      from advisory to a counted gate by FLE-45 — Lenny D4 promised an E-shape
+      barre change and shipped four single notes on one string, which is a
+      worse defect than anything L1-L7 catches.
 
-L5 dimension (d) "position shift" and (a) "distinct shapes" are proxies — a
-beat's fretted notes form a shape, and a span wider than 4 frets implies the
-hand moved. Both are printed per drill so a reviewer can overrule them.
+WHY L5 IS NO LONGER COMPUTED HERE (FLE-45)
+Through 04.1-06 this gate rated each drill on five geometric dimensions
+(distinct shapes, shape change, simultaneous strings, position shift, rhythm
+displacement) and required dominance: no dimension may fall, at least one must
+rise. Every gradeable song failed it, and half of those failures were the
+rule's, not the model's — Little Wing D4 is a six-note bass-chord-melody roll,
+the hardest drill in its set, and it "failed" for sounding ONE string at a time
+where D3 sounded two. Beat It D4 traded a position shift for a cross-string
+root change and failed the same way.
+
+Real difficulty progressions trade dimensions. A rule that forbids every trade
+forbids most correct orderings. The root cause, shared with 04.1-05's additive
+formula, is that difficulty is NOT a function of the snippet's geometry — so
+neither the prompt nor this grader can derive it. The model now declares
+`mechanic_tier` against the prompt's ordered MECHANIC TIERS list and this gate
+checks only that the declarations are non-decreasing.
+
+The five dimensions are still COMPUTED and PRINTED per drill, because they are
+useful review context and they are how a reviewer spots a declared tier that
+the geometry flatly contradicts. They no longer gate anything.
 
 USAGE:  python -m scripts.grade_eval <eval-output.txt>
 """
@@ -49,6 +71,10 @@ _DRILL_RE = re.compile(r"^\s+DRILL (\d+): (.+)$")
 _SONGSPEC_RE = re.compile(r"^\s+song_specific : (True|False)$")
 _SKILLID_RE = re.compile(r"^\s+target_skill  : .*\(id=([0-9a-f-]{36})\)$")
 _TEMPO_RE = re.compile(r"^\s+tempo         : (\d+) → (\d+) BPM$")
+# FLE-45: `mechanic_tier : 3 (held shape struck)`. Only the integer is captured;
+# the label is render sugar. `None` is matched explicitly so a drill that omitted
+# the field parses as a drill with no tier rather than silently not matching.
+_TIER_RE = re.compile(r"^\s+mechanic_tier : (\d+|None)\b")
 _WHAT_RE = re.compile(r"^\s+what          : (.*)$")
 _SNIPPET_RE = re.compile(r"^\s+tab_snippet   : (\d+) measure\(s\), tuning=(.+)$")
 _BEAT_RE = re.compile(r"\[([^\]]*)\]")
@@ -79,6 +105,9 @@ class Drill:
     skill_id: str | None = None
     start_bpm: int | None = None
     target_bpm: int | None = None
+    # FLE-45: the declared MECHANIC TIERS position, 1-6. None means the drill did
+    # not emit one, which gate L5 fails.
+    mechanic_tier: int | None = None
     what: str = ""
     measures: list[Measure] = field(default_factory=list)
 
@@ -197,6 +226,10 @@ def parse(path: str) -> list[Song]:
             if tp:
                 drill.start_bpm, drill.target_bpm = int(tp.group(1)), int(tp.group(2))
                 continue
+            ti = _TIER_RE.match(line)
+            if ti:
+                drill.mechanic_tier = None if ti.group(1) == "None" else int(ti.group(1))
+                continue
             wh = _WHAT_RE.match(line)
             if wh:
                 drill.what = wh.group(1)
@@ -291,24 +324,26 @@ def grade(song: Song) -> dict[str, tuple[str, str]]:
             l4.append(f"drill {d.index}: names={named} flag={d.song_specific}")
     out["L4"] = ("FAIL", "; ".join(l4)) if l4 else ("PASS", "flag matches substring test")
 
-    # L5 — dominance across the five dimensions
-    dims = []
-    for d in song.drills:
-        dd = d.dimensions()
-        durs = getattr(d, "_durations", [])
-        dd["e_displaced"] = 1 if len(set(durs)) > 1 else 0
-        dims.append(dd)
-    keys = ["a_shapes", "b_change", "c_voices", "d_shift", "e_displaced"]
-    viol = []
-    for i in range(len(dims) - 1):
-        lo, hi = dims[i], dims[i + 1]
-        fell = [k for k in keys if hi[k] < lo[k]]
-        rose = [k for k in keys if hi[k] > lo[k]]
-        if fell:
-            viol.append(f"{i + 1}→{i + 2} drops {fell}")
-        elif not rose:
-            viol.append(f"{i + 1}→{i + 2} nothing rises")
-    out["L5"] = ("FAIL", "; ".join(viol)) if viol else ("PASS", "dominance holds")
+    # L5 — non-decreasing declared mechanic_tier (FLE-45; see module docstring for
+    # why the old five-dimension dominance rule was retired).
+    tiers = [d.mechanic_tier for d in song.drills]
+    missing = [d.index for d in song.drills if d.mechanic_tier is None]
+    if missing:
+        # A missing tier is a FAIL, not an N/A. The field is Optional on the model
+        # purely so pre-FLE-45 cached breakdowns still read back; fresh Sonnet
+        # output omitting it means the ordering is ungradeable, which is the thing
+        # this gate exists to prevent.
+        out["L5"] = ("FAIL", f"drills {missing} emitted no mechanic_tier")
+    else:
+        viol = [
+            f"{i + 1}→{i + 2} drops tier {tiers[i]}→{tiers[i + 1]}"
+            for i in range(len(tiers) - 1)
+            if tiers[i + 1] < tiers[i]
+        ]
+        out["L5"] = (
+            ("FAIL", "; ".join(viol)) if viol
+            else ("PASS", f"tiers non-decreasing: {tiers}")
+        )
 
     # L6 — snippet measure count
     bad6 = [f"drill {d.index}={len(d.measures)}" for d in song.drills if len(d.measures) not in (1, 2)]
@@ -325,11 +360,22 @@ def grade(song: Song) -> dict[str, tuple[str, str]]:
             bad7.append(f"drill {d.index} frets {dlo}-{dhi} vs main {spans}")
     out["L7"] = ("FAIL", "; ".join(bad7)) if bad7 else ("PASS", "every snippet overlaps a main measure")
 
-    # A1 — ADVISORY, not one of the numbered gates.
-    # `what` and `tab_snippet` are generated independently and nothing checks
-    # that they describe the same exercise. Cheap detector for the one case
-    # this eval actually hit: prose promising a chord/barre mechanic attached
-    # to a snippet where no beat ever sounds more than one string.
+    # A1 — a COUNTED gate as of FLE-45 (it was advisory through 04.1-07).
+    #
+    # `what` and `tab_snippet` are generated independently and nothing checked
+    # that they describe the same exercise. Lenny D4 is the case that forced the
+    # promotion: titled "Barre Change V→VII", `what` promising "move between an
+    # E-shape barre at fret 5 and fret 7... before striking the full chord", and
+    # a snippet of [3/6] [3/7] [3/8] [3/9] — four single notes on one string, no
+    # chord anywhere. The user practises something the tab cannot produce. That
+    # is a worse defect than any L1-L7 violation, so it is graded like one.
+    #
+    # Deliberately ONE-DIRECTIONAL and conservative: it fires only when the prose
+    # promises polyphony and the snippet is provably monophonic. The reverse
+    # (a chord snippet described in single-note prose) is not flagged, because
+    # prose legitimately describes the hard part rather than every string, and a
+    # detector for it would be guesswork. False negatives over false positives —
+    # a counted gate that cries wolf would get ignored.
     poly_words = ("barre", "chord", "voicing", "strum", "triad")
     bad_a1 = []
     for d in song.drills:
@@ -354,20 +400,24 @@ def main() -> int:
             print(f"   ERROR: {song.error}")
         print(f"   main tab: {len(song.main)} measures | drills: {len(song.drills)}")
         for d in song.drills:
+            # The five dimensions no longer gate anything (FLE-45) but stay in the
+            # per-drill line: they are how a reviewer spots a declared tier the
+            # geometry flatly contradicts.
             dd = d.dimensions()
             dd["e_displaced"] = 1 if len(set(getattr(d, "_durations", []))) > 1 else 0
             fr = f"{min(d.fretted)}-{max(d.fretted)}" if d.fretted else "open only"
+            tier = f"T{d.mechanic_tier}" if d.mechanic_tier is not None else "T?"
             print(
-                f"     D{d.index} {d.name[:42]:42} frets {fr:9} "
+                f"     D{d.index} {tier:3} {d.name[:42]:42} frets {fr:9} "
                 f"dims a{dd['a_shapes']} b{dd['b_change']} c{dd['c_voices']} "
                 f"d{dd['d_shift']} e{dd['e_displaced']}  {d.start_bpm}→{d.target_bpm}bpm"
             )
         res = grade(song)
         for g in gates:
             status, ev = res[g]
-            if g != "A1":
-                total += 1
-                passed += status == "PASS"
+            # FLE-45: A1 is counted now. Every gate in `gates` scores.
+            total += 1
+            passed += status == "PASS"
             print(f"   {g}: {status:4} — {ev}")
     print(f"\n{'=' * 72}\nTOTAL: {passed}/{total} gates passed")
     return 0
