@@ -150,6 +150,47 @@ Three things the install surfaced that were invisible before it:
   seam no prior test could fail on — a drill screen rendering a beautiful, drift-free, *silent*
   metronome (nobody passed `createEmitter`) passed all 67 earlier tests.
 
+### D8 — The device walk was going to fail on auto-lock, not on drift (added 260916)
+
+Pre-flight on the FLE-42 build, before it is cut. Every prior decision in this doc is about keeping
+the beat grid honest; none of them matter if the OS suspends the app halfway through the run.
+
+iOS auto-lock defaults to 30 seconds. A phone propped on a music stand is untouched for the whole
+drill, so it locks, the app suspends, JS timers stop and the click dies. The Done-when asks for a
+**session-length** hold; without a wake lock the walk fails in the first minute regardless of the
+scheduler, and the tester either reports a false drift bug or spends 45 minutes tapping the screen.
+This is invisible on a simulator and costs a whole EAS slot to find on hardware — which is why it
+was worth catching now rather than after the build.
+
+Two ways to survive a locked screen; they are not equivalent:
+
+- **Background audio** (`enableBackgroundPlayback` in the plugin config + `shouldPlayInBackground`
+  at runtime). Keeps the sound alive but throws away the beat dots, the tempo readout and the
+  session clock, and leaves a click running after the user has left the app entirely.
+- **Keep the screen awake.** The drill screen stays visible, which is the point of a drill screen,
+  and the click stops when the user stops it. Chosen.
+
+So `prepareClickAudioMode` keeps `shouldPlayInBackground: false` — that stays correct, and now it is
+correct for a reason rather than by omission. **Note for FLE-42:** the in-flight `app.json` sets
+`enableBackgroundPlayback: true`, which is now unnecessary. On iOS it adds the `audio`
+`UIBackgroundModes` entitlement for a capability nothing uses. Harmless for ad hoc distribution, so
+it is not worth blocking a build over — flagged, their call.
+
+The lock is keyed on `running` and lives in `MetronomeControl`, not on the drill screen keyed on
+mount. A paused drill still auto-locks, so the battery cost is bounded by the click itself, and
+FLE-10's session player inherits the behaviour as a drop-in consumer exactly like it inherits the
+audio session config. The tag scopes it, since `expo-keep-awake` reference-counts by tag.
+
+On the no-new-packages constraint: `expo-keep-awake` was **already resolved in the tree at 57.0.1**
+as a transitive dependency of `expo` itself. Nothing is installed and the bundle does not grow — but
+it was not a top-level entry in the lockfile root, and declaring it in `package.json` without
+syncing the lock would have failed `npm ci` on EAS outright. The one-line `package-lock.json` delta
+is the fix for that, not churn.
+
+- **T13** — wake lock in `MetronomeControl`, keyed on `running`; `__mocks__/expo-keep-awake.ts`;
+  four tests pinning the acquire/release pairing (none until started, on start, on stop, on unmount
+  — a lock taken and never released would pin the screen forever, which is worse than the bug).
+
 ## Verification
 
 - `npx jest __tests__/metronome` green, including the 5400-beat drift assertion.
@@ -169,5 +210,5 @@ Three things the install surfaced that were invisible before it:
 | Done-when clause | State |
 |---|---|
 | "starting a drill sets the tempo without the user typing a number" | **Met.** The drill screen passes `currentLadder.currentBpm` into the control; there is no number entry anywhere in the path, and a ladder push retunes without rebuilding the voice pool. |
-| "the click holds tempo on physical iOS and Android hardware over a full session-length run" | **Unmet, and not satisfiable from a laptop.** Blocked on the FLE-42 build, then a human device walk. The grid math is proven against a virtual clock (5400 beats, jitter on every beat); what hardware measures that the clock cannot is per-beat jitter under a real JS thread. |
+| "the click holds tempo on physical iOS and Android hardware over a full session-length run" | **Unmet, and not satisfiable from a laptop.** Blocked on the FLE-42 build, then a human device walk. The grid math is proven against a virtual clock (5400 beats, jitter on every beat); what hardware measures that the clock cannot is per-beat jitter under a real JS thread. 260916: the walk would have failed on auto-lock rather than on drift — fixed in D8/T13 *before* the build, so the slot measures timing instead of discovering that the screen went dark. |
 | Scope bullet: "usable inside the session player alongside the session clock" | **Unmet by design (D4).** The session player is FLE-10 and does not exist yet. The metronome is a self-contained module whose only coupling is a BPM number, so it is a drop-in consumer when FLE-10 lands. |
