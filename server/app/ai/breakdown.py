@@ -159,6 +159,25 @@ GOOD (chord or barre mechanic): reduce the shape, never quote the song.
      [6/7] [5/9] [4/9], then the full shape struck on each beat. Do not
      reproduce the song measure that contains that chord.
 
+NECK REGION — drill the mechanic where the song actually plays it:
+Every drill prepares one specific passage of the main tab. Before writing
+the snippet, find the lowest and highest fretted number used in that
+passage, ignoring open strings. At least one fretted note in your snippet
+MUST fall inside that fret span, inclusive. If the passage is played at
+frets 7-10, do not drill the same idea as an open-position shape at frets
+0-2: the shape, the stretch and the hand position are all different, so
+the user would rehearse something the song never asks for. Move the
+exercise up to the song's position instead. If that makes it too hard for
+the player_level, simplify the MECHANIC at the correct position — fewer
+strings, slower tempo, no shift — rather than relocating it down the neck.
+The one exception is a passage that genuinely uses open strings for the
+mechanic being drilled; then fret 0 is where the song lives.
+
+This does NOT license quoting the song. Same region, different notes: the
+3-consecutive-(string, fret)-pair self-check above still applies in full.
+If moving a snippet into the song's region makes it match the main tab,
+change the notes, not the region.
+
 DRILL ORDER — easiest to hardest, defined so you can check it:
 Rate every drill on these five dimensions, reading its own tab_snippet:
   (a) number of distinct fretted shapes
