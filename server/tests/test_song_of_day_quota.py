@@ -193,6 +193,50 @@ async def test_breakdown_quota_zero_when_capped(quota_user, db: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_breakdown_quota_is_null_when_cap_switched_off(
+    quota_user, db: AsyncSession, monkeypatch
+):
+    """FLETCHER_CAP_BREAKDOWN=off → breakdown_quota is null even with a full window.
+
+    Null is what the shipped client reads as "no chip, CTA enabled" — it accesses
+    breakdown_quota?.remaining, so an absent quota never disables the button.
+    """
+    user_id = quota_user
+    monkeypatch.setenv("FLETCHER_CAP_BREAKDOWN", "off")
+    for _ in range(3):
+        await db.execute(
+            text(
+                "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
+                "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', now())"
+            ),
+            {"uid": str(user_id)},
+        )
+    await db.commit()
+
+    body = await _get_today_song(user_id)
+    assert body["breakdown_quota"] is None
+
+
+@pytest.mark.asyncio
+async def test_breakdown_quota_follows_raised_cap(quota_user, db: AsyncSession, monkeypatch):
+    """FLETCHER_CAP_BREAKDOWN=10 → remaining/cap reported against 10, not 3."""
+    user_id = quota_user
+    monkeypatch.setenv("FLETCHER_CAP_BREAKDOWN", "10")
+    await db.execute(
+        text(
+            "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
+            "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', now())"
+        ),
+        {"uid": str(user_id)},
+    )
+    await db.commit()
+
+    quota = (await _get_today_song(user_id))["breakdown_quota"]
+    assert quota["cap"] == 10
+    assert quota["remaining"] == 9
+
+
+@pytest.mark.asyncio
 async def test_breakdown_quota_ignores_other_features(quota_user, db: AsyncSession):
     """INSERT 5 rows with feature='onboarding' → breakdown_quota.remaining stays 3."""
     user_id = quota_user

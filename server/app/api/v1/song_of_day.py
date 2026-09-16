@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.governor import BREAKDOWN_CAP, effective_cap
 from app.api.deps import get_tz_offset_minutes, get_user_id
 from app.db.session import get_db
 from app.models.db import Song
@@ -28,6 +29,46 @@ from app.models.song import BreakdownQuota, SongResponse, TodayRatingInfo, Today
 from app.selectors.today_song import select_today_song
 
 router = APIRouter()
+
+
+async def _breakdown_quota(db: AsyncSession, user_id: UUID) -> BreakdownQuota | None:
+    """Phase 4 (D-06): quota snapshot for the chip — COUNT + MIN(created_at) from governor_calls.
+
+    Uses the indexed query (ix_governor_calls_user_feature_created) — O(log n) per user.
+    Returns None when FLETCHER_CAP_BREAKDOWN has removed the cap: there is no quota to
+    report, the client hides the chip and leaves the CTA enabled.
+    """
+    cap = effective_cap("breakdown", BREAKDOWN_CAP)
+    if cap is None:
+        return None
+
+    quota_count = await db.scalar(
+        text(
+            "SELECT COUNT(*) FROM governor_calls "
+            "WHERE user_id = :user_id AND feature = 'breakdown' "
+            "AND created_at > now() - interval '7 days' "
+            "AND error_code IS NULL"
+        ),
+        {"user_id": str(user_id)},
+    )
+    oldest_call = await db.scalar(
+        text(
+            "SELECT MIN(created_at) FROM governor_calls "
+            "WHERE user_id = :user_id AND feature = 'breakdown' "
+            "AND created_at > now() - interval '7 days' "
+            "AND error_code IS NULL"
+        ),
+        {"user_id": str(user_id)},
+    )
+    if oldest_call is None:
+        resets_at_dt = datetime.now(timezone.utc) + timedelta(days=7)
+    else:
+        resets_at_dt = oldest_call + timedelta(days=7)
+    return BreakdownQuota(
+        remaining=max(0, cap - (quota_count or 0)),
+        cap=cap,
+        resets_at=resets_at_dt.isoformat(),
+    )
 
 
 @router.get("/song-of-day", response_model=TodaySongResponse)
@@ -131,35 +172,7 @@ async def get_song_of_day(
             rated_at=rating_row["rated_at"].isoformat(),
         )
 
-    # Phase 4 (D-06): breakdown_quota — COUNT + MIN(created_at) from governor_calls.
-    # Uses indexed query (ix_governor_calls_user_feature_created) — O(log n) per user.
-    quota_count = await db.scalar(
-        text(
-            "SELECT COUNT(*) FROM governor_calls "
-            "WHERE user_id = :user_id AND feature = 'breakdown' "
-            "AND created_at > now() - interval '7 days' "
-            "AND error_code IS NULL"
-        ),
-        {"user_id": str(user_id)},
-    )
-    oldest_call = await db.scalar(
-        text(
-            "SELECT MIN(created_at) FROM governor_calls "
-            "WHERE user_id = :user_id AND feature = 'breakdown' "
-            "AND created_at > now() - interval '7 days' "
-            "AND error_code IS NULL"
-        ),
-        {"user_id": str(user_id)},
-    )
-    if oldest_call is None:
-        resets_at_dt = datetime.now(timezone.utc) + timedelta(days=7)
-    else:
-        resets_at_dt = oldest_call + timedelta(days=7)
-    breakdown_quota = BreakdownQuota(
-        remaining=max(0, 3 - (quota_count or 0)),
-        cap=3,
-        resets_at=resets_at_dt.isoformat(),
-    )
+    breakdown_quota = await _breakdown_quota(db, user_id)
 
     return TodaySongResponse(
         song=SongResponse.model_validate(row),
@@ -253,34 +266,7 @@ async def reroll_today_song(
     if row is None:
         raise HTTPException(status_code=404, detail="Reroll song not found.")
 
-    # Phase 4 (D-06): breakdown_quota — same COUNT + MIN pattern as get_song_of_day.
-    reroll_quota_count = await db.scalar(
-        text(
-            "SELECT COUNT(*) FROM governor_calls "
-            "WHERE user_id = :user_id AND feature = 'breakdown' "
-            "AND created_at > now() - interval '7 days' "
-            "AND error_code IS NULL"
-        ),
-        {"user_id": str(user_id)},
-    )
-    reroll_oldest_call = await db.scalar(
-        text(
-            "SELECT MIN(created_at) FROM governor_calls "
-            "WHERE user_id = :user_id AND feature = 'breakdown' "
-            "AND created_at > now() - interval '7 days' "
-            "AND error_code IS NULL"
-        ),
-        {"user_id": str(user_id)},
-    )
-    if reroll_oldest_call is None:
-        reroll_resets_at_dt = datetime.now(timezone.utc) + timedelta(days=7)
-    else:
-        reroll_resets_at_dt = reroll_oldest_call + timedelta(days=7)
-    reroll_breakdown_quota = BreakdownQuota(
-        remaining=max(0, 3 - (reroll_quota_count or 0)),
-        cap=3,
-        resets_at=reroll_resets_at_dt.isoformat(),
-    )
+    reroll_breakdown_quota = await _breakdown_quota(db, user_id)
 
     return TodaySongResponse(
         song=SongResponse.model_validate(row),

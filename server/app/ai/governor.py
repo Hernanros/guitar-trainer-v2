@@ -15,6 +15,7 @@ D-02: BudgetExceededError carries feature + resets_at (ISO).
 D-08: AnthropicQuotaExceededError surfaces org-level 429 distinctly.
 """
 import logging
+import os
 import uuid
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
@@ -74,6 +75,39 @@ class AnthropicQuotaExceededError(Exception):
     def __init__(self, retry_after_hint: str = "1h") -> None:
         self.retry_after_hint = retry_after_hint
         super().__init__(f"Anthropic quota exceeded. Retry after {retry_after_hint}.")
+
+
+# ---------------------------------------------------------------------------
+# Runtime cap override
+# ---------------------------------------------------------------------------
+
+BREAKDOWN_CAP = 3
+
+_CAP_OFF_VALUES = {"off", "none", "unlimited", "-1"}
+
+
+def effective_cap(feature: str, default_cap: int | None) -> int | None:
+    """Resolve the cap for `feature`, honouring the FLETCHER_CAP_<FEATURE> env override.
+
+    Read per call rather than at import, so the cap is a deploy-time env setting
+    and not a code change. `off`/`none`/`unlimited`/`-1` remove the cap entirely;
+    any other integer replaces it. An unparseable value logs and keeps default_cap
+    — a typo must not silently uncap a paid feature.
+    """
+    raw = os.environ.get(f"FLETCHER_CAP_{feature.upper()}", "").strip()
+    if not raw:
+        return default_cap
+    if raw.lower() in _CAP_OFF_VALUES:
+        return None
+    try:
+        parsed = int(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring unparseable FLETCHER_CAP_%s=%r; keeping cap=%s",
+            feature.upper(), raw, default_cap,
+        )
+        return default_cap
+    return None if parsed < 0 else parsed
 
 
 # ---------------------------------------------------------------------------
@@ -270,9 +304,12 @@ def governed(feature: str, cap: int | None = None, window: str = "7d"):
     The wrapped fn MUST accept db: AsyncSession and user_id: UUID as keyword-only args.
     These are forwarded to the wrapped fn after cap-check + audit row insert.
 
+    The `cap` argument is the default; FLETCHER_CAP_<FEATURE> overrides it per
+    process (see effective_cap) so the limit can be lifted without a code change.
+
     Steps:
     (a) Extract db + user_id from kwargs (fail-loud TypeError if missing).
-    (b) If cap is not None: _check_cap → raises BudgetExceededError if COUNT >= cap.
+    (b) If the effective cap is not None: _check_cap → raises BudgetExceededError if COUNT >= cap.
     (c) INSERT governor_calls row with prompt_tokens_estimated=NULL; capture call_id.
     (d) Set _current_call_id ContextVar so wrapped fn can retrieve call_id via current_call_id().
     (e) Await fn — wrapped fn calls record_estimate() + record_actuals() internally.
@@ -296,9 +333,10 @@ def governed(feature: str, cap: int | None = None, window: str = "7d"):
                     "Add 'user_id: UUID' to the function's keyword-only args."
                 )
 
-            # (b) Cap check
-            if cap is not None:
-                await _check_cap(db, user_id, feature, cap)
+            # (b) Cap check — FLETCHER_CAP_<FEATURE> can raise or remove it at runtime
+            call_cap = effective_cap(feature, cap)
+            if call_cap is not None:
+                await _check_cap(db, user_id, feature, call_cap)
 
             # (c) INSERT governor_calls row
             call_id = uuid.uuid4()

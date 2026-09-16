@@ -414,7 +414,8 @@ class BreakdownQuota(BaseModel):
     """Phase 4 quota snapshot embedded in TodaySongResponse (D-06).
 
     remaining: calls left in the current 7-day rolling window (0..cap).
-    cap: per-user cap (always 3 for the breakdown feature per D-01).
+    cap: per-user cap — 3 for the breakdown feature per D-01, unless
+         FLETCHER_CAP_BREAKDOWN overrides it for this deploy.
     resets_at: ISO datetime string — oldest_call_in_window + 7 days, server-authoritative.
     """
     remaining: int
@@ -434,7 +435,9 @@ class TodaySongResponse(BaseModel):
     rerolled: True if the user used their one daily re-roll.
     rated: populated with TodayRatingInfo when the user has rated today's song; null otherwise.
     rerolls_left: 0 if the user has already rerolled today, 1 otherwise (D-05 one-per-day).
-    breakdown_quota: Phase 4 — always populated; carries remaining/cap/resets_at for the quota chip (D-06).
+    breakdown_quota: Phase 4 — carries remaining/cap/resets_at for the quota chip (D-06).
+                     Null only when the cap is switched off via FLETCHER_CAP_BREAKDOWN,
+                     which the client reads as "no chip, CTA always enabled".
     """
     song: SongResponse
     breakdown_available: bool
@@ -443,6 +446,6 @@ class TodaySongResponse(BaseModel):
     rerolled: bool
     rated: Optional[TodayRatingInfo] = None
     rerolls_left: int  # 0 or 1 — always populated (never null)
-    breakdown_quota: BreakdownQuota  # Phase 4 addition — always populated
+    breakdown_quota: Optional[BreakdownQuota] = None  # null only when the cap is switched off
 
     model_config = {"from_attributes": False}

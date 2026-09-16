@@ -501,6 +501,66 @@ async def test_governor_uncapped_when_cap_is_none():
         await _cleanup_user(db, str(user_id))
 
 
+@pytest.mark.parametrize(
+    "env_value,expected",
+    [
+        (None, 3),          # unset — hardcoded default stands
+        ("", 3),            # blank — treated as unset
+        ("off", None),      # the temporary-kill-switch spelling
+        ("none", None),
+        ("UNLIMITED", None),
+        ("-1", None),
+        ("10", 10),         # raise the cap instead of removing it
+        ("0", 0),           # 0 blocks every call — a real value, not "off"
+        ("banana", 3),      # unparseable must never silently uncap
+    ],
+)
+def test_effective_cap_env_override(monkeypatch, env_value, expected):
+    """FLETCHER_CAP_BREAKDOWN overrides the decorator's cap at call time."""
+    from app.ai.governor import effective_cap
+
+    if env_value is None:
+        monkeypatch.delenv("FLETCHER_CAP_BREAKDOWN", raising=False)
+    else:
+        monkeypatch.setenv("FLETCHER_CAP_BREAKDOWN", env_value)
+
+    assert effective_cap("breakdown", 3) == expected
+
+
+@pytest.mark.asyncio
+async def test_env_override_lifts_breakdown_cap(monkeypatch):
+    """With FLETCHER_CAP_BREAKDOWN=off, a 4th breakdown dispatches instead of raising."""
+    from app.ai.governor import BudgetExceededError
+
+    monkeypatch.setenv("FLETCHER_CAP_BREAKDOWN", "off")
+    _patch_client_for_success(monkeypatch)
+
+    user_id = str(uuid.uuid4())
+    async with _make_session() as db:
+        await _seed_user(db, user_id)
+        await _seed_song(db, user_id)
+
+    # Pre-load the window past the default cap of 3
+    async with _make_session() as db:
+        for _ in range(3):
+            await _insert_governor_call(db, user_id, feature="breakdown")
+
+    from app.ai.breakdown import run_technique_breakdown
+
+    async with _make_session() as db:
+        try:
+            result = await run_technique_breakdown(
+                "Sweet Home Chicago", "Robert Johnson", [], 0.3,
+                db=db, user_id=uuid.UUID(user_id),
+            )
+        except BudgetExceededError:
+            pytest.fail("Cap still enforced with FLETCHER_CAP_BREAKDOWN=off")
+    assert result is not None
+
+    async with _make_session() as db:
+        await _cleanup_user(db, user_id)
+
+
 @pytest.mark.asyncio
 async def test_governor_extracts_user_id_from_kwargs():
     """@governed raises TypeError with clear message if wrapped fn called without user_id kwarg."""
