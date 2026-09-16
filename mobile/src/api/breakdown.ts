@@ -31,8 +31,20 @@ import { apiFetch } from './apiClient';
 export type Breakdown = components['schemas']['Breakdown'];
 export type BreakdownEnvelope = components['schemas']['BreakdownEnvelope'];
 
+// FLE-29: this is the one call in the app that legitimately runs for over a minute on a
+// cache miss (72.1s average, Phase 4.1 eval over 5 songs). Left on the platform default,
+// iOS would abandon it at ~60s — before the server's own 150s ceiling (FLE-18) and before
+// the ~76s the work actually takes — so the first tap would fail while the server quietly
+// succeeded and cached, and the second tap would succeed from cache. Two of three weekly
+// quota units spent for one breakdown. 240s sits above the server ceiling on purpose: the
+// server's structured error (BREAKDOWN_CAPPED / FLETCHER_OUT) should always be what the
+// user sees, not a client-side abort. Cache hits return in well under a second regardless.
+const BREAKDOWN_TIMEOUT_MS = 240_000;
+
 async function fetchBreakdown(songId: number): Promise<BreakdownEnvelope> {
-  return apiFetch<BreakdownEnvelope>(`/api/v1/songs/${songId}/breakdown`);
+  return apiFetch<BreakdownEnvelope>(`/api/v1/songs/${songId}/breakdown`, {
+    timeoutMs: BREAKDOWN_TIMEOUT_MS,
+  });
 }
 
 /**
