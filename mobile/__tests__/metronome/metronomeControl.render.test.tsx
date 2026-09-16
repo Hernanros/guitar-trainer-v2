@@ -15,14 +15,27 @@
  * rather than from user input.
  */
 
-import { render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import { MetronomeControl } from '../../src/components/MetronomeControl';
 import { DEFAULT_VOICES_PER_SOUND } from '../../src/metronome/audioEmitter';
 import { __audioModes, __players, __resetAudioMock } from '../../__mocks__/expo-audio';
+import {
+  __activated,
+  __deactivated,
+  __resetKeepAwakeMock,
+} from '../../__mocks__/expo-keep-awake';
 
 beforeEach(() => {
   __resetAudioMock();
+  __resetKeepAwakeMock();
 });
+
+/** Presses the transport and lets the resulting effects flush. */
+async function pressToggle(view: { getByRole: (r: string, o: { name: RegExp }) => unknown }) {
+  await act(async () => {
+    fireEvent.press(view.getByRole('button', { name: /click at/ }) as never);
+  });
+}
 
 describe('MetronomeControl — audio wiring', () => {
   it('builds the full voice pool on mount, before any beat is due', async () => {
@@ -70,6 +83,54 @@ describe('MetronomeControl — audio wiring', () => {
 
     expect(__players).not.toHaveLength(0);
     expect(__players.every((p) => p.removed)).toBe(true);
+  });
+});
+
+describe('MetronomeControl — the screen stays awake for the length of the run', () => {
+  // The Done-when is "holds tempo over a FULL SESSION-LENGTH run" on hardware.
+  // iOS auto-lock defaults to 30s; on lock the app suspends, JS timers stop and
+  // the click dies. Without this the drift math is irrelevant — a 45-minute
+  // device walk fails in the first minute and burns a scarce EAS build slot to
+  // discover something no simulator would ever have shown.
+
+  it('takes no wake lock until the click is actually running', async () => {
+    await render(<MetronomeControl bpm={30} />);
+    // A drill screen sitting idle with the click stopped must still auto-lock.
+    expect(__activated).toHaveLength(0);
+  });
+
+  it('holds the screen awake once started', async () => {
+    const view = await render(<MetronomeControl bpm={30} />);
+    await pressToggle(view);
+
+    expect(__activated).toEqual(['metronome-click']);
+    expect(__deactivated).toHaveLength(0);
+
+    await view.unmount();
+  });
+
+  it('releases the lock when the click stops — the battery cost is bounded by the click', async () => {
+    const view = await render(<MetronomeControl bpm={30} />);
+    await pressToggle(view); // start
+    await pressToggle(view); // stop
+
+    // Same tag both ways: expo-keep-awake reference-counts by tag, so releasing
+    // an untagged lock here would leave this one held forever.
+    expect(__activated).toEqual(['metronome-click']);
+    expect(__deactivated).toEqual(['metronome-click']);
+
+    await view.unmount();
+  });
+
+  it('releases the lock on unmount, so leaving the drill mid-click cannot pin the screen', async () => {
+    const view = await render(<MetronomeControl bpm={30} />);
+    await pressToggle(view);
+    expect(__deactivated).toHaveLength(0);
+
+    // Navigating away mid-drill is the common case, not an edge case.
+    await view.unmount();
+
+    expect(__deactivated).toEqual(['metronome-click']);
   });
 });
 

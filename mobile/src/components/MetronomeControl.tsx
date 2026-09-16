@@ -24,6 +24,7 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as ExpoAudio from 'expo-audio';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useMetronome } from '../metronome/useMetronome';
 import {
   createAudioClickEmitter,
@@ -31,6 +32,10 @@ import {
   prepareClickAudioMode,
 } from '../metronome/audioEmitter';
 import { DEFAULT_BEATS_PER_BAR } from '../metronome/scheduler';
+
+/** Scopes the wake lock to the metronome, so releasing it cannot cancel another
+ *  screen's lock (expo-keep-awake reference-counts by tag). */
+const KEEP_AWAKE_TAG = 'metronome-click';
 
 export interface MetronomeControlProps {
   /** Tempo to click at — the drill tempo ladder's current rung. */
@@ -95,6 +100,35 @@ export function MetronomeControl({
       // drill screen the user is mid-practice on.
     });
   }, []);
+
+  // Hold the screen awake while the click is running.
+  //
+  // This is what makes the Done-when's "full session-length run" actually
+  // reachable on hardware. A phone is propped on a music stand, untouched, for
+  // the length of a drill; iOS auto-lock defaults to 30s. On lock the app is
+  // suspended, JS timers stop, and the click dies — so a 45-minute hold-tempo
+  // walk would have failed at the first minute no matter how good the grid
+  // math is, and the tester would have had to tap the screen to keep it alive.
+  //
+  // Keyed on `running`, not on mount: the screen is only pinned while the click
+  // is actually going, so a paused drill still auto-locks and the battery cost
+  // is bounded by the click itself. The tag scopes the lock to this component,
+  // so a future session player holding its own lock is unaffected.
+  //
+  // Deliberately NOT solved with background audio. Keeping the screen on means
+  // the beat dots, the tempo readout and the session clock stay visible, which
+  // is the point of a drill screen; background playback would trade all of that
+  // away and leave a click running after the user has left the app.
+  useEffect(() => {
+    if (!running) return;
+    activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {
+      // Same discipline as the audio mode above: a device that refuses the
+      // lock gets a screen that dims, not a drill screen that crashes.
+    });
+    return () => {
+      deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => {});
+    };
+  }, [running]);
 
   // Flash on every beat. `beat` is a fresh object per emit, so identity change
   // is the trigger — no beat counter needed in the dependency array.
