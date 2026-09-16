@@ -16,27 +16,65 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.client import SONNET_MODEL, get_client
 from app.ai.governor import governed, current_call_id, record_estimate, record_actuals
-from app.models.song import Breakdown
+from app.models.song import Breakdown, enforce_song_specific
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Call timeout (FLE-18)
+# Output token ceiling (FLE-43)
+# ---------------------------------------------------------------------------
+# The old ceiling of 8192 was never sized against the schema — it is a habitual
+# default, not a measured number. The FLE-17 §3 eval re-run (2026-09-16) proved
+# it too small: `Wonderwall` returned a tool_use input containing only `tab`, cut
+# off mid-note, and the endpoint 503'd on a pydantic "chords / technique_notes
+# Field required" that described the symptom and hid the cause.
+#
+# Sized against the WORST case, not the average:
+#   - Wonderwall is a strummed 5-6 note chord on every eighth note: ~8 measures
+#     x 8 beats x 6 notes = ~380 note objects. That tab alone consumed the entire
+#     8192 budget before a single chord diagram was emitted.
+#   - The four songs of that run that DID succeed averaged 5,669 output tokens
+#     for the full schema (tab + chords + technique_notes + drills).
+#   - So a dense song needs roughly 8,000 for the tab plus 4,000-6,000 for
+#     chords/technique_notes/drills. Call the worst case ~14,000.
+#
+# 20,000 is ~1.4x that worst case. It is deliberately not larger: the Anthropic
+# SDK REFUSES a non-streaming request whose max_tokens implies more than 10
+# minutes of generation (_base_client._calculate_nonstreaming_timeout), which
+# puts a hard cliff at 21,333 for a 128K-output model — and it raises ValueError,
+# which this module's generic handler would bury as a nondescript
+# AIBreakdownError. Going above 20,000 means switching this call to
+# client.messages.stream() first. tests/test_breakdown_truncation.py guards it.
+_MAX_OUTPUT_TOKENS = 20000
+
+# Anthropic SDK cliff: non-streaming max_tokens above this raises ValueError,
+# from 60*60 * max_tokens / 128_000 > 60*10. Named so the test can assert on it.
+_SDK_NONSTREAMING_MAX_TOKENS = 21333
+
+
+# ---------------------------------------------------------------------------
+# Call timeout (FLE-18, re-sized by FLE-43)
 # ---------------------------------------------------------------------------
 # A real breakdown-with-drills call measured 72.1s mean across the 5 songs of the
 # Phase 4.1 eval (360.4s total — .planning/phases/04.1-ai-drills/
-# 04.1-05-EVAL-RAW-OUTPUT.txt:2072). The previous default of 30.0s — doubled to
+# 04.1-05-EVAL-RAW-OUTPUT.txt:2072). The original default of 30.0s — doubled to
 # 60.0s by the single retry below — sat UNDER that mean, so every cache-miss
 # breakdown timed out twice and returned 503. The first eval run demonstrated this
 # exactly: 5/5 TimeoutError in 453.3s (~5 x (30+60)).
 #
-# 150s is ~2.1x the measured mean. The eval recorded only the aggregate, not
-# per-song times, so the slowest song is bounded rather than known: with 5 songs
-# totalling 360.4s, the slowest cannot exceed ~140s even if the other four ran at
-# an implausible ~55s floor. 150s clears that bound; the retry doubles to 300s,
-# which is the value the eval harness proved sufficient via EVAL_TIMEOUT_SECONDS.
-_DEFAULT_TIMEOUT_SECONDS = 150.0
+# FLE-18 then set 150s against that 72.1s mean. Raising the token ceiling voids
+# that margin, because a bigger budget means a longer generation: the eval's
+# 5,669 tokens in ~75.9s is ~75 output tok/s, so a response that runs to the new
+# 20,000 ceiling takes ~267s and would have been killed at 150s — burning a full
+# Sonnet call and its governor row before the retry even started.
+#
+# 300s is therefore picked to COVER the token ceiling (20,000 / 75 tok/s = 267s),
+# which is the invariant worth holding: nothing the model is allowed to generate
+# can be cut off by our own clock. The retry doubles to 600s. This is a bound,
+# not a wait — ordinary songs still return in ~75s, and only a pathologically
+# dense song goes anywhere near it.
+_DEFAULT_TIMEOUT_SECONDS = 300.0
 
 
 class AIBreakdownError(Exception):
@@ -48,9 +86,30 @@ class AIBreakdownError(Exception):
     """
 
 
+class BreakdownTruncatedError(AIBreakdownError):
+    """Sonnet hit max_tokens mid-emit, so the tool_use input is a partial object.
+
+    FLE-43 ask #3: a truncated tool_use used to surface as a pydantic
+    "chords / technique_notes Field required", which names the missing keys and
+    says nothing about WHY they are missing. Raising this instead puts the cause
+    — ran out of output budget — in the message and the log.
+
+    Subclasses AIBreakdownError deliberately: the endpoint's 503 handling and the
+    "do not set breakdown_generated_at" contract are unchanged, so the next tap
+    still retries. Not retried in-process — truncation is deterministic at a
+    fixed max_tokens, so a second identical call would truncate identically.
+    """
+
+
 # ---------------------------------------------------------------------------
 # System prompt (verbatim from RESEARCH.md §1)
 # ---------------------------------------------------------------------------
+# FLE-44: the DRILLS block's SONG_SPECIFIC paragraph is a HINT, not the guarantee.
+# Sonnet ignored it on Kashmir even in this maximally-mechanical wording, so
+# enforce_song_specific() corrects the flag in code after parsing (see _call
+# below). Keep the paragraph — it steers the `what` copy and costs nothing — but
+# do not add a third restatement; that approach is spent. Also note this string is
+# the prompt the 04.1-07 eval graded, so edits invalidate gate-by-gate comparison.
 
 SYSTEM_PROMPT = """You are Fletcher — a demanding but constructive guitar teacher (Terence Fletcher from Whiplash, but the version who actually wanted his students to succeed).
 
@@ -348,13 +407,27 @@ async def run_technique_breakdown(
         resp = await asyncio.wait_for(
             client.messages.create(
                 model=SONNET_MODEL,
-                max_tokens=8192,
+                max_tokens=_MAX_OUTPUT_TOKENS,
                 system=SYSTEM_PROMPT,
                 messages=messages,
                 tools=[_TOOL_DEF],
                 tool_choice={"type": "tool", "name": _TOOL_NAME},
             ),
             timeout=timeout,
+        )
+
+        # FLE-43 ask #1: log stop_reason on EVERY call, not just the failure path.
+        # Nothing logged it before, which is why the Wonderwall truncation had to
+        # be inferred from token arithmetic across the whole eval run instead of
+        # read off one line. This is the diagnostic for the entire class of
+        # "breakdown came back wrong" bugs — `tool_use` is the healthy value under
+        # forced tool_choice, `max_tokens` means we ran out of output budget.
+        stop_reason = getattr(resp, "stop_reason", None)
+        output_tokens = getattr(getattr(resp, "usage", None), "output_tokens", None)
+        logger.info(
+            "Sonnet breakdown returned for song %r: stop_reason=%s output_tokens=%s "
+            "max_tokens=%s",
+            song_title, stop_reason, output_tokens, _MAX_OUTPUT_TOKENS,
         )
 
         # Post-dispatch: record actual token usage in governor_calls row.
@@ -372,12 +445,36 @@ async def run_technique_breakdown(
                     call_id, act_exc,
                 )
 
+        # FLE-43 ask #3: catch truncation HERE, where the cause is still known.
+        # A tool_use block cut off at max_tokens still arrives, and its `input` is
+        # a partial object — Wonderwall's held only `tab`. Letting that fall
+        # through to model_validate produces "chords / technique_notes Field
+        # required", which describes the missing keys and hides the reason. Check
+        # AFTER record_actuals so the governor row still reflects the tokens we
+        # were billed for.
+        if stop_reason == "max_tokens":
+            logger.error(
+                "Sonnet breakdown TRUNCATED for song %r by artist %r: hit the "
+                "max_tokens ceiling of %s (output_tokens=%s). The tool_use input is "
+                "a partial object. This song is denser than the ceiling allows — "
+                "raise _MAX_OUTPUT_TOKENS (see FLE-43 sizing note), which above "
+                "%s requires switching this call to streaming.",
+                song_title, song_artist, _MAX_OUTPUT_TOKENS, output_tokens,
+                _SDK_NONSTREAMING_MAX_TOKENS,
+            )
+            raise BreakdownTruncatedError(
+                f"Sonnet ran out of output budget for {song_title!r}: hit the "
+                f"max_tokens ceiling of {_MAX_OUTPUT_TOKENS} mid-emit, so the "
+                f"breakdown is incomplete."
+            )
+
         tool_use = next(
             (b for b in resp.content if getattr(b, "type", None) == "tool_use"), None
         )
         if tool_use is None:
             raise RuntimeError(
-                "Sonnet did not emit a tool_use block despite forced tool_choice."
+                "Sonnet did not emit a tool_use block despite forced tool_choice "
+                f"(stop_reason={stop_reason})."
             )
         # Landmine #3 soft-fail (Plan 04.1-01 Task 3): drills-shape violations
         # (min_length=2, max_length=4, per-drill target_bpm>start_bpm model_validator)
@@ -387,12 +484,13 @@ async def run_technique_breakdown(
         # failure surface) still propagate as ValidationError → AIBreakdownError.
         raw_input = tool_use.input
         try:
-            return Breakdown.model_validate(raw_input)
+            parsed = Breakdown.model_validate(raw_input)
         except pydantic.ValidationError as ve:
             logger.warning(
-                "Drills validation failed for song %r — dropping drills and returning "
-                "breakdown without drills (Landmine #3 soft-fail). ValidationError: %s",
-                song_title, ve,
+                "Drills validation failed for song %r (stop_reason=%s, "
+                "output_tokens=%s) — dropping drills and returning breakdown "
+                "without drills (Landmine #3 soft-fail). ValidationError: %s",
+                song_title, stop_reason, output_tokens, ve,
             )
             raw_input_no_drills = (
                 {k: v for k, v in raw_input.items() if k != "drills"}
@@ -401,7 +499,20 @@ async def run_technique_breakdown(
             )
             # Second parse — if THIS fails, the outer try/except of run_technique_breakdown
             # wraps it as AIBreakdownError (real structural failure, not a drills problem).
-            return Breakdown.model_validate(raw_input_no_drills)
+            parsed = Breakdown.model_validate(raw_input_no_drills)
+
+        # FLE-44: song_specific is enforced in code, not asked for in the prompt.
+        # The SYSTEM_PROMPT DRILLS block still states the rule as a hint, but the
+        # guarantee lives in this pass — the FLE-17 §3 eval re-run showed Sonnet
+        # overriding the instruction with its own semantics (Kashmir D3/D4 named
+        # the song in `what` and still emitted song_specific=false).
+        #
+        # This is the ONLY point where drills are born, so it is the only place the
+        # normalisation is needed: run_technique_breakdown feeds both the live
+        # endpoint (which persists the result to songs.breakdown) and
+        # scripts/eval_drills.py. Rows cached BEFORE this fix keep whatever flag
+        # Sonnet emitted — they are not re-validated on read.
+        return enforce_song_specific(parsed, song_title, song_artist)
 
     try:
         try:
@@ -420,6 +531,11 @@ async def run_technique_breakdown(
     except APIError as e:
         # Let Anthropic APIErrors (including 429) propagate to the @governed decorator
         # without wrapping — the decorator handles AnthropicQuotaExceededError mapping (D-08).
+        raise
+    except AIBreakdownError:
+        # FLE-43: BreakdownTruncatedError is already the precise diagnosis. Re-wrapping
+        # it in a generic AIBreakdownError would flatten it back into the vague message
+        # this issue exists to remove. The endpoint catches the base class either way.
         raise
     except Exception as e:
         raise AIBreakdownError(

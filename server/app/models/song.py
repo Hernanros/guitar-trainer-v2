@@ -25,10 +25,13 @@
 #   degradation keyed on TodaySongResponse.breakdown_available (deferred to the next
 #   EAS batch; see .planning/debug/mobile-crash-null-breakdown.md), the coerce target
 #   can move back to None — until then empty-Breakdown is the mobile-safe contract.
+import logging
 from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class Note(BaseModel):
@@ -186,6 +189,81 @@ class Breakdown(BaseModel):
     # output path). Default-factory-produced [] bypasses these checks — that's the
     # intended backward-compat behavior for pre-4.1 cached rows.
     drills: list[Drill] = Field(default_factory=list, min_length=2, max_length=4)
+
+
+# ---------------------------------------------------------------------------
+# song_specific enforcement (FLE-44)
+# ---------------------------------------------------------------------------
+# The FLE-17 §3 eval re-run (2026-09-16) showed the prompt cannot be trusted to
+# set this flag. The L4 rule was restated as mechanically as English allows
+# ("if `what` contains the song title or the artist name anywhere, then
+# song_specific MUST be true. There is no exception") and Sonnet still emitted
+# Kashmir D3 "the engine of the Kashmir groove" and D4 "the core of the Kashmir
+# riff" with song_specific=false. It is not misreading an ambiguous instruction;
+# it is overriding a clear one with its own semantics, because those drills
+# genuinely ARE generic mechanics that merely name the song. Restating the rule
+# a third time would not fix it — see
+# .planning/phases/04.1-ai-drills/04.1-07-EVAL-RERUN-RESULTS.md §5.
+#
+# So the guarantee lives here instead: a deterministic pass over the parsed
+# drills. The SYSTEM_PROMPT wording stays as a hint (it costs nothing and it
+# steers the `what` copy), but nothing downstream depends on Sonnet obeying it.
+#
+# This is NOT a validator on Drill: Drill does not carry the song title/artist,
+# and Breakdown does not either. Threading them into the model purely to satisfy
+# this rule would make Drill un-reusable for every other caller. A free function
+# applied by whoever HAS the song context keeps Drill a plain data shape.
+
+def _names_song(text: str, song_title: str, song_artist: str) -> bool:
+    """True if `text` mentions the song title or the artist, case-insensitively.
+
+    Plain substring test in both fields — the same test `scripts/grade_eval.py`
+    applies for gate L4, so the enforced value and the graded value cannot drift.
+
+    Empty/whitespace-only title or artist is ignored rather than matched: "" is a
+    substring of every string, and a song row with a blank artist would otherwise
+    flip every drill in every breakdown to song_specific=True.
+    """
+    haystack = text.lower()
+    for needle in (song_title, song_artist):
+        if needle and needle.strip() and needle.strip().lower() in haystack:
+            return True
+    return False
+
+
+def enforce_song_specific(
+    breakdown: Breakdown, song_title: str, song_artist: str
+) -> Breakdown:
+    """Force `song_specific=True` on any drill whose `what` names the song (FLE-44).
+
+    Mutates `breakdown.drills` in place and returns the same instance for call-site
+    chaining.
+
+    ONE-WAY ONLY. A drill that claims song_specific=True without naming the song is
+    left alone. Gate L4 grades the flag as an IFF, so that direction can still fail
+    the eval — deliberately. Clearing the flag would mean deciding that a drill
+    saying "the opening riff" or "the turnaround in the outro" is not about the song,
+    which is exactly the kind of semantic judgement this function exists to avoid
+    making. The true→false direction is a copy-quality signal for the eval to report;
+    the false→true direction is a correctness guarantee, and only it belongs in code.
+
+    Args:
+        breakdown: A parsed Breakdown. Pre-4.1 cached rows (drills=[]) are a no-op.
+        song_title: The song's title, as stored on the songs row.
+        song_artist: The song's artist, as stored on the songs row.
+
+    Returns:
+        The same Breakdown instance, with any mis-flagged drill corrected.
+    """
+    for drill in breakdown.drills:
+        if not drill.song_specific and _names_song(drill.what, song_title, song_artist):
+            logger.info(
+                "FLE-44: forcing song_specific=True on drill %r for %r — `what` names "
+                "the song or artist but Sonnet emitted false.",
+                drill.name, song_title,
+            )
+            drill.song_specific = True
+    return breakdown
 
 
 class BreakdownEnvelope(BaseModel):

@@ -469,14 +469,18 @@ def test_system_prompt_contains_fletcher_voice():
     assert "You are Fletcher" in SYSTEM_PROMPT
 
 
-def test_max_tokens_is_8192():
-    """run_technique_breakdown uses max_tokens=8192 per RESEARCH §1 pitfall 3."""
-    import inspect
-    from app.ai.breakdown import run_technique_breakdown
-    source = inspect.getsource(run_technique_breakdown)
-    assert "max_tokens=8192" in source, (
-        "max_tokens must be 8192 (RESEARCH §1 pitfall 3 — larger payload for 4-8 measures)"
-    )
+# FLE-43 retired test_max_tokens_is_8192. It pinned the ceiling at 8192 by grepping
+# the function source, and 8192 turned out to be the bug: it was a habitual default
+# never sized against the schema, and Wonderwall's tab alone exhausted it (the
+# endpoint 503'd on a pydantic "Field required" that hid the cause). The test also
+# could not have caught that — a source grep asserts the literal we typed, not the
+# value the request carries.
+#
+# The replacement lives in tests/test_breakdown_truncation.py, which asserts the
+# ceiling against the measured worst case, against the Anthropic SDK's
+# non-streaming cliff, and — in test_the_request_actually_sends_the_raised_ceiling
+# — against the max_tokens of the intercepted request itself rather than its source
+# text.
 
 
 # ---------------------------------------------------------------------------
