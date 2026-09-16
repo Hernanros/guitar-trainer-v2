@@ -42,6 +42,7 @@ import { FletcherLoader } from '../../../../components/FletcherLoader';
 import { RatingPills } from '../../../../components/RatingPills';
 import { AlreadyRatedCard } from '../../../../components/AlreadyRatedCard';
 import { TabNotation } from '../../../../components/TabNotation';
+import { MetronomeControl } from '../../../../components/MetronomeControl';
 import { useBreakdown } from '../../../../api/breakdown';
 import { useSubmitDrillRating, type RatingLiteral } from '../../../../api/sessions';
 
@@ -260,6 +261,18 @@ function DrillScreenInner({ songId, drillIndex }: { songId: number; drillIndex: 
             <TabNotation tab={drill.tab_snippet} />
           </View>
         </View>
+
+        {/* Metronome — FLE-5 Task 7.
+            The click tempo IS the ladder's current rung: currentLadder.currentBpm is
+            passed straight down, so opening a drill arms the metronome at the right
+            tempo and every "Push to next tempo →" retunes it. The user never types a
+            number. Hidden once rating is unlocked, alongside the rep block. */}
+        {!ratingUnlocked && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>METRONOME</Text>
+            <MetronomeControl bpm={currentLadder.currentBpm} />
+          </View>
+        )}
 
         {/* Rep counter / tempo ladder block — hidden when rating is unlocked */}
         {!ratingUnlocked && (
