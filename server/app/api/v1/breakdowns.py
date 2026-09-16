@@ -144,19 +144,26 @@ async def get_breakdown(
     # The cap limits "how many times you view/request a breakdown" not just
     # "how many times Sonnet is called". Checking before cache ensures the
     # governor blocks access on call 4+ regardless of cache state.
+    # FLETCHER_CAP_BREAKDOWN can raise/remove this cap at runtime (see
+    # app.ai.governor.effective_cap) — this check must honour the same
+    # override the @governed decorator and song-of-day quota use, or the
+    # env switch silently fails to uncap the actual breakdown endpoint.
     # BudgetExceededError → 429 BREAKDOWN_CAPPED
-    from app.ai.governor import _check_cap
+    from app.ai.governor import BREAKDOWN_CAP, _check_cap, effective_cap
     from sqlalchemy import text as _text
 
+    call_cap = effective_cap("breakdown", BREAKDOWN_CAP)
+
     try:
-        await _check_cap(db, user_id, "breakdown", 3)
+        if call_cap is not None:
+            await _check_cap(db, user_id, "breakdown", call_cap)
     except BudgetExceededError as exc:
         resets_at_dt = datetime.fromisoformat(exc.resets_at)
         if resets_at_dt.tzinfo is None:
             resets_at_dt = resets_at_dt.replace(tzinfo=timezone.utc)
         days_remaining = max(0, (resets_at_dt - datetime.now(timezone.utc)).days + 1)
         message = (
-            f"Not my tempo. You've had 3 breakdowns this week. "
+            f"Not my tempo. You've had {call_cap} breakdowns this week. "
             f"Come back in {days_remaining} days."
         )
         raise HTTPException(
@@ -241,7 +248,7 @@ async def get_breakdown(
             resets_at_dt = resets_at_dt.replace(tzinfo=timezone.utc)
         days_remaining = max(0, (resets_at_dt - datetime.now(timezone.utc)).days + 1)
         message = (
-            f"Not my tempo. You've had 3 breakdowns this week. "
+            f"Not my tempo. You've had {call_cap} breakdowns this week. "
             f"Come back in {days_remaining} days."
         )
         raise HTTPException(

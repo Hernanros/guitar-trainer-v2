@@ -1306,3 +1306,79 @@ async def test_get_breakdown_envelope_backward_compat_wrap(mock_breakdown_never_
     finally:
         async with _make_session() as db:
             await _cleanup(db, user_id)
+
+
+# ---------------------------------------------------------------------------
+# FLETCHER_CAP_BREAKDOWN env override — this endpoint has its own cap-check
+# (step 2, BEFORE the cache read) that is separate from the @governed
+# decorator wrapping run_technique_breakdown. It hardcoded cap=3 directly
+# instead of going through app.ai.governor.effective_cap, so setting
+# FLETCHER_CAP_BREAKDOWN=off uncapped the song-of-day quota display but the
+# breakdown endpoint itself kept returning 429 BREAKDOWN_CAPPED. Regression
+# coverage for both the broken and the fixed behavior.
+# ---------------------------------------------------------------------------
+
+async def _insert_governor_call(db: AsyncSession, user_id: str, feature: str = "breakdown") -> None:
+    await db.execute(
+        text(
+            "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
+            "VALUES (gen_random_uuid(), :uid, :feature, 'claude-sonnet-4-6', now())"
+        ),
+        {"uid": user_id, "feature": feature},
+    )
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_breakdown_endpoint_returns_429_when_capped(mock_breakdown_never_called):
+    """Baseline: 3 prior breakdown calls this week → 4th request is 429 BREAKDOWN_CAPPED."""
+    user_id = str(uuid.uuid4())
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(db, user_id)
+        for _ in range(3):
+            await _insert_governor_call(db, user_id)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id},
+            )
+        assert resp.status_code == 429, resp.text
+        assert resp.json()["detail"]["code"] == "BREAKDOWN_CAPPED"
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_breakdown_endpoint_honours_env_override_when_capped(
+    mock_breakdown_success, monkeypatch
+):
+    """FLETCHER_CAP_BREAKDOWN=off → a user already at 3 calls this week still gets
+    a real breakdown (200), not 429 BREAKDOWN_CAPPED, from this endpoint directly."""
+    monkeypatch.setenv("FLETCHER_CAP_BREAKDOWN", "off")
+    user_id = str(uuid.uuid4())
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(db, user_id)
+        for _ in range(3):
+            await _insert_governor_call(db, user_id)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id},
+            )
+        assert resp.status_code == 200, resp.text
+        assert "breakdown" in resp.json()
+        assert mock_breakdown_success["count"] == 1
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
