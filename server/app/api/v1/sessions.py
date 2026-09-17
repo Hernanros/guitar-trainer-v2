@@ -141,11 +141,16 @@ async def submit_rating(
             #    checked against their own slots (drill_index=NULL vs drill_index=N).
             #    The DB constraint (COALESCE(drill_index, -1) partial-unique index from
             #    migration 0005) below catches concurrent double-taps that slip through.
+            # FLE-54: exclude the daily-pick marker. It shares this slot's shape
+            # (is_reroll_marker=false, drill_index=NULL, same user/song/day) but is a
+            # provenance record, not a rating. Without this filter, persisting today's
+            # pick would make the user's first whole-song rating 409 "Already rated".
             already_q = select(func.count(UserSession.id)).where(
                 UserSession.user_id == user_id,
                 UserSession.song_id == body.song_id,
                 UserSession.local_calendar_day == local_day,
                 UserSession.is_reroll_marker == False,  # noqa: E712
+                UserSession.is_daily_pick_marker == False,  # noqa: E712
             )
             if body.drill_index is None:
                 already_q = already_q.where(UserSession.drill_index.is_(None))

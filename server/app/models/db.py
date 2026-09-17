@@ -333,6 +333,15 @@ class UserSession(Base):
     is_reroll_marker: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    # migration 0003: added as raw SQL column; not in original ORM definition.
+    bank_source: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True
+    )
+    # migration 0008 (FLE-54): persists the first non-reroll daily pick so the
+    # seeded-random CTE is only called once per (user, day).
+    is_daily_pick_marker: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
 
 
 # -------------------------------------------------------------------------

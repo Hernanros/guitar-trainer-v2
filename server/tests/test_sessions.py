@@ -958,3 +958,75 @@ async def test_two_different_drill_indices_succeed():
     finally:
         async with _make_session() as db:
             await _cleanup(db, user_id)
+
+
+# ---------------------------------------------------------------------------
+# FLE-54 Fix 1 regression: the persisted daily-pick marker must not read as a rating
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_daily_pick_marker_does_not_block_the_first_rating():
+    """GET /song-of-day then rate that song → 201, not a spurious 409.
+
+    FLE-54 Fix 1 persists the day's pick as a user_sessions row. That row shares the
+    whole-song rating slot's shape (is_reroll_marker=false, drill_index=NULL, same
+    user/song/day), so the idempotency guard in sessions.py counted it as an existing
+    rating and rejected the user's real rating with "Already rated this song today."
+    Both the guard and the DB partial-unique index must exclude daily-pick markers.
+    """
+    user_id = str(uuid4())
+    async with _make_session() as db:
+        song_id, _ = await _seed_user_song_skills(db, user_id)
+
+    try:
+        headers = {"X-User-ID": user_id, "X-Timezone-Offset": "-300"}
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            # 1. GET the day's song — this persists the daily-pick marker.
+            sod = await client.get("/api/v1/song-of-day", headers=headers)
+            assert sod.status_code == 200, sod.text
+            picked_song_id = sod.json()["song"]["id"]
+            assert picked_song_id == int(song_id), (
+                "fixture has one song, so it must be today's pick"
+            )
+
+            # The marker is on disk and is NOT reported as a rating.
+            assert sod.json()["rated"] is None, (
+                "daily-pick marker leaked into TodaySongResponse.rated"
+            )
+
+            # 2. Rate that same song. Must succeed.
+            resp = await client.post(
+                "/api/v1/sessions",
+                json={"song_id": int(song_id), "rating": "getting_closer"},
+                headers=headers,
+            )
+            assert resp.status_code == 201, (
+                f"daily-pick marker blocked the first real rating: {resp.text}"
+            )
+
+            # 3. Now the rating IS reported, and a second rating is correctly refused.
+            sod2 = await client.get("/api/v1/song-of-day", headers=headers)
+            assert sod2.status_code == 200, sod2.text
+            assert sod2.json()["rated"]["rating"] == "getting_closer"
+
+            dupe = await client.post(
+                "/api/v1/sessions",
+                json={"song_id": int(song_id), "rating": "not_my_tempo"},
+                headers=headers,
+            )
+            assert dupe.status_code == 409, (
+                f"real duplicate rating should still 409, got {dupe.status_code}"
+            )
+
+        # Exactly one marker row, and it did not collide with the rating row.
+        async with _make_session() as db:
+            markers = await db.scalar(text(
+                "SELECT count(*) FROM user_sessions "
+                f"WHERE user_id = '{user_id}' AND is_daily_pick_marker = true"
+            ))
+            assert markers == 1, f"expected exactly 1 daily-pick marker, got {markers}"
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)

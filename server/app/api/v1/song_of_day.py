@@ -129,32 +129,98 @@ async def get_song_of_day(
         if row is None:
             raise HTTPException(status_code=404, detail="Rerolled song not found.")
     else:
-        # Fresh pick path: call the 75/25 CTE selector (closes gap 1)
-        song_id, from_bank, bank_source = await select_today_song(
-            db, user_id, tz_offset_minutes, force_reroll=False
-        )
-        if song_id is None:
-            raise HTTPException(
-                status_code=404,
-                detail="No song available. Add songs from Settings.",
-            )
-
-        # Load the songs row (selector already scoped result to user — extra filter for D&S)
-        row = (
+        # FLE-54 Fix 1: check for an already-persisted daily pick marker before
+        # running the CTE. The CTE assigns seeded random() values positionally (by
+        # index scan order), so any non-HOT write that changes index key set shifts
+        # which song wins the identical seed. Persisting on first call makes the day's
+        # song a stable fact rather than a recomputation.
+        daily_pick_marker = (
             await db.execute(
-                select(Song).where(Song.id == song_id, Song.user_id == user_id)
+                text(
+                    "SELECT song_id, bank_source FROM user_sessions "
+                    "WHERE user_id = :user_id AND local_calendar_day = :day "
+                    "  AND is_daily_pick_marker = true "
+                    "LIMIT 1"
+                ),
+                {"user_id": str(user_id), "day": local_day},
             )
-        ).scalar_one_or_none()
-        if row is None:
-            raise HTTPException(status_code=404, detail="No song found for today's pick.")
+        ).mappings().one_or_none()
+
+        if daily_pick_marker is not None:
+            # Persisted path: return the stable daily pick.
+            song_id = daily_pick_marker["song_id"]
+            bank_source = daily_pick_marker["bank_source"]
+            from_bank = bank_source is not None
+
+            row = (
+                await db.execute(
+                    select(Song).where(Song.id == song_id, Song.user_id == user_id)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                raise HTTPException(status_code=404, detail="No song found for today's pick.")
+        else:
+            # Fresh pick path: call the 75/25 CTE selector once, then persist the result
+            # so subsequent GETs skip the CTE entirely (uq_user_sessions_daily_pick
+            # partial unique index ensures at-most-one marker per user per day).
+            song_id, from_bank, bank_source = await select_today_song(
+                db, user_id, tz_offset_minutes, force_reroll=False
+            )
+            if song_id is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No song available. Add songs from Settings.",
+                )
+
+            # Load the songs row (selector already scoped result to user — extra filter for D&S)
+            row = (
+                await db.execute(
+                    select(Song).where(Song.id == song_id, Song.user_id == user_id)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                raise HTTPException(status_code=404, detail="No song found for today's pick.")
+
+            # Persist the daily pick marker. On a concurrent second GET that races here,
+            # the IntegrityError from uq_user_sessions_daily_pick is swallowed — both
+            # requests computed the same seed and will return the same song anyway.
+            try:
+                await db.execute(
+                    text(
+                        "INSERT INTO user_sessions "
+                        "  (id, user_id, song_id, rating, local_calendar_day, "
+                        "   tz_offset_minutes, is_reroll_marker, is_daily_pick_marker, "
+                        "   bank_source) "
+                        "VALUES "
+                        "  (gen_random_uuid(), :user_id, :song_id, NULL, :day, :tz, "
+                        "   FALSE, TRUE, :bank_source)"
+                    ),
+                    {
+                        "user_id": str(user_id),
+                        "song_id": song_id,
+                        "day": local_day,
+                        "tz": tz_offset_minutes,
+                        "bank_source": bank_source,
+                    },
+                )
+                await db.commit()
+            except sqlalchemy.exc.IntegrityError:
+                # Race: another concurrent request persisted the marker first. Safe to
+                # ignore — both requests computed from the same seed and produced the
+                # same song_id.
+                await db.rollback()
 
     # Read same-day rating row (Slice C: populate .rated if the user has already rated)
     rating_row = (
         await db.execute(
             text(
+                # FLE-54: is_daily_pick_marker rows are NOT ratings — they carry
+                # rating=NULL and is_reroll_marker=false, so without this filter the
+                # marker is read back as a rating and TodayRatingInfo fails validation.
                 "SELECT rating, rated_at FROM user_sessions "
                 "WHERE user_id = :user_id AND song_id = :song_id "
                 "  AND local_calendar_day = :day AND is_reroll_marker = false "
+                "  AND is_daily_pick_marker = false "
                 "LIMIT 1"
             ),
             {"user_id": str(user_id), "song_id": row.id, "day": local_day},

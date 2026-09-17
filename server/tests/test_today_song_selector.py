@@ -439,3 +439,89 @@ async def test_selector_bank_difficulty_filter_present():
     assert "<= 0.15" in cte_text or "<=0.15" in cte_text, (
         "CTE missing D-03 bank difficulty filter ABS(...) <= 0.15"
     )
+
+
+# ---------------------------------------------------------------------------
+# FLE-54 Fix 1: daily pick persistence via GET /song-of-day
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_daily_pick_stable_after_indexed_column_mutation(db: AsyncSession):
+    """Same user, same day, two GET /song-of-day calls, songs mutated in between → same song.
+
+    Reproduces the instability: the seeded CTE assigns random() values by scan position,
+    so any non-HOT update (e.g. retitle) that reorders the index shifts the winner. After
+    FLE-54 Fix 1, the first call persists a daily_pick_marker row and the second call reads
+    it back instead of re-running the CTE — so the pick cannot move even if the index changes.
+    """
+    user_id = uuid.uuid4()
+
+    # Insert user
+    await db.execute(
+        text("INSERT INTO users (id, preferences) VALUES (:uid, '{}'::jsonb)"),
+        {"uid": str(user_id)},
+    )
+
+    # No working_on songs → D-04 forces 100% bank picks, isolating user_bench_pick CTE branch.
+    for i in range(15):
+        await db.execute(
+            text(
+                "INSERT INTO songs (title, artist, genre, difficulty, breakdown, user_id, category) "
+                "VALUES (:t, :a, 'test', 'beginner', "
+                "'{\"tab\":{\"measures\":[],\"tuning\":[\"E\",\"A\",\"D\",\"G\",\"B\",\"e\"]},"
+                "\"chords\":[],\"technique_notes\":[]}'::jsonb, :uid, 'aspirational')"
+            ),
+            {"t": f"Stability Song {i:02d}", "a": f"Artist {i:02d}", "uid": str(user_id)},
+        )
+    await db.commit()
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            headers = {"X-User-ID": str(user_id), "X-Timezone-Offset": "0"}
+
+            # First GET: CTE runs, daily pick marker is persisted.
+            r1 = await client.get("/api/v1/song-of-day", headers=headers)
+            assert r1.status_code == 200, r1.text
+            song_id_first = r1.json()["song"]["id"]
+
+            # Mutate: retitle the first song so its index key changes (non-HOT update,
+            # reorders songs_user_title_artist_uidx, shifting which row wins the same seed).
+            await db.execute(
+                text(
+                    "UPDATE songs SET title = 'AAA New Title Shifts Index' "
+                    "WHERE user_id = :uid AND title = 'Stability Song 00'"
+                ),
+                {"uid": str(user_id)},
+            )
+            await db.commit()
+
+            # Second GET: must return the same song despite the index reorder.
+            r2 = await client.get("/api/v1/song-of-day", headers=headers)
+            assert r2.status_code == 200, r2.text
+            song_id_second = r2.json()["song"]["id"]
+
+        assert song_id_first == song_id_second, (
+            f"Daily pick moved after index mutation: first={song_id_first} second={song_id_second}. "
+            "FLE-54 Fix 1 (daily_pick_marker persistence) is broken."
+        )
+
+        # Confirm the daily pick marker was written.
+        today_row = await db.scalar(
+            text("SELECT DATE((now() AT TIME ZONE 'UTC') + (0 * INTERVAL '1 minute'))")
+        )
+        marker = await db.execute(
+            text(
+                "SELECT song_id FROM user_sessions "
+                "WHERE user_id = :uid AND local_calendar_day = :day AND is_daily_pick_marker = true"
+            ),
+            {"uid": str(user_id), "day": today_row},
+        )
+        marker_row = marker.mappings().one_or_none()
+        assert marker_row is not None, "daily_pick_marker row was not written to user_sessions"
+        assert marker_row["song_id"] == song_id_first
+
+    finally:
+        await db.execute(text("DELETE FROM user_sessions WHERE user_id = :uid"), {"uid": str(user_id)})
+        await db.execute(text("DELETE FROM songs WHERE user_id = :uid"), {"uid": str(user_id)})
+        await db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": str(user_id)})
+        await db.commit()
