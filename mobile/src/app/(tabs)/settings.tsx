@@ -26,6 +26,7 @@ import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '../../api/users';
 import { clearOnboardedAt, clearWizardState, setReRunPending } from '../../api/mmkv';
+import { applyUpdateIfAvailable, describeRunningBundle } from '../../hooks/use-ota-update';
 
 // Map server enum values to Fletcher-voiced display labels (D-13).
 const RETENTION_LABELS: Record<string, string> = {
@@ -56,6 +57,21 @@ export default function SettingsScreen() {
         },
       ],
     );
+  };
+
+  // Which JS bundle is this phone actually running? Without a visible answer, a shipped
+  // fix that hasn't been applied yet looks identical to a fix that was never shipped.
+  const onCheckForUpdate = () => {
+    void applyUpdateIfAvailable().then((outcome) => {
+      if (outcome === 'reloading') return; // the app is already restarting
+      const message =
+        outcome === 'up-to-date'
+          ? `You have the newest version.\n\n${describeRunningBundle()}`
+          : outcome === 'disabled'
+            ? 'Updates are off in this build.'
+            : 'Could not reach the update server. Try again on a better connection.';
+      Alert.alert('Update check', message);
+    });
   };
 
   const onReRun = () => {
@@ -109,8 +125,17 @@ export default function SettingsScreen() {
       </Pressable>
 
       <Text style={styles.devSectionLabel}>Dev</Text>
+      <Text testID="settings-bundle-stamp" style={styles.stamp}>
+        {describeRunningBundle()}
+      </Text>
       <Pressable
         style={({ pressed }) => [styles.devButton, pressed && styles.buttonPressed]}
+        onPress={onCheckForUpdate}
+      >
+        <Text style={styles.devButtonText}>Check for update</Text>
+      </Pressable>
+      <Pressable
+        style={({ pressed }) => [styles.devButton, styles.devButtonSpaced, pressed && styles.buttonPressed]}
         onPress={onRefreshCache}
       >
         <Text style={styles.devButtonText}>Refresh cache</Text>
@@ -168,6 +193,14 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginTop: 48,
     marginBottom: 12,
+  },
+  stamp: {
+    color: '#666',
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  devButtonSpaced: {
+    marginTop: 10,
   },
   devButton: {
     borderWidth: 1,

@@ -16,9 +16,13 @@ import { Stack, Redirect } from 'expo-router';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { queryClient, mmkvPersister, CACHE_BUSTER } from '../api/queryClient';
 import { getOnboardedAt } from '../api/mmkv';
+import { useOtaUpdateOnLaunch } from '../hooks/use-ota-update';
 
 export default function RootLayout() {
   const onboardedAt = getOnboardedAt();
+  // Without this, a published OTA lands on the launch *after* the one that downloads
+  // it, so the first open following a fix still renders the pre-fix screen.
+  useOtaUpdateOnLaunch();
   return (
     <PersistQueryClientProvider
       client={queryClient}
