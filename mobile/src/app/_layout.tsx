@@ -14,7 +14,7 @@
 // must wrap all routes (including onboarding) to ensure the MMKV persister is active.
 import { Stack, Redirect } from 'expo-router';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
-import { queryClient, mmkvPersister } from '../api/queryClient';
+import { queryClient, mmkvPersister, CACHE_BUSTER } from '../api/queryClient';
 import { getOnboardedAt } from '../api/mmkv';
 
 export default function RootLayout() {
@@ -22,7 +22,9 @@ export default function RootLayout() {
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister: mmkvPersister }}
+      // buster: a mismatch discards the persisted cache instead of rehydrating it, so a
+      // policy change on the server can't be masked by a stale body on device.
+      persistOptions={{ persister: mmkvPersister, buster: CACHE_BUSTER }}
     >
       {onboardedAt === null ? <Redirect href="/onboarding" /> : null}
       <Stack>

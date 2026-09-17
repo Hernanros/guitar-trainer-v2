@@ -47,3 +47,13 @@ export const mmkvPersister = createAsyncStoragePersister({
   storage: mmkvStorage,
   throttleTime: 1000,
 });
+
+// Bump this whenever a server-side shape or policy change makes an already-persisted
+// response wrong. staleTime: Infinity means the app otherwise renders the old body
+// forever — an OTA ships new code but not new data, so without a buster the rehydrated
+// cache silently wins on first paint and the update looks like it did nothing.
+//
+// v2: the breakdown cap became a runtime env switch (FLETCHER_CAP_BREAKDOWN). Devices
+// holding a cached `breakdown_quota: {remaining: 0}` today-song kept rendering the
+// disabled "Come back in N days" CTA long after the server stopped capping.
+export const CACHE_BUSTER = 'v2-breakdown-cap-runtime-switch';
