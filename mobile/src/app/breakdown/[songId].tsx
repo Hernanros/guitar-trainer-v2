@@ -10,6 +10,13 @@
 //   envelope.drill_rated_today_indices (durable across restart/cache/cross-device).
 //   Replaces the pre-revision fragile QueryClient mutation-cache subscription pattern
 //   that never shipped (was in the pre-revision plan, not in the actual Wave 2 code).
+// FLE-53 FIX: the header used to read `today.song` unconditionally, so it showed
+//   whatever `today-song` currently pointed at rather than the song this screen
+//   is actually a breakdown of — those diverge after a reroll or day rollover while
+//   this screen is still open. The header now renders `resolveDisplaySong()`, which
+//   prefers the per-id song cache (songByIdQueryKey in api/todaySong.ts, seeded for
+//   every song useTodaySong has ever shown) and only falls back to `today.song` when
+//   its id actually matches the route's songId.
 //
 // Rating flow:
 //   1. User taps a RatingPill → selectedRating set (confirmed visual + POST fires)
@@ -43,7 +50,7 @@ import { ChordDiagram } from '../../components/ChordDiagram';
 import { TabNotation } from '../../components/TabNotation';
 import { FletcherLoader } from '../../components/FletcherLoader';
 import { DrillCard } from '../../components/DrillCard';
-import { useTodaySong, localCalendarDay } from '../../api/todaySong';
+import { useTodaySong, localCalendarDay, songByIdQueryKey } from '../../api/todaySong';
 import { useBreakdown } from '../../api/breakdown';
 import { getOrCreateUserId } from '../../api/mmkv';
 import { useSubmitRating, type RatingLiteral } from '../../api/sessions';
@@ -63,6 +70,28 @@ function MetaLine({ song }: { song: SongResponse }) {
   ].filter((p): p is string => Boolean(p));
   if (parts.length === 0) return null;
   return <Text style={styles.meta}>{parts.join(' · ')}</Text>;
+}
+
+/**
+ * FLE-53: the header must describe the route's songId, not whatever `today-song`
+ * currently points at — those diverge after a reroll, a day rollover, or any entry
+ * into this screen for a song other than today's (the today-song cache is
+ * staleTime: Infinity + MMKV-persisted, so it can easily be stale relative to the
+ * songId the user actually tapped into).
+ *
+ * Preference order: the per-id song cache (populated by useTodaySong for every song
+ * it has ever shown, keyed by id — see songByIdQueryKey) is the source of truth for
+ * `songId` specifically. Only fall back to `today.song` when it actually matches
+ * `songId`; never render a different song's metadata under this song's breakdown.
+ */
+export function resolveDisplaySong(
+  cachedSong: SongResponse | undefined,
+  todaySong: SongResponse,
+  songId: number | null,
+): SongResponse | undefined {
+  if (cachedSong) return cachedSong;
+  if (todaySong.id === songId) return todaySong;
+  return undefined;
 }
 
 const LABELS: Record<RatingLiteral, string> = {
@@ -125,7 +154,8 @@ export default function BreakdownScreen() {
     );
   }
 
-  const { song } = today;
+  const cachedSong = songId != null ? qc.getQueryData<SongResponse>(songByIdQueryKey(songId)) : undefined;
+  const song = resolveDisplaySong(cachedSong, today.song, songId);
 
   // Breakdown error branch — parse HTTP status inline (apiFetch throws
   // "HTTP {status} {method} {path}" per apiClient.ts:50; body is not included, so
@@ -157,9 +187,9 @@ export default function BreakdownScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.header}>
             <Text style={styles.label}>BREAKDOWN</Text>
-            <Text style={styles.title}>{song.title}</Text>
-            <Text style={styles.artist}>{song.artist}</Text>
-            <MetaLine song={song} />
+            <Text style={styles.title}>{song?.title ?? 'Loading song...'}</Text>
+            <Text style={styles.artist}>{song?.artist ?? ''}</Text>
+            {song && <MetaLine song={song} />}
           </View>
           <FletcherLoader
             messages={['Fletcher is listening...', 'Working out the fingering...', 'Almost there...']}
@@ -212,9 +242,9 @@ export default function BreakdownScreen() {
         {/* Song header */}
         <View style={styles.header}>
           <Text style={styles.label}>BREAKDOWN</Text>
-          <Text style={styles.title}>{song.title}</Text>
-          <Text style={styles.artist}>{song.artist}</Text>
-          <MetaLine song={song} />
+          <Text style={styles.title}>{song?.title ?? 'Loading song...'}</Text>
+          <Text style={styles.artist}>{song?.artist ?? ''}</Text>
+          {song && <MetaLine song={song} />}
         </View>
 
         {/* Drills — Phase 4.1 (N2 clarification: immediately below the song header,

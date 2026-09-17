@@ -11,6 +11,7 @@
 // the new date in the key causes a cache miss and a fresh fetch.
 //
 // localCalendarDay() is exported so useSubmitRating can patch the same key.
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { components } from './generated/schema';
 import { apiFetch } from './apiClient';
@@ -21,6 +22,16 @@ import { getOrCreateUserId } from './mmkv';
 export type TodaySongResponse = components['schemas']['TodaySongResponse'];
 export type SongResponse = components['schemas']['SongResponse'];
 export type BreakdownQuota = components['schemas']['BreakdownQuota'];
+
+/**
+ * Query key for a single song's metadata, cached by id independent of whether it is
+ * still today's song. FLE-53: breakdown/[songId].tsx reads this so its header keeps
+ * describing the song the route was opened for, even after `today-song` moves on to
+ * a different song (reroll, day rollover) while the screen is still on-screen.
+ */
+export function songByIdQueryKey(songId: number) {
+  return ['song', songId] as const;
+}
 
 /**
  * Returns the current date as YYYY-MM-DD in the device's local timezone.
@@ -46,11 +57,23 @@ async function fetchTodaySong(userId: string): Promise<TodaySongResponse> {
 export function useTodaySong() {
   const userId = getOrCreateUserId();
   const day = localCalendarDay();
-  return useQuery({
+  const qc = useQueryClient();
+  const query = useQuery({
     queryKey: ['today-song', userId, day],
     queryFn: () => fetchTodaySong(userId),
     // staleTime: Infinity — inherited from queryClient defaults; per-day key causes natural refresh
   });
+
+  // FLE-53: seed the per-id song cache on every today-song change (initial fetch,
+  // reroll, or day rollover) so a song's metadata survives after it stops being
+  // today's song.
+  useEffect(() => {
+    if (query.data?.song) {
+      qc.setQueryData(songByIdQueryKey(query.data.song.id), query.data.song);
+    }
+  }, [qc, query.data?.song]);
+
+  return query;
 }
 
 /**

@@ -13,6 +13,37 @@
  *   npm test -- --testPathPattern='breakdown'
  */
 
+import { resolveDisplaySong } from '../../../src/app/breakdown/[songId]';
+
+// ---------------------------------------------------------------------------
+// resolveDisplaySong — FLE-53: header must describe songId, not today's song
+// ---------------------------------------------------------------------------
+
+describe('resolveDisplaySong', () => {
+  const songA = { id: 1, title: 'Big Love', artist: 'Fleetwood Mac' } as any;
+  const songB = { id: 2, title: 'Cause We Ended As Lovers', artist: 'Jeff Beck' } as any;
+
+  it('reads B when today is A but the route is a breakdown of B (reroll/day-rollover divergence)', () => {
+    // today's song is A; the per-id cache still holds B from when B was today's
+    // song (or was otherwise seen) — the header must read B, not A.
+    expect(resolveDisplaySong(songB, songA, songB.id)).toBe(songB);
+  });
+
+  it('falls back to today.song when it matches songId and there is no per-id cache entry', () => {
+    expect(resolveDisplaySong(undefined, songA, songA.id)).toBe(songA);
+  });
+
+  it('returns undefined rather than a mismatched song when neither source matches songId', () => {
+    // No per-id cache entry, and today's song id does not match the route's songId —
+    // must not fall back to showing the wrong song's title.
+    expect(resolveDisplaySong(undefined, songA, songB.id)).toBeUndefined();
+  });
+
+  it('prefers the per-id cache even when it happens to also match today.song', () => {
+    expect(resolveDisplaySong(songA, songA, songA.id)).toBe(songA);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // songId parsing
 // ---------------------------------------------------------------------------
