@@ -16,12 +16,13 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
   CLICK_PLAYER_OPTIONS,
+  CLICK_REWIND_DELAY_MS,
   DEFAULT_VOICES_PER_SOUND,
   createAudioClickEmitter,
   prepareClickAudioMode,
 } from '../../src/metronome/audioEmitter';
 import type { AudioModuleLike, AudioPlayerLike } from '../../src/metronome/audioEmitter';
-import type { MetronomeBeat } from '../../src/metronome/types';
+import type { MetronomeBeat, TimerHandle } from '../../src/metronome/types';
 import type * as ExpoAudio from 'expo-audio';
 
 // ---------------------------------------------------------------------------
@@ -53,6 +54,17 @@ interface FakePlayer extends AudioPlayerLike {
   removed: boolean;
   /** Set by a test to make the next play() throw, simulating a native failure. */
   failOnPlay: boolean;
+  /**
+   * 0 = parked at the head, ready to play. 1 = at EOF, mirroring expo-audio's
+   * `actionAtItemEnd = .pause` — a `play()` here is a coin-flip on real
+   * hardware and silent in this fake, so tests assert against it directly.
+   * Only `seekTo`'s resolution moves this back to 0 — never `seekTo` itself —
+   * which is what makes `seekTo` genuinely asynchronous here rather than a
+   * same-tick no-op.
+   */
+  position: number;
+  /** The position observed at the instant of every `play()` call, in order. */
+  positionAtPlay: number[];
 }
 
 function createFakeAudio() {
@@ -67,13 +79,22 @@ function createFakeAudio() {
         calls: [],
         removed: false,
         failOnPlay: false,
+        position: 0,
+        positionAtPlay: [],
         seekTo(seconds: number) {
           player.calls.push(`seekTo(${seconds})`);
-          return Promise.resolve();
+          // Genuinely async: the position only moves once this promise's
+          // continuation runs, which is at least one microtask after the
+          // call — never in the same synchronous stretch that called it.
+          return Promise.resolve().then(() => {
+            player.position = seconds;
+          });
         },
         play() {
           if (player.failOnPlay) throw new Error('native player exploded');
+          player.positionAtPlay.push(player.position);
           player.calls.push('play');
+          player.position = 1;
         },
         remove() {
           player.removed = true;
@@ -92,6 +113,47 @@ function createFakeAudio() {
 
   return { audio, players, modes, played, forSource };
 }
+
+/**
+ * A virtual clock that can hold several concurrent timers — unlike the
+ * single-timer clock in metronome.test.ts, which models the engine's own
+ * usage. The rewind pool can have one pending rewind per voice at once, so
+ * this test file needs its own.
+ */
+class MultiTimerClock {
+  currentTime = 0;
+  private readonly timers = new Map<number, { fireAt: number; callback: () => void }>();
+  private nextId = 1;
+
+  setTimer = (callback: () => void, delayMs: number): TimerHandle => {
+    const id = this.nextId++;
+    this.timers.set(id, { fireAt: this.currentTime + delayMs, callback });
+    return id;
+  };
+
+  clearTimer = (handle: TimerHandle): void => {
+    this.timers.delete(handle as number);
+  };
+
+  pendingCount(): number {
+    return this.timers.size;
+  }
+
+  /** Advances time and fires every timer whose deadline has now passed, in deadline order. */
+  advanceBy(ms: number): void {
+    this.currentTime += ms;
+    const due = [...this.timers.entries()]
+      .filter(([, timer]) => timer.fireAt <= this.currentTime)
+      .sort((a, b) => a[1].fireAt - b[1].fireAt);
+    for (const [id, timer] of due) {
+      this.timers.delete(id);
+      timer.callback();
+    }
+  }
+}
+
+/** Lets a pending `Promise.resolve().then(...)` continuation run before the next assertion. */
+const flushMicrotasks = () => Promise.resolve();
 
 const SOURCES = { tick: 'tick.wav', accent: 'accent.wav' };
 
@@ -153,15 +215,87 @@ describe('createAudioClickEmitter — allocation', () => {
 });
 
 describe('createAudioClickEmitter — playback', () => {
-  it('rewinds before playing, so a retrigger starts at the transient', () => {
+  it('plays without seeking on the beat path', () => {
+    // seekTo(0) is async and play() is not — calling both back to back on the
+    // beat path races them. The fix moves the rewind off this path entirely.
     const { audio, played } = createFakeAudio();
     const emitter = createAudioClickEmitter(audio, SOURCES);
 
     emitter.emit(beat());
 
     expect(played()).toHaveLength(1);
-    // Order matters: play-then-seek would cut the attack off the click.
-    expect(played()[0].calls).toEqual(['seekTo(0)', 'play']);
+    expect(played()[0].calls).toEqual(['play']);
+  });
+
+  it('arms a rewind via the injected timer after playing, parking the voice back at 0', async () => {
+    const clock = new MultiTimerClock();
+    const { audio, played } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    emitter.emit(beat());
+    const player = played()[0];
+    expect(player.calls).toEqual(['play']);
+    expect(player.position).toBe(1); // parked at EOF until the rewind lands
+
+    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    await flushMicrotasks();
+
+    expect(player.calls).toEqual(['play', 'seekTo(0)']);
+    expect(player.position).toBe(0);
+  });
+
+  it('plays every voice from position 0 even though the rewind that parks it there is asynchronous', async () => {
+    // Confirms the fixed pooling mechanics hold up over sustained cycling at
+    // the tightest real gap (MAX_BPM). It does NOT independently reproduce
+    // FLE-57: this fake's seekTo resolves after one microtask, and this test
+    // flushes microtasks once per beat, which is enough real-world slack for
+    // even the OLD (buggy) emitter's own same-round seekTo call to land
+    // before the voice's next turn — so it does not fail against pre-fix
+    // code. The test above ("plays without seeking on the beat path") is the
+    // one that actually catches the regression: it proves no seekTo call
+    // ever precedes play() on the beat path, which is the one guarantee that
+    // makes the race structurally impossible, independent of timing.
+    const clock = new MultiTimerClock();
+    const { audio, forSource } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      voicesPerSound: 3,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    // 9 beats cycles a 3-voice pool three times — every voice reused twice.
+    for (let i = 1; i <= 9; i += 1) {
+      emitter.emit(beat({ beatIndex: i }));
+      clock.advanceBy(200); // MAX_BPM's own beat interval — the tightest real gap.
+      await flushMicrotasks();
+    }
+
+    const ticks = forSource('tick.wav') as FakePlayer[];
+    expect(ticks).toHaveLength(3);
+    for (const voice of ticks) {
+      expect(voice.positionAtPlay).toEqual(voice.positionAtPlay.map(() => 0));
+    }
+  });
+
+  it('cancels a pending rewind before arming a new one for the same voice', () => {
+    // Defensive: armRewind() must not leak a timer if a voice is somehow
+    // reused before its previous rewind fired.
+    const clock = new MultiTimerClock();
+    const { audio, played } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      voicesPerSound: 1,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    emitter.emit(beat({ beatIndex: 1 }));
+    emitter.emit(beat({ beatIndex: 2 }));
+
+    expect(played()).toHaveLength(1); // same single-voice pool, reused
+    expect(clock.pendingCount()).toBe(1); // the first rewind was cancelled, not left dangling
   });
 
   it('routes the downbeat to the accent sound and everything else to the tick', () => {
@@ -258,6 +392,24 @@ describe('createAudioClickEmitter — teardown', () => {
 
     emitter.dispose?.();
     expect(() => emitter.dispose?.()).not.toThrow();
+  });
+
+  it('cancels pending rewinds on dispose, so a removed player is never touched again', () => {
+    const clock = new MultiTimerClock();
+    const { audio, played } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    emitter.emit(beat());
+    const player = played()[0];
+
+    emitter.dispose?.();
+    clock.advanceBy(CLICK_REWIND_DELAY_MS * 2);
+
+    expect(player.calls).toEqual(['play']); // no seekTo after dispose
+    expect(player.removed).toBe(true);
   });
 });
 
