@@ -138,7 +138,13 @@ async def backfill(
     recompute_tier: bool = False,
     verbose: bool = False,
 ) -> tuple[Counters, list[dict[str, Any]]]:
-    """Classify and tier every active drill. Returns (counters, unclassified rows)."""
+    """Classify and tier every active drill. Returns (counters, unclassified rows).
+
+    The caller owns the transaction — same contract as `backfill_drills.backfill`.
+    `apply=True` means "execute the UPDATEs", not "commit them": a caller that chains
+    both scripts in one session decides for itself whether the pair lands. This used
+    to commit here, which silently promoted a chained dry run into a real write.
+    """
     counters = Counters()
     unclassified: list[dict[str, Any]] = []
 
@@ -225,8 +231,6 @@ async def backfill(
             )
             counters.rows_written += 1
 
-    if apply:
-        await db.commit()
     return counters, unclassified
 
 
@@ -283,6 +287,13 @@ async def _main(argv: Optional[list[str]] = None) -> int:
         print(report["summary"])
         if not args.apply:
             print("  (dry run — coverage reflects the DB as it stands, not the plan)")
+
+        # Last, so the coverage grade above is read inside the same transaction the
+        # UPDATEs live in — it reports the state --apply would leave behind.
+        if args.apply:
+            await db.commit()
+        else:
+            await db.rollback()
 
     if not args.apply:
         print("\nNothing was written. Re-run with --apply to commit.")
