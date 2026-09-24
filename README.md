@@ -131,7 +131,7 @@ Three product bets drive the whole design:
 For engineers curious about the build:
 
 - **Mobile:** Expo + React Native (iOS/Android), Zustand for UI state, TanStack Query for server state, react-native-svg for chord and tab rendering.
-- **Backend:** FastAPI + Postgres on Railway.
+- **Backend:** FastAPI + Postgres on Railway. `git push origin main` is the whole deploy; Alembic migrations run automatically in a pre-deploy step before the new container takes traffic — see [`server/DEPLOY.md`](server/DEPLOY.md) before running `alembic` against anything.
 - **AI:** Multi-model routing on the Anthropic API — Haiku 4.5 as a fast router/classifier, Sonnet 4.6 as the primary teacher generating breakdowns and coaching cues, Opus 4.7 as a fallback for edge cases.
 - **Cost:** A $20/month hard budget for the whole thing. Enforced through four concentric guardrail layers — per-request predictive check, daily rolling budget, monthly application budget, and the Anthropic console-level failsafe. The budget shapes model choice, prompt design, and caching; it's a first-class architectural concern, not an afterthought.
 
