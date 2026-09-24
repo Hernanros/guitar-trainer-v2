@@ -221,33 +221,50 @@ async def test_selector_force_reroll_different_seed(seed_user, db: AsyncSession)
 
 @pytest.mark.asyncio
 async def test_get_tz_offset_dep_valid_range():
-    """get_tz_offset_minutes accepts boundary values -840 and +840."""
+    """get_tz_offset_minutes accepts boundary values -840 and +840.
+
+    FastAPI's Header(...) int coercion runs before this dependency is ever
+    called, so by the time it receives x_timezone_offset it is already an
+    int — call it with ints here, the way the framework does.
+    """
     # Valid boundaries
-    assert get_tz_offset_minutes("-840") == -840
-    assert get_tz_offset_minutes("840") == 840
-    assert get_tz_offset_minutes("0") == 0
+    assert await get_tz_offset_minutes(-840) == -840
+    assert await get_tz_offset_minutes(840) == 840
+    assert await get_tz_offset_minutes(0) == 0
     # Default (no header) → 0
-    assert get_tz_offset_minutes("0") == 0
+    assert await get_tz_offset_minutes(0) == 0
 
 
 @pytest.mark.asyncio
 async def test_get_tz_offset_dep_rejects_out_of_range():
     """get_tz_offset_minutes rejects ±841 with 400."""
     with pytest.raises(HTTPException) as exc_info:
-        get_tz_offset_minutes("-841")
+        await get_tz_offset_minutes(-841)
     assert exc_info.value.status_code == 400
 
     with pytest.raises(HTTPException) as exc_info:
-        get_tz_offset_minutes("841")
+        await get_tz_offset_minutes(841)
     assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio
-async def test_get_tz_offset_dep_rejects_non_integer():
-    """get_tz_offset_minutes rejects non-integer values with 400."""
-    with pytest.raises(HTTPException) as exc_info:
-        get_tz_offset_minutes("not-a-number")
-    assert exc_info.value.status_code == 400
+async def test_song_of_day_rejects_non_integer_tz_offset(seed_user):
+    """GET /api/v1/song-of-day returns 422 for a non-integer X-Timezone-Offset.
+
+    Non-integer rejection happens in FastAPI's own Header(...) parsing, before
+    get_tz_offset_minutes is ever invoked — so this is an integration-level
+    check, not a direct call into the dependency (which never sees a string).
+    """
+    user_id = seed_user
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(
+            "/api/v1/song-of-day",
+            headers={
+                "X-User-ID": str(user_id),
+                "X-Timezone-Offset": "not-a-number",
+            },
+        )
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio

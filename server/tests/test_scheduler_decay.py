@@ -488,8 +488,13 @@ async def test_decay_last_decayed_at_updated_on_affected_rows(db: AsyncSession) 
     lda = affected_row["last_decayed_at"]
     if lda.tzinfo is None:
         lda = lda.replace(tzinfo=timezone.utc)
-    assert now_before <= lda <= now_after, (
-        f"last_decayed_at {lda} should be within test window [{now_before}, {now_after}]"
+    # The window is bracketed by Python-side datetime.now() calls around a Postgres-side
+    # now(), so a couple seconds of tolerance absorbs host/container clock skew between
+    # the two without weakening what the assertion actually checks.
+    skew_tolerance = timedelta(seconds=2)
+    assert now_before - skew_tolerance <= lda <= now_after + skew_tolerance, (
+        f"last_decayed_at {lda} should be within test window "
+        f"[{now_before}, {now_after}] (±{skew_tolerance})"
     )
     assert skipped_row["last_decayed_at"] is None, "Skipped row must have last_decayed_at remain NULL"
 

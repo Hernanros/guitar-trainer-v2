@@ -261,6 +261,47 @@ def attribute(song: Song) -> dict[int, list[str]]:
     return blame
 
 
+def exclusions(
+    song: Song,
+    *,
+    exclude_gates: tuple[str, ...] = _DEFAULT_EXCLUDE,
+    l1_cover_min: float = _DEFAULT_L1_COVER_MIN,
+) -> dict[int, list[str]]:
+    """1-based drill index -> the gates that hold that drill out of the bank.
+
+    The single place the exclusion decision is made, so the report and
+    `backfill_drills.py --quality-filter` cannot disagree about which drills are
+    held back.
+    """
+    blame = attribute(song)
+    out: dict[int, list[str]] = {}
+    for d in song.drills:
+        out[d.index] = [
+            g
+            for g in blame[d.index]
+            if g in exclude_gates and (g != "L1" or l1_cover(song, d) >= l1_cover_min)
+        ]
+    return out
+
+
+def excluded_drill_indices(
+    row: SongRow,
+    valid_skill_ids: set[str],
+    *,
+    exclude_gates: tuple[str, ...] = _DEFAULT_EXCLUDE,
+    l1_cover_min: float = _DEFAULT_L1_COVER_MIN,
+) -> dict[int, list[str]]:
+    """The same decision keyed by **0-based** index, which is what the backfill uses.
+
+    `backfill_drills.py` enumerates `breakdown['drills']` from 0; the grader's
+    drill indices are 1-based to match the eval's own `DRILL 1:` render. Convert
+    here rather than making either caller remember the offset.
+    """
+    song = song_from_row(row, valid_skill_ids)
+    kills = exclusions(song, exclude_gates=exclude_gates, l1_cover_min=l1_cover_min)
+    return {i - 1: gates for i, gates in kills.items() if gates}
+
+
 async def _valid_skill_ids(db: AsyncSession, user_id: uuid.UUID) -> set[str]:
     rows = (
         await db.execute(select(SkillNode.id).where(SkillNode.user_id == user_id))
@@ -298,6 +339,9 @@ async def run(
 
         gates = grade(song)
         blame = attribute(song)
+        kills = exclusions(
+            song, exclude_gates=exclude_gates, l1_cover_min=l1_cover_min
+        )
         for gate, (verdict, _) in gates.items():
             if verdict in gate_tally[gate]:
                 gate_tally[gate][verdict] += 1
@@ -307,13 +351,7 @@ async def run(
             total_drills += 1
             failed = blame[d.index]
             cover = l1_cover(song, d)
-            # L1 only excludes when the shared run covers enough of the drill to
-            # mean "this is the song again" rather than "three notes coincide".
-            kill = [
-                g
-                for g in failed
-                if g in exclude_gates and (g != "L1" or cover >= l1_cover_min)
-            ]
+            kill = kills[d.index]
             if kill:
                 excluded_drills += 1
             drills_out.append(

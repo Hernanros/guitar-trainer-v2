@@ -434,7 +434,15 @@ async def test_banked_drill_records_origin_song_and_index(db: AsyncSession):
 
 
 async def test_songs_without_a_user_are_ignored(db: AsyncSession):
-    """Seed/catalog rows have user_id NULL; a drill needs an owner, so they're skipped."""
+    """Seed/catalog rows have user_id NULL; a drill needs an owner, so they're skipped.
+
+    The run below is genuinely unscoped (user_id=None), which walks every eligible
+    song in the table — including whatever real rows other users/tests have already
+    committed to the shared dev DB. So this asserts scoped outcomes only (nothing
+    banked against the orphan song, or against the skill node this test owns), not
+    counters.inserted == 0 globally: that global count is not this test's to own, and
+    asserting it flakes on any unrelated committed data (see FLE-71).
+    """
     user_id, (skill,) = await _seed_user_and_skills(db)
     await db.execute(
         text(
@@ -453,9 +461,8 @@ async def test_songs_without_a_user_are_ignored(db: AsyncSession):
     ).scalar_one()
 
     # Unscoped run — the NULL-user song is in range and still must not be banked.
-    counters = await backfill(db, user_id=None, cutoff=None, apply=False, verbose=False)
+    await backfill(db, user_id=None, cutoff=None, apply=False, verbose=False)
 
-    assert counters.inserted == 0
     orphaned = (
         await db.execute(
             text("SELECT count(*) FROM drills WHERE origin_song_id = :sid"),
@@ -463,3 +470,16 @@ async def test_songs_without_a_user_are_ignored(db: AsyncSession):
         )
     ).scalar_one()
     assert orphaned == 0
+
+    # skill is a fresh UUID minted by _seed_user_and_skills for this test alone, so a
+    # non-empty result here can only be the orphan drill slipping through.
+    banked_for_skill = (
+        await db.execute(
+            text("SELECT count(*) FROM drills WHERE skill_node_id = :sid"),
+            {"sid": skill},
+        )
+    ).scalar_one()
+    assert banked_for_skill == 0
+
+    banked = await _banked(db, user_id)
+    assert banked == []

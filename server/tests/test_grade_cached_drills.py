@@ -39,6 +39,7 @@ from scripts.grade_cached_drills import (
     _DEFAULT_EXCLUDE,
     _DEFAULT_L1_COVER_MIN,
     attribute,
+    excluded_drill_indices,
     l1_cover,
     song_from_row,
 )
@@ -239,6 +240,62 @@ def test_missing_tier_fails_l5_rather_than_passing_silently() -> None:
     song = song_from_row(_row(71, "P", "S", [_PJ_MAIN_M1], [drill]), {_SKILL})
     assert song.drills[0].mechanic_tier is None
     assert "L5" in attribute(song)[1]
+
+
+def test_excluded_indices_are_zero_based_for_the_backfill() -> None:
+    """The seam between the grader and `backfill_drills.py --quality-filter`.
+
+    The grader numbers drills from 1 (matching the eval's `DRILL 1:` render);
+    the backfill enumerates `breakdown['drills']` from 0. An off-by-one here
+    would silently hold back the WRONG drill and still look plausible in the
+    report, so it is asserted directly.
+
+    Pride and Joy is the fixture because its offending drills are D1 and D3
+    (1-based) — asymmetric, so an off-by-one cannot accidentally agree.
+    """
+    verbatim_bar = [
+        _measure(
+            _beat((6, 0), (5, 2)),
+            _beat((6, 0), (4, 2)),
+            _beat((6, 0), (5, 2)),
+            _beat((6, 0), (4, 2)),
+        )
+    ]
+    clean = [_measure(_beat((1, 12)), _beat((1, 15)))]
+    row = _row(
+        71,
+        "Pride and Joy",
+        "SRV",
+        [_PJ_MAIN_M1],
+        [
+            _drill_json("copies the bar", 3, "shuffle", verbatim_bar, _SKILL),
+            _drill_json("clean", 4, "single notes", clean, _SKILL),
+            _drill_json("copies the bar too", 4, "shuffle", verbatim_bar, _SKILL),
+        ],
+    )
+    held = excluded_drill_indices(row, {_SKILL})
+    assert sorted(held) == [0, 2], "0-based indices of the first and third drills"
+    assert all(gates == ["L1"] for gates in held.values())
+
+
+def test_quality_filter_holds_nothing_when_every_drill_is_clean() -> None:
+    """The filter must be a no-op on good rows, not a blanket tax on the bank."""
+    row = _row(
+        74,
+        "Comfortably Numb",
+        "Pink Floyd",
+        [_measure(_beat((1, 14)), _beat((1, 12)), _beat((2, 15)), _beat((2, 13)))],
+        [
+            _drill_json(
+                "Lock the Index: Anchor and Roll",
+                2,
+                "single notes, one string at a time",
+                [_measure(_beat((3, 14)), _beat((4, 12)))],
+                _SKILL,
+            )
+        ],
+    )
+    assert excluded_drill_indices(row, {_SKILL}) == {}
 
 
 def test_empty_snippet_covers_nothing() -> None:

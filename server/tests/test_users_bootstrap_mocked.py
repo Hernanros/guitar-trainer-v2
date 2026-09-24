@@ -15,6 +15,7 @@ Per Revision F requirements: all 3 tests pass with pytest -x without ANTHROPIC_A
 """
 import os
 import pytest
+import pytest_asyncio
 import asyncio
 from typing import List
 from uuid import uuid4
@@ -161,6 +162,55 @@ def mock_sonnet_success(monkeypatch):
     return calls
 
 
+@pytest_asyncio.fixture
+async def seeded_canonicals():
+    """Pre-seed canonical skill_nodes matching every sub/leaf name in _canned_output().
+
+    Phase 4 (D-09/D-13/D-14, bd60c90) added a verifier pipeline with a fan-out cap of 10:
+    any sub/leaf proposal with no matching canonical falls to the verifier, and only the
+    first 10 verifier-eligible proposals per bootstrap run get processed — the rest are
+    dropped to a curator queue rather than inserted as skill_nodes. _canned_output() has
+    24 non-root proposals (12 sub + 12 leaf), so on a bare DB with no canonicals yet, 14
+    of them would be dropped by that cap, which is dedicated behavior already covered by
+    test_onboarding_verifier_pipeline.py::test_pipeline_caps_verifier_fanout_at_ten.
+    Seeding an exact-name canonical for each one drives every proposal through the
+    score>=85 auto-dedupe path instead, so this file stays focused on its own concern:
+    the full HTTP -> DB persistence path for a request with realistic (already-dedup'd)
+    proposals, the way it behaves once the shared taxonomy is no longer empty.
+    """
+    seeded: list[tuple[str, str]] = []
+    async with _make_session() as db:
+        for i, root_name in enumerate(FIXED_ROOTS):
+            for j in range(2):
+                canonical_user_id = str(uuid4())
+                await db.execute(text(
+                    "INSERT INTO users (id, preferences) VALUES (:uid, '{}'::jsonb) "
+                    "ON CONFLICT DO NOTHING"
+                ), {"uid": canonical_user_id})
+                for level, label in (("sub", "Sub"), ("leaf", "Leaf")):
+                    node_id = str(uuid4())
+                    await db.execute(text(
+                        "INSERT INTO skill_nodes (id, user_id, name, level, canonical_node_id, mastery) "
+                        "VALUES (:id, :uid, :name, :level, :id, 0.0)"
+                    ), {
+                        "id": node_id,
+                        "uid": canonical_user_id,
+                        "name": f"{root_name} {label} {j+1}",
+                        "level": level,
+                    })
+                    seeded.append((canonical_user_id, node_id))
+        await db.commit()
+
+    yield
+
+    async with _make_session() as db:
+        for canonical_user_id, node_id in seeded:
+            await db.execute(text("DELETE FROM skill_nodes WHERE id = :id"), {"id": node_id})
+        for canonical_user_id in {u for u, _ in seeded}:
+            await db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": canonical_user_id})
+        await db.commit()
+
+
 @pytest.fixture
 def mock_sonnet_fail(monkeypatch):
     """Monkeypatch run_onboarding_parse to raise AIParseError (simulates Sonnet failure)."""
@@ -174,9 +224,9 @@ def _bootstrap_body(user_id: str) -> dict:
     return {
         "user_id": user_id,
         "songs": {
-            "can_play": "Sweet Home Chicago, Blackbird",
-            "working_on": "Little Wing",
-            "aspirational": "Eruption",
+            "can_play": ["Sweet Home Chicago", "Blackbird"],
+            "working_on": ["Little Wing"],
+            "aspirational": ["Eruption"],
         },
         "preferences": {
             "session_length_min": 30,
@@ -195,7 +245,7 @@ def _bootstrap_body(user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_full_bootstrap_persists_correctly(mock_sonnet_success):
+async def test_full_bootstrap_persists_correctly(mock_sonnet_success, seeded_canonicals):
     """Full bootstrap with canned output: asserts 30 skill_nodes + 3 songs + correct song_skills."""
     user_id = str(uuid4())
     body = _bootstrap_body(user_id)
@@ -245,13 +295,23 @@ async def test_full_bootstrap_persists_correctly(mock_sonnet_success):
         # canned output has 2 skill_temp_ids per song = 6 total
         assert skill_count == 6, f"Expected 6 song_skills, got: {skill_count}"
 
-        # All mastery values are 0.0 (D-11 deterministic-writes)
+        # Mastery is 0.0 except for leaves referenced by can_play/working_on songs,
+        # which FLE-49 seeds from the onboarding split (can_play=0.50, working_on=0.30,
+        # aspirational unseeded) so the catalog opens up on first login. See
+        # test_onboarding_mastery_seed.py for dedicated coverage of the seeding rule.
+        _seeded_mastery = {
+            "Rhythm Leaf 1": 0.50,       # can_play: Sweet Home Chicago -> leaf-0-0
+            "Lead Leaf 1": 0.50,         # can_play: Sweet Home Chicago -> leaf-1-0
+            "Chord Voicings Leaf 1": 0.30,  # working_on: Little Wing -> leaf-2-0
+            "Fingerstyle Leaf 1": 0.30,     # working_on: Little Wing -> leaf-3-0
+        }
         nodes_check = (await db.execute(
             select(SkillNode).where(SkillNode.user_id == user_id)
         )).scalars().all()
         for node in nodes_check:
-            assert float(node.mastery) == 0.0, \
-                f"Node '{node.name}' has non-zero mastery: {node.mastery}"
+            expected = _seeded_mastery.get(node.name, 0.0)
+            assert float(node.mastery) == expected, \
+                f"Node '{node.name}' has mastery {node.mastery}, expected {expected}"
 
         # user row has onboarded_at set
         user_row = (await db.execute(
@@ -334,7 +394,7 @@ async def test_fail_open_savepoint_preserves_user_row(mock_sonnet_fail):
 
 
 @pytest.mark.asyncio
-async def test_idempotent_re_post_returns_existing(mock_sonnet_success):
+async def test_idempotent_re_post_returns_existing(mock_sonnet_success, seeded_canonicals):
     """Re-POST with same UUID returns mode='existing'; skill_nodes unchanged; Sonnet called once."""
     user_id = str(uuid4())
     body = _bootstrap_body(user_id)

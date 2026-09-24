@@ -639,11 +639,21 @@ async def test_0006_canonical_identity_index_is_partial(db: AsyncSession) -> Non
 
 
 async def test_0006_downgrade_order_is_reverse_dependency(db: AsyncSession) -> None:
-    """Both child tables FK into drills, so downgrade must drop them BEFORE drills.
+    """Every table that FKs into drills must be gone by the time 0006's downgrade runs.
 
-    Asserts the dependency that makes the hand-written drop order in 0006's
-    downgrade() correct — if someone adds a table that drills references, or
-    reorders the drops, this is the signal.
+    This queries the live (head-migrated) schema, so it necessarily picks up every
+    later migration's additions too — it is a tripwire, not a snapshot of 0006 alone.
+    When it fires on a newly-added name, the required action is NOT to widen the set
+    blindly: go confirm that the migration which added the new FK also drops it (and
+    any of its own dependents) in its own downgrade(), so it is gone before 0006's
+    downgrade() ever runs in a full sequential `alembic downgrade base`. Only then
+    fold the name in here.
+
+    practice_session_items and drill_progress (added by 0009) are in the expected
+    set below because that check was done: 0009.downgrade() drops the drill_attempts.
+    session_item_id FK column, then practice_session_items, then drill_progress, all
+    before returning — and `alembic upgrade head` followed by `alembic downgrade base`
+    was run end-to-end against a scratch database and completed with no FK errors.
     """
     refs = {
         r.table_name
@@ -661,7 +671,11 @@ async def test_0006_downgrade_order_is_reverse_dependency(db: AsyncSession) -> N
             )
         ).all()
     }
-    assert refs == {"drill_attempts", "drill_dedupe_queue"}, (
-        f"unexpected FK dependents on drills: {refs} — downgrade drop order in "
-        "0006 must drop every dependent before drills"
+    assert refs == {
+        "drill_attempts", "drill_dedupe_queue",  # 0006
+        "practice_session_items", "drill_progress",  # 0009 — downgrade order verified, see docstring
+    }, (
+        f"unexpected FK dependents on drills: {refs} — before folding a new name into "
+        "the expected set, verify its migration's downgrade() drops it (and its own "
+        "dependents) ahead of 0006's downgrade() in a full sequential downgrade chain"
     )

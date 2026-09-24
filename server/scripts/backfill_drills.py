@@ -16,6 +16,16 @@ Hence one of these two is REQUIRED:
     --generated-after ISO8601   bank only breakdowns generated at/after this instant
     --include-pre-patch         bank everything, deliberately, eval be damned
 
+THE CUTOFF IS NOT THE ONLY QUALITY QUESTION (FLE-32)
+A post-patch breakdown is not automatically a good one. The patched prompt scored
+34/40 on the FLE-45 confirming run, so roughly one drill in six still trips a
+gate even when the cutoff is satisfied. `--quality-filter` re-grades each cached
+drill offline against those same gates — `scripts.grade_cached_drills`, no LLM,
+no spend — and holds back the ones that fail. Its default holds only drills whose
+snippet is substantially the song played back, which is the failure a user would
+actually notice. See that module's docstring for why A1 and L5 are reported but
+do not exclude.
+
 USAGE (from the server/ directory):
     cd server
     DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/guitar_trainer \\
@@ -49,6 +59,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.drill_dedupe import DedupeAction, build_candidates, classify
 from app.db.session import AsyncSessionLocal
 from app.models.db import Drill, DrillDedupeQueue, SkillNode, Song
+from scripts.grade_cached_drills import (
+    _DEFAULT_L1_COVER_MIN,
+    excluded_drill_indices,
+)
 
 # Content fields copied verbatim from the cached breakdown drill into the bank row.
 # `mechanic_tier` is deliberately NOT here — it exists on the Pydantic wire shape but
@@ -77,6 +91,10 @@ class Counters:
         self.queue_already_pending = 0
         self.skipped_bad_skill_id = 0
         self.skipped_malformed = 0
+        # FLE-32: drills held back by --quality-filter. Counted separately from
+        # `skipped_malformed` because these rows are well-formed — they are
+        # readable, insertable drills we chose not to hand a user.
+        self.skipped_low_quality = 0
 
     def as_dict(self) -> dict[str, int]:
         return dict(vars(self))
@@ -144,6 +162,8 @@ async def backfill(
     apply: bool,
     user_id: Optional[uuid.UUID] = None,
     verbose: bool = True,
+    quality_filter: bool = False,
+    l1_cover_min: float = _DEFAULT_L1_COVER_MIN,
 ) -> Counters:
     """Bank every drill in every eligible cached breakdown. Returns the tally.
 
@@ -185,6 +205,18 @@ async def backfill(
             bank[key] = list(rows)
         return bank[key]
 
+    # Per-user skill-node ids, for the quality filter's L2 check. Cached for the
+    # same reason the drill bank is: one query per user, not one per drill.
+    skill_ids: dict[uuid.UUID, set[str]] = {}
+
+    async def skill_ids_for(owner: uuid.UUID) -> set[str]:
+        if owner not in skill_ids:
+            rows = (
+                await db.execute(select(SkillNode.id).where(SkillNode.user_id == owner))
+            ).scalars().all()
+            skill_ids[owner] = {str(r) for r in rows}
+        return skill_ids[owner]
+
     for song in songs:
         if cutoff is not None and song.breakdown_generated_at < cutoff:
             counters.songs_skipped_pre_patch += 1
@@ -194,6 +226,14 @@ async def backfill(
         if not drills:
             continue
         counters.songs_scanned += 1
+
+        # FLE-32. Graded per song rather than per drill because L1 compares each
+        # snippet against the song's own main tab, which only exists at this level.
+        held: dict[int, list[str]] = {}
+        if quality_filter:
+            held = excluded_drill_indices(
+                song, await skill_ids_for(song.user_id), l1_cover_min=l1_cover_min
+            )
 
         for index, raw in enumerate(drills):
             counters.drills_seen += 1
@@ -240,6 +280,18 @@ async def backfill(
                 counters.skipped_malformed += 1
                 if verbose:
                     print(f"  SKIP song={song.id} drill={index} missing {missing}")
+                continue
+
+            # Checked after the malformed/ownership gates so the counters stay
+            # honest: `skipped_low_quality` counts only drills that would
+            # otherwise have been banked.
+            if index in held:
+                counters.skipped_low_quality += 1
+                if verbose:
+                    print(
+                        f"  HOLD song={song.id} drill={index} {name!r} "
+                        f"fails {','.join(held[index])}"
+                    )
                 continue
 
             existing = await candidates_for(song.user_id, skill_node_id)
@@ -341,8 +393,28 @@ async def _main(argv: list[str]) -> int:
         action="store_true",
         help="Commit the writes. Without this the run is a dry run and rolls back.",
     )
+    parser.add_argument(
+        "--quality-filter",
+        action="store_true",
+        help=(
+            "Hold back drills that fail the offline 04.1 gates (FLE-32). No LLM, "
+            "no spend — see scripts/grade_cached_drills.py for the gate set."
+        ),
+    )
+    parser.add_argument(
+        "--l1-cover-min",
+        type=float,
+        default=_DEFAULT_L1_COVER_MIN,
+        help=(
+            "With --quality-filter: fraction of a drill's beats that must copy one "
+            f"main measure before L1 holds it. Default {_DEFAULT_L1_COVER_MIN}."
+        ),
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress per-drill lines.")
     args = parser.parse_args(argv)
+
+    if args.l1_cover_min != _DEFAULT_L1_COVER_MIN and not args.quality_filter:
+        raise SystemExit("--l1-cover-min has no effect without --quality-filter")
 
     cutoff = _parse_cutoff(args.generated_after) if args.generated_after else None
     if cutoff is None:
@@ -359,6 +431,8 @@ async def _main(argv: list[str]) -> int:
             apply=args.apply,
             user_id=uuid.UUID(args.user_id) if args.user_id else None,
             verbose=not args.quiet,
+            quality_filter=args.quality_filter,
+            l1_cover_min=args.l1_cover_min,
         )
         if args.apply:
             await db.commit()
