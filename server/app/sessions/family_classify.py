@@ -48,10 +48,20 @@ __all__ = [
 
 # Bumped whenever a marker, weight or threshold below changes. Recorded alongside
 # every backfilled family so a coverage report names the rules that produced it.
-CLASSIFIER_VERSION = 1
+CLASSIFIER_VERSION = 2
 
-# A marker must clear this to classify at all — one PRIMARY hit, or the name-field
-# doubling of a secondary. Below it the evidence is a passing mention, not a mechanic.
+# A marker must clear this to classify at all. Every family below has exactly ONE
+# primary row and ONE secondary row, so this threshold says precisely one thing: a
+# family needs a PRIMARY hit. Secondary-only evidence caps at NAME_WEIGHT * SECONDARY
+# = 2 and can never reach it.
+#
+# That is deliberate and FLE-80 re-confirmed it with numbers rather than softening it.
+# All eight drills FLE-80 measured as declined scored 1 or 2 — secondary-only — which
+# reads like a threshold set one point too high until you look at what the 2s were
+# made of: "Full Root-Fifth-Treble Pattern on a Held Shape" scores 2 on R1 from the
+# single word "pattern". Dropping MIN_SCORE to 2 would file that fingerpicking drill
+# as a strumming-pattern drill. The weights and the threshold agree; what was missing
+# was primary vocabulary, and that is what FLE-80 added.
 MIN_SCORE = 3
 # The winner must beat the runner-up by this much. A drill that reads equally as two
 # families is genuinely ambiguous and returns None rather than picking the lower enum.
@@ -77,23 +87,61 @@ def _rx(*alternatives: str) -> re.Pattern[str]:
 # families that both scored a primary.
 #
 # Hyphens are normalised to spaces before matching (see _normalize), so "palm-muted"
-# and "palm muted" are one marker, and "thumb-over" is written "thumb over".
+# and "palm muted" are one marker, and "thumb-over" is written "thumb over". The flip
+# side bit FLE-80: "downstroke" and "down-stroke" are NOT one marker, because the
+# second normalises to "down stroke". Both spellings have to be listed.
+#
+# HOW THE THREE RHYTHM FAMILIES DIVIDE, because FLE-80 found the R tables were the
+# thin ones and "shuffle" could plausibly have gone in any of them:
+#   R1 is the STROKE      — what the pick hand does across the strings.
+#   R2 is the ARTICULATION — how long and how loud each attack is allowed to be.
+#   R3 is the FIGURE      — a repeating rhythmic shape that has to lock to the pulse.
+# R3 is therefore the residual rhythm family, and that is not a dumping ground: under
+# the rooted grid, a mechanic that would read as F1 or M2 from its own root reads as
+# "a figure locked to the pulse" once the skill graph has filed it under rhythm.
 # ---------------------------------------------------------------------------
 
 MARKERS: dict[TechniqueFamily, tuple[tuple[int, re.Pattern[str]], ...]] = {
     # --- rhythm ---
     TechniqueFamily.R1: (  # Strumming patterns
-        (PRIMARY, _rx("strum", "strums", "strumming", "downstroke", "downstrokes",
-                      "upstroke", "upstrokes", "strum pattern", "strumming pattern")),
-        (SECONDARY, _rx("pick depth", "wrist rotation", "stroke", "pattern")),
+        # "down stroke"/"up stroke" are the hyphenated spellings after _normalize;
+        # "brush" is the word drill prose actually uses for an upward finger sweep.
+        (PRIMARY, _rx("strum", "strums", "strumming", "strummed", "downstroke",
+                      "downstrokes", "upstroke", "upstrokes", "down stroke",
+                      "down strokes", "up stroke", "up strokes", "strum pattern",
+                      "strumming pattern", "brush", "brushing", "brushed")),
+        (SECONDARY, _rx("pick depth", "wrist rotation", "stroke", "pattern", "sweep",
+                        "pick hand", "rake")),
     ),
     TechniqueFamily.R2: (  # Palm muting & dynamics
-        (PRIMARY, _rx("palm mute", "palm muted", "palm muting", "palm mutes", "muting")),
-        (SECONDARY, _rx("mute", "muted", "bridge", "dynamics", "accent", "volume")),
+        (PRIMARY, _rx("palm mute", "palm muted", "palm muting", "palm mutes", "muting",
+                      "muted strum", "muted strums", "staccato", "string damping",
+                      "damping", "damped", "choke", "chokes", "dig in",
+                      "dynamic control", "accent pattern")),
+        (SECONDARY, _rx("mute", "muted", "mutes", "bridge", "dynamics", "accent",
+                        "accents", "volume", "let ring", "ring out")),
     ),
     TechniqueFamily.R3: (  # Riff rhythm lock-up
-        (PRIMARY, _rx("riff", "riffs", "power chord", "power chords")),
-        (SECONDARY, _rx("lock", "locked", "lock up", "groove", "tight", "unison")),
+        # The FIGURE family. FLE-80's eight declines were almost all here: the drill
+        # prompt names a blues rhythm figure by its own vocabulary — shuffle, pulse,
+        # boogie, alternating bass, chord stab, double-stop lick — and none of that
+        # was primary, so seven rhythm-rooted drills in a row scored 0-2.
+        #
+        # "shuffle" is deliberately a SECONDARY while "shuffle pulse"/"shuffle grip"/
+        # "shuffle feel" are primary. Bare "shuffle" as a primary would tie 6-6 with
+        # R1 on a node called "Blues Shuffle Strumming" and then win on headline
+        # ORDER, filing a strumming drill as a figure drill. Specificity is the right
+        # tie-break here, not position.
+        (PRIMARY, _rx("riff", "riffs", "power chord", "power chords",
+                      "shuffle pulse", "shuffle grip", "shuffle feel", "shuffle rhythm",
+                      "shuffle figure", "shuffle groove", "swung eighth", "swung eighths",
+                      "boogie", "pulse", "alternating bass", "bass alternation",
+                      "bass pulse", "bass figure", "double stop", "double stops",
+                      "chord stab", "chord stabs", "chord chop", "chord chops",
+                      "rhythm figure", "rhythm lick", "rhythm licks", "comping",
+                      "vamp", "vamps", "groove lock", "lock up the groove")),
+        (SECONDARY, _rx("lock", "locked", "lock up", "groove", "tight", "unison",
+                        "shuffle", "swing", "swung", "feel", "continuous", "unbroken")),
     ),
     # --- lead ---
     TechniqueFamily.L1: (  # Alternate picking & speed
@@ -117,9 +165,16 @@ MARKERS: dict[TechniqueFamily, tuple[tuple[int, re.Pattern[str]], ...]] = {
     ),
     # --- chord voicings ---
     TechniqueFamily.C1: (  # Open chords & transitions
+        # "open E shape", "open E chord shape", "partial open E voicing" — how drill
+        # prose actually names an open chord. FLE-80's one Chord-Voicings decline said
+        # "Hold an open E shape" and matched nothing, because "open chord" and "open
+        # voicing" both miss when the chord's letter sits in the middle of the phrase.
         (PRIMARY, _rx("open chord", "open chords", "chord change", "chord changes",
                       "chord transition", "chord transitions", "cold switch", "cold change",
-                      "open position", "open voicing", "open voicings")),
+                      "open position", "open voicing", "open voicings",
+                      "open shapes?", "open chord shapes?",
+                      "open [a-g] (?:chord )?shapes?",
+                      "open [a-g] (?:chord )?voicings?")),
         # Suspension vocabulary lives here rather than under C4: a sus2/sus4 is a
         # SUSPENSION, not an extension, and the drills that use one are open-position
         # drone and shape-holding drills. Filing them under "Extended & jazz voicings"
@@ -253,9 +308,10 @@ def _score(family: TechniqueFamily, name: str, body: str) -> int:
     Each (weight, pattern) ROW scores at most once, and a row is an alternation of
     synonyms — so adding "palm mutes" beside "palm mute" widens what is recognised
     without inflating the score of text that says both. Weight is carried by how many
-    DISTINCT rows hit, which is why a family needs a primary row to clear MIN_SCORE:
-    two secondaries in the name total 4, but no single secondary row reaches 3 on
-    its own from the body.
+    DISTINCT rows hit, and since every family has exactly one primary row and one
+    secondary row, the arithmetic reduces to: a family cannot clear MIN_SCORE without
+    a PRIMARY hit. Secondary-only tops out at NAME_WEIGHT * SECONDARY = 2. See the
+    MIN_SCORE comment for why FLE-80 kept it that way instead of lowering the bar.
     """
     total = 0
     for weight, pattern in MARKERS[family]:
