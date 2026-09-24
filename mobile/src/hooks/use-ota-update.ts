@@ -51,14 +51,18 @@ export function useOtaUpdateOnLaunch(): void {
 }
 
 /**
- * One line naming the JS bundle actually running, so "is the fix on my phone?" is a
- * question the phone can answer. Embedded = the bundle baked into the installed build,
- * i.e. no OTA has been applied yet.
+ * One line naming the JS bundle and native runtime actually running, so "is the fix on
+ * my phone?" is a question the phone can answer — and a pilot tester can read aloud or
+ * paste into a bug report without developer help (FLE-30). Embedded = the bundle baked
+ * into the installed build, i.e. no OTA has been applied yet. Runtime version is the
+ * fingerprint FLE-27 gates updates on: two testers quoting different runtimes are on
+ * different native binaries, not just different JS.
  */
 export function describeRunningBundle(): string {
   if (!Updates.isEnabled) return 'Development bundle';
-  if (Updates.isEmbeddedLaunch || !Updates.updateId) return 'Bundle: embedded with the build';
+  const runtime = Updates.runtimeVersion ?? 'unknown';
+  if (Updates.isEmbeddedLaunch || !Updates.updateId) return `Bundle: embedded · runtime ${runtime}`;
   const short = Updates.updateId.slice(0, 8);
   const when = Updates.createdAt ? Updates.createdAt.toISOString().slice(0, 16).replace('T', ' ') : 'unknown date';
-  return `Bundle: ${short} · published ${when} UTC`;
+  return `Bundle: ${short} · runtime ${runtime} · published ${when} UTC`;
 }

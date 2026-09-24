@@ -9,6 +9,7 @@ export let isEnabled = true;
 export let isEmbeddedLaunch = false;
 export let updateId: string | null = null;
 export let createdAt: Date | null = null;
+export let runtimeVersion: string | null = null;
 
 export const checkForUpdateAsync = jest.fn(async () => ({ isAvailable: false }));
 export const fetchUpdateAsync = jest.fn(async () => ({ isNew: false }));
@@ -20,11 +21,13 @@ export function __setState(next: {
   isEmbeddedLaunch?: boolean;
   updateId?: string | null;
   createdAt?: Date | null;
+  runtimeVersion?: string | null;
 }): void {
   if (next.isEnabled !== undefined) isEnabled = next.isEnabled;
   if (next.isEmbeddedLaunch !== undefined) isEmbeddedLaunch = next.isEmbeddedLaunch;
   if (next.updateId !== undefined) updateId = next.updateId;
   if (next.createdAt !== undefined) createdAt = next.createdAt;
+  if (next.runtimeVersion !== undefined) runtimeVersion = next.runtimeVersion;
 }
 
 /** Test helper — back to a plain enabled OTA build with nothing applied yet. */
@@ -33,6 +36,7 @@ export function __reset(): void {
   isEmbeddedLaunch = false;
   updateId = null;
   createdAt = null;
+  runtimeVersion = null;
   checkForUpdateAsync.mockReset().mockResolvedValue({ isAvailable: false });
   fetchUpdateAsync.mockReset().mockResolvedValue({ isNew: false });
   reloadAsync.mockReset().mockResolvedValue(undefined);

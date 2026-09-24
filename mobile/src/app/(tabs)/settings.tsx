@@ -19,6 +19,10 @@
 //   3. preferences.tsx checks getReRunPending() on mount to branch between
 //      useUserBootstrap and useUserReonboard.
 //
+// Build row (03-UI-SPEC §12, FLE-30): a pilot tester's running bundle/runtime, readable
+// without developer help so bug reports are attributable to a version. Deliberately its
+// own section, not folded into "Dev" below — a tester is meant to find and quote it.
+//
 // No emojis. No exclamation points. Fletcher voice: direct + warm.
 import React from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
@@ -124,10 +128,14 @@ export default function SettingsScreen() {
         <Text style={styles.buttonText}>Re-run onboarding</Text>
       </Pressable>
 
-      <Text style={styles.devSectionLabel}>Dev</Text>
+      {/* UI-SPEC §12 — quotable without developer help; not grouped under "Dev" below. */}
+      <Text style={styles.devSectionLabel}>Build</Text>
       <Text testID="settings-bundle-stamp" style={styles.stamp}>
         {describeRunningBundle()}
       </Text>
+      <Text style={styles.note}>Include this if you're reporting a bug.</Text>
+
+      <Text style={styles.devSectionLabel}>Dev</Text>
       <Pressable
         style={({ pressed }) => [styles.devButton, pressed && styles.buttonPressed]}
         onPress={onCheckForUpdate}

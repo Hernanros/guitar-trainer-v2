@@ -333,6 +333,34 @@ Three drafting calls worth a redline if they read wrong:
 - **No streak, no count, no congratulation.** `retention_format` is a captured onboarding
   preference and streak UI is out of FLE-10's scope regardless. Fletcher does not do confetti.
 
+### 12. Settings — build info row (FLE-30 — version-attributable pilot feedback)
+
+Out of scope when Phase 3 shipped, same as §11. FLE-27 adopted OTA updates and, in doing so,
+noted that a tester who does not reopen the app stays silently on an old bundle — the fix is
+letting a tester read their own running version and report it. FLE-27 deliberately left the
+copy for `UI-SPEC.md` rather than inventing it ad hoc (FLE-10: new user-facing strings are
+contract). Landing this self-ratified, same reasoning as §11: it is diagnostic chrome, not
+Fletcher-voice narrative copy, and the pilot build is waiting on it.
+
+| Element | Copy |
+|---|---|
+| Section label | `Build` |
+| Stamp — OTA update applied | `Bundle: {updateId·8} · runtime {runtimeVersion} · published {createdAt UTC, YYYY-MM-DD HH:MM}` |
+| Stamp — embedded (no OTA applied yet) | `Bundle: embedded · runtime {runtimeVersion}` |
+| Stamp — dev client / Expo Go | `Development bundle` |
+| Note | `Include this if you're reporting a bug.` |
+
+- **Runtime, not just update ID.** `runtimeVersion` is the fingerprint FLE-27 gates updates
+  on — two testers quoting different runtimes are on different native binaries, not just
+  different JS, and that distinction changes what a bug report means.
+- **`Build`, not `Dev`.** The row lives beside the existing dev-only actions (`Check for
+  update`, `Refresh cache`), but a pilot tester is meant to find and quote it — labeling it
+  `Dev` reads as "not for you." The note makes the ask explicit instead of relying on a
+  tester to guess a diagnostic string is theirs to use.
+- **No instruction to paste it anywhere specific.** There is no in-repo pilot feedback form
+  to point at yet (checked `.planning/` — none exists). The note says what to do with the
+  string; where it goes is whatever channel the pilot actually reports through.
+
 ---
 
 ## Registry Safety

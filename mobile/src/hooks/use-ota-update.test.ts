@@ -59,19 +59,28 @@ describe('applyUpdateIfAvailable', () => {
 });
 
 describe('describeRunningBundle', () => {
-  it('names an applied update by id and publish time', () => {
+  it('names an applied update by id, runtime, and publish time', () => {
     mock.__setState({
       updateId: '99842a4a-2767-49c5-b006-10d8bdaf179d',
       createdAt: new Date('2026-09-17T06:55:46.744Z'),
       isEmbeddedLaunch: false,
+      runtimeVersion: 'aa1b4ad8d5b06c0438dbab888af197cd538fca8b',
     });
 
-    expect(describeRunningBundle()).toBe('Bundle: 99842a4a · published 2026-09-17 06:55 UTC');
+    expect(describeRunningBundle()).toBe(
+      'Bundle: 99842a4a · runtime aa1b4ad8d5b06c0438dbab888af197cd538fca8b · published 2026-09-17 06:55 UTC',
+    );
   });
 
   it('says so when no OTA has been applied over the installed build', () => {
-    mock.__setState({ isEmbeddedLaunch: true, updateId: null });
+    mock.__setState({ isEmbeddedLaunch: true, updateId: null, runtimeVersion: 'aa1b4ad8' });
 
-    expect(describeRunningBundle()).toBe('Bundle: embedded with the build');
+    expect(describeRunningBundle()).toBe('Bundle: embedded · runtime aa1b4ad8');
+  });
+
+  it('falls back to "unknown" if the runtime version is unset', () => {
+    mock.__setState({ isEmbeddedLaunch: true, updateId: null, runtimeVersion: null });
+
+    expect(describeRunningBundle()).toBe('Bundle: embedded · runtime unknown');
   });
 });
