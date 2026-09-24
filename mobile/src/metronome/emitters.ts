@@ -74,5 +74,6 @@ export function withBeatListener(
     dispose() {
       inner.dispose?.();
     },
+    getDiagnostics: inner.getDiagnostics?.bind(inner),
   };
 }

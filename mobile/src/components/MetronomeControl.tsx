@@ -28,6 +28,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useMetronome } from '../metronome/useMetronome';
 import {
   createAudioClickEmitter,
+  formatVoicePoolDiagnostics,
   loadClickSources,
   prepareClickAudioMode,
 } from '../metronome/audioEmitter';
@@ -94,7 +95,14 @@ export function MetronomeControl({
   bpm,
   beatsPerBar = DEFAULT_BEATS_PER_BAR,
 }: MetronomeControlProps) {
-  const { running, beat, toggle, bpm: activeBpm, readDriftStats } = useMetronome({
+  const {
+    running,
+    beat,
+    toggle,
+    bpm: activeBpm,
+    readDriftStats,
+    readEmitterDiagnostics,
+  } = useMetronome({
     bpm,
     beatsPerBar,
     // Called once, on first render (see useMetronome). Allocating the native
@@ -179,6 +187,10 @@ export function MetronomeControl({
   // Read during render, not subscribed to: the component already re-renders on
   // every beat off `beat`, so this costs nothing and is never a beat stale.
   const stats = showTiming ? readDriftStats() : null;
+  // Voice-pool health (FLE-77) — the direct confirmation or refutation of
+  // whether a seek is still resolving without moving the playhead. Null for
+  // any emitter that doesn't implement getDiagnostics (e.g. the silent one).
+  const voicePoolDiagnostics = showTiming ? readEmitterDiagnostics() : null;
 
   const active = activeDotIndex(beat?.barBeat ?? null, running);
   const dots = Array.from({ length: Math.max(1, beatsPerBar) }, (_, i) => i);
@@ -237,6 +249,11 @@ export function MetronomeControl({
           {stats.beatsEmitted > 0 && (
             <Text style={styles.timingLine} selectable>
               {formatJitterShare(maxDriftAsBeatFraction(stats, activeBpm))}
+            </Text>
+          )}
+          {voicePoolDiagnostics !== null && (
+            <Text style={styles.timingLine} selectable>
+              {formatVoicePoolDiagnostics(voicePoolDiagnostics)}
             </Text>
           )}
         </View>

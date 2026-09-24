@@ -18,9 +18,18 @@
 // (expo-audio@57.0.5, node_modules/expo-audio/build), not from memory:
 //   createAudioPlayer(source?, options?: AudioPlayerOptions): AudioPlayer
 //   player.play(): void
-//   player.seekTo(seconds): Promise<void>
+//   player.seekTo(seconds, toleranceMillisBefore?, toleranceMillisAfter?): Promise<void>
+//   player.currentTime: number
 //   player.remove(): void
 //   setAudioModeAsync(mode: Partial<AudioMode>): Promise<void>
+//
+// FLE-77 (the second pass): `seekTo`'s tolerances default to CMTime
+// .positiveInfinity on iOS (node_modules/expo-audio/ios/AudioPlayer.swift),
+// so a seek to 0 with no tolerance is a request every playhead position
+// already satisfies — AVFoundation may resolve the promise without moving
+// anything. The pool below always passes zero tolerance AND reads
+// `currentTime` back after the promise resolves, because the resolution
+// alone was never proof.
 //
 // The sounds are in the tree: assets/audio/tick.wav and accent.wav, generated
 // by scripts/generate-click-assets.py.
@@ -37,9 +46,20 @@ export interface AudioPlayerLike {
   /**
    * expo-audio returns a promise here that resolves once the native seek
    * completes — never on the beat path, only from the rewind timer below.
-   * The rewind deliberately does not await it.
+   * The rewind deliberately does not await it on the beat path, but DOES
+   * await it (see armRewind) before trusting the voice is actually at 0.
+   *
+   * Called with explicit zero tolerances (`seekTo(0, 0, 0)`), not just
+   * `seekTo(0)` — see the file header for why an un-toleranced seek can
+   * resolve without moving the playhead at all.
    */
-  seekTo(seconds: number): unknown;
+  seekTo(seconds: number, toleranceMillisBefore?: number, toleranceMillisAfter?: number): unknown;
+  /**
+   * Playhead position in seconds. Read after `seekTo` resolves — never
+   * trusted from the resolution alone — to confirm the rewind actually
+   * landed the voice at 0.
+   */
+  currentTime: number;
   /** Frees the native player. */
   remove(): void;
 }
@@ -83,22 +103,39 @@ export function loadClickSources(): ClickSources {
 }
 
 /**
- * How long after `play()` a voice is rewound to position 0.
+ * How long after `play()` a voice's rewind is first attempted.
  *
  * The click assets are 35ms (verified with `wave`); 60ms gives the native
- * seek room to land before anything downstream could mistake the voice for
- * still-idle-at-zero.
+ * `play()` room to actually start before anything asks the player to seek
+ * out from under it. It is not proof of anything on its own — see
+ * REWIND_POSITION_EPSILON_SECONDS below for what actually gates readiness.
  */
 export const CLICK_REWIND_DELAY_MS = 60;
+
+/**
+ * How close to 0 `currentTime` must read, after `seekTo(0, 0, 0)` resolves,
+ * to count the voice as genuinely rewound.
+ *
+ * A promise resolving is not proof the playhead moved (FLE-77's root cause —
+ * see the file header): a zero-tolerance seek still has to be verified, not
+ * trusted. This tolerance is slack for float rounding through the native
+ * bridge, not for seek imprecision — an exact seek should read back at
+ * exactly 0.
+ */
+export const REWIND_POSITION_EPSILON_SECONDS = 0.005;
 
 export interface AudioClickEmitterOptions {
   /**
    * Players allocated per sound, cycled round-robin among whichever are
-   * confirmed rewound to 0 (see createVoicePool). More voices give that
-   * search more idle candidates to find before it has to fall back to forcing
-   * a still-busy one, but the fallback is what keeps a beat from going
-   * silent, not this number — three is enough headroom at MAX_BPM's tightest
-   * gap (200ms) without allocating players nothing will use.
+   * confirmed rewound to 0 (see createVoicePool). `next()` never forces a
+   * voice whose rewind is still in flight (FLE-77 — that forced reuse was
+   * the only path that could land a stale seek inside a live click), so more
+   * voices is what keeps a fast run from running out of confirmed-ready
+   * ones. 8 is sized so that never happens in practice: at MAX_BPM's
+   * tightest gap (200ms) against a rewind that normally resolves in single-
+   * digit ms, exhausting 8 needs 8 concurrent in-flight seeks, which needs a
+   * JS-thread stall already bad enough to be dropping beats at the scheduler
+   * level. Preallocated once, so the extra players cost nothing per beat.
    */
   voicesPerSound?: number;
   /**
@@ -110,32 +147,57 @@ export interface AudioClickEmitterOptions {
   setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
   /** Cancels a scheduled rewind. */
   clearTimer?: (handle: TimerHandle) => void;
+  /** Wall clock, for seekTo latency instrumentation. Defaults to Date.now; injected in tests. */
+  now?: () => number;
 }
 
-export const DEFAULT_VOICES_PER_SOUND = 3;
+export const DEFAULT_VOICES_PER_SOUND = 8;
+
+/** Running counters for one voice pool — aggregated into getDiagnostics(). */
+interface VoicePoolDiagnostics {
+  /** Beats this pool had no confirmed-ready voice for — skipped, not doubled. */
+  starvedBeats: number;
+  /** seekTo(0, 0, 0) resolved but currentTime was not actually ~0 — a no-op seek. */
+  nonZeroRewinds: number;
+  /** seekTo(0, 0, 0) rejected outright. */
+  rewindErrors: number;
+  /** Resolve latency of every seekTo call that completed, successfully or not. */
+  seekLatenciesMs: number[];
+}
+
+function emptyDiagnostics(): VoicePoolDiagnostics {
+  return { starvedBeats: 0, nonZeroRewinds: 0, rewindErrors: 0, seekLatenciesMs: [] };
+}
 
 /**
  * Round-robin over a fixed set of players, skipping any voice not yet
  * confirmed rewound.
  *
- * FLE-57 assumed a voice was safely at position 0 once `CLICK_REWIND_DELAY_MS`
- * had elapsed — a guess about how long the timer delay plus the native
- * `seekTo` round trip would take. On device that guess was sometimes wrong in
- * both directions: a voice could still be mid-rewind (or its click still
- * audibly tailing off) when its next turn came up, which produced FLE-77's
- * doubled attack (a `play()` landing on a voice `seekTo` was still moving) and
- * silent beats (`play()` landing on a voice still parked at EOF).
+ * FLE-57 assumed a voice was at 0 once `CLICK_REWIND_DELAY_MS` elapsed —
+ * a guess about the timer plus the native round trip. FLE-77's first pass
+ * (a5e0852) tied readiness to the `seekTo(0)` promise resolving instead,
+ * which was a real improvement but still not sufficient: on the installed
+ * expo-audio, `seekTo` defaults both iOS tolerances to `CMTime
+ * .positiveInfinity`, so a seek to 0 is a request every position already
+ * satisfies and AVFoundation is free to resolve the completion handler
+ * without moving anything. A voice's "rewind" could no-op and still report
+ * done — reproducing both symptoms, now CLUSTERED instead of scattered,
+ * because a voice that no-ops once tends to keep no-opping while the native
+ * pipeline stays in that state.
  *
- * The fix ties "ready" to the actual `seekTo(0)` PROMISE resolving, not to the
- * timer that requested it, and `next()` prefers a confirmed-ready voice over
- * blindly following the round-robin cursor into one that is not. This is
- * self-healing under exactly the jitter the JS thread cannot avoid (see
- * scheduler.ts's own comment on per-beat jitter): a slow rewind just makes
- * `next()` reach for a different idle voice instead of forcing the slow one.
- * Only when every voice is still unconfirmed does it fall back to the cursor's
- * voice anyway — a possible collision beats a dropped beat, and that only
- * happens if the whole pool is starved at once, which needs the same kind of
- * JS-thread stall that already costs the scheduler a beat.
+ * This pass makes the seek itself exact (`seekTo(0, 0, 0)`, zero tolerance
+ * both sides) and then verifies rather than trusts: only a `currentTime`
+ * that actually reads ~0 after the promise resolves clears `busy`. A no-op
+ * or a rejected seekTo re-arms the rewind instead of marking the voice
+ * ready — self-healing the same way FLE-77's generation counter already was,
+ * just gated on the right signal this time.
+ *
+ * `next()` no longer force-reuses a busy voice when the whole pool is
+ * unconfirmed. That fallback was the only path that could land a stale seek
+ * inside a live click — the doubled attack. Removing it trades a possible
+ * doubled beat for a possible silent one (see DEFAULT_VOICES_PER_SOUND for
+ * why that should be rare in practice), and the caller counts it rather than
+ * papering over it.
  */
 function createVoicePool(
   audio: AudioModuleLike,
@@ -143,21 +205,66 @@ function createVoicePool(
   size: number,
   setTimer: (callback: () => void, delayMs: number) => TimerHandle,
   clearTimer: (handle: TimerHandle) => void,
-): { next(): AudioPlayerLike; armRewind(player: AudioPlayerLike): void; removeAll(): void } {
+  now: () => number,
+): {
+  next(): AudioPlayerLike | undefined;
+  armRewind(player: AudioPlayerLike): void;
+  removeAll(): void;
+  diagnostics: VoicePoolDiagnostics;
+} {
   const players = Array.from({ length: Math.max(1, size) }, () =>
     audio.createAudioPlayer(source, CLICK_PLAYER_OPTIONS),
   );
   const pendingTimers = new Map<AudioPlayerLike, TimerHandle>();
-  /** Voices played but not yet confirmed rewound to 0 by their own seekTo's resolution. */
+  /** Voices played but not yet confirmed rewound to 0. */
   const busy = new Set<AudioPlayerLike>();
   /**
    * Bumped every armRewind() call for a player. Guards against a STALE
-   * resolution: if a busy voice is force-reused (the all-busy fallback) before
-   * its previous seekTo resolves, that earlier promise must not be allowed to
-   * mark the voice ready out from under the newer play/rewind cycle.
+   * resolution: a superseded rewind cycle (retried after a no-op, or
+   * re-armed after a rejection) must not have its late resolution mark the
+   * voice ready out from under the cycle that replaced it.
    */
   const generation = new Map<AudioPlayerLike, number>();
+  const diagnostics = emptyDiagnostics();
   let cursor = 0;
+
+  function armRewind(player: AudioPlayerLike): void {
+    const pending = pendingTimers.get(player);
+    if (pending !== undefined) clearTimer(pending);
+    busy.add(player);
+    const myGeneration = (generation.get(player) ?? 0) + 1;
+    generation.set(player, myGeneration);
+
+    const handle = setTimer(() => {
+      pendingTimers.delete(player);
+      const startedAt = now();
+
+      Promise.resolve(player.seekTo(0, 0, 0))
+        .then(() => {
+          if (generation.get(player) !== myGeneration) return;
+          diagnostics.seekLatenciesMs.push(now() - startedAt);
+
+          const position = player.currentTime ?? 0;
+          if (Math.abs(position) > REWIND_POSITION_EPSILON_SECONDS) {
+            // The zero-tolerance seek still didn't move the playhead — do not
+            // trust the resolution, try again instead of marking it ready.
+            diagnostics.nonZeroRewinds += 1;
+            armRewind(player);
+            return;
+          }
+          busy.delete(player);
+        })
+        .catch(() => {
+          if (generation.get(player) !== myGeneration) return;
+          // A rejected seekTo must not strand the voice as busy forever —
+          // that is a second, silent path into a starved pool.
+          diagnostics.rewindErrors += 1;
+          armRewind(player);
+        });
+    }, CLICK_REWIND_DELAY_MS);
+    pendingTimers.set(player, handle);
+  }
+
   return {
     next() {
       for (let i = 0; i < players.length; i += 1) {
@@ -168,35 +275,64 @@ function createVoicePool(
           return player;
         }
       }
-      // Every voice is still unconfirmed — fall back to the cursor's own turn.
-      const player = players[cursor];
-      cursor = (cursor + 1) % players.length;
-      return player;
+      // Every voice still has a seek in flight. No forced reuse (see the
+      // function comment) — the caller must treat this as a beat with
+      // nothing safe to play.
+      diagnostics.starvedBeats += 1;
+      return undefined;
     },
-    armRewind(player) {
-      const pending = pendingTimers.get(player);
-      if (pending !== undefined) clearTimer(pending);
-      busy.add(player);
-      const myGeneration = (generation.get(player) ?? 0) + 1;
-      generation.set(player, myGeneration);
-      const handle = setTimer(() => {
-        pendingTimers.delete(player);
-        Promise.resolve(player.seekTo(0)).then(() => {
-          // Only the rewind cycle that is still current may clear busy — a
-          // resolution from a superseded cycle would otherwise mark a voice
-          // ready that a later armRewind() has already re-armed.
-          if (generation.get(player) === myGeneration) busy.delete(player);
-        });
-      }, CLICK_REWIND_DELAY_MS);
-      pendingTimers.set(player, handle);
-    },
+    armRewind,
     removeAll() {
       for (const handle of pendingTimers.values()) clearTimer(handle);
       pendingTimers.clear();
       busy.clear();
       for (const player of players) player.remove();
     },
+    diagnostics,
   };
+}
+
+function percentile(sortedAscending: number[], p: number): number {
+  if (sortedAscending.length === 0) return 0;
+  const index = Math.min(sortedAscending.length - 1, Math.floor(p * sortedAscending.length));
+  return sortedAscending[index];
+}
+
+/**
+ * Merges both pools' counters into the flat shape getDiagnostics() exposes.
+ * Percentiles are computed here, at read time, rather than per beat — the
+ * same "read, not subscribed" discipline as driftStats.ts.
+ */
+function combineDiagnostics(
+  a: VoicePoolDiagnostics,
+  b: VoicePoolDiagnostics,
+): Record<string, number> {
+  const latencies = [...a.seekLatenciesMs, ...b.seekLatenciesMs].sort((x, y) => x - y);
+  return {
+    starvedBeats: a.starvedBeats + b.starvedBeats,
+    nonZeroRewinds: a.nonZeroRewinds + b.nonZeroRewinds,
+    rewindErrors: a.rewindErrors + b.rewindErrors,
+    seekCount: latencies.length,
+    seekLatencyP50Ms: percentile(latencies, 0.5),
+    seekLatencyP95Ms: percentile(latencies, 0.95),
+  };
+}
+
+/**
+ * Compact diagnostics line for the timing panel — the direct confirmation or
+ * refutation of the FLE-77 root cause. `no-op` counting above 0 means a seek
+ * is still resolving without moving the playhead even at zero tolerance;
+ * `starved` counting above a handful means DEFAULT_VOICES_PER_SOUND needs to
+ * go higher, not that the verify-and-retry logic is wrong.
+ */
+export function formatVoicePoolDiagnostics(diagnostics: Record<string, number>): string {
+  return [
+    `${diagnostics.seekCount} seeks`,
+    `p50 ${Math.round(diagnostics.seekLatencyP50Ms)}ms / p95 ${Math.round(diagnostics.seekLatencyP95Ms)}ms`,
+    `${diagnostics.nonZeroRewinds} no-op`,
+    `${diagnostics.rewindErrors} rejected`,
+    `${diagnostics.starvedBeats} starved`,
+  ].join(' · ');
 }
 
 /**
@@ -215,10 +351,11 @@ export function createAudioClickEmitter(
     onError,
     setTimer = (callback, delayMs) => setTimeout(callback, delayMs),
     clearTimer = (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    now = () => Date.now(),
   } = options;
 
-  const tick = createVoicePool(audio, sources.tick, voicesPerSound, setTimer, clearTimer);
-  const accent = createVoicePool(audio, sources.accent, voicesPerSound, setTimer, clearTimer);
+  const tick = createVoicePool(audio, sources.tick, voicesPerSound, setTimer, clearTimer, now);
+  const accent = createVoicePool(audio, sources.accent, voicesPerSound, setTimer, clearTimer, now);
   let disposed = false;
 
   return {
@@ -231,6 +368,10 @@ export function createAudioClickEmitter(
 
       const pool = beat.downbeat ? accent : tick;
       const player = pool.next();
+      // Every voice still has an unconfirmed rewind in flight (FLE-77:
+      // diagnostics.starvedBeats already counted this) — nothing is safe to
+      // play without risking a stale seek landing inside this click.
+      if (!player) return;
       try {
         // No seekTo here — `play()` is synchronous JSI and `seekTo` is not, so
         // calling both back to back races a voice already parked at EOF from
@@ -248,6 +389,9 @@ export function createAudioClickEmitter(
       disposed = true;
       tick.removeAll();
       accent.removeAll();
+    },
+    getDiagnostics(): Record<string, number> {
+      return combineDiagnostics(tick.diagnostics, accent.diagnostics);
     },
   };
 }

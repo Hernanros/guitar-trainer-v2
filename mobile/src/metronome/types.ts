@@ -50,6 +50,13 @@ export interface ClickEmitter {
   emit(beat: MetronomeBeat): void;
   /** Optional teardown — releases audio players, etc. */
   dispose?(): void;
+  /**
+   * Optional implementation-specific counters for a diagnostics panel — e.g.
+   * the audio emitter's voice-pool health (FLE-77). Kept generic so this
+   * interface stays free of any one backend's vocabulary; the silent emitter
+   * simply omits it.
+   */
+  getDiagnostics?(): Record<string, number>;
 }
 
 /** Opaque timer handle. `number` under RN's setTimeout, a Timeout object under Node. */

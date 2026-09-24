@@ -51,6 +51,12 @@ export interface UseMetronomeResult {
    * the run's result off a stopped screen.
    */
   readDriftStats: () => DriftStats;
+  /**
+   * Implementation-specific diagnostics from the emitter (FLE-77's voice-pool
+   * counters, for the audio emitter). Null for an emitter that doesn't
+   * implement ClickEmitter.getDiagnostics — e.g. the silent default.
+   */
+  readEmitterDiagnostics: () => Record<string, number> | null;
 }
 
 export function useMetronome({
@@ -62,12 +68,17 @@ export function useMetronome({
   const [beat, setBeat] = useState<MetronomeBeat | null>(null);
 
   const statsRef = useRef<DriftStats>(emptyDriftStats());
+  // Holds the UNWRAPPED emitter — withBeatListener's return value is typed as
+  // plain ClickEmitter at the call site below, so this is what lets
+  // readEmitterDiagnostics reach getDiagnostics() without widening that type.
+  const emitterRef = useRef<ClickEmitter | null>(null);
 
   const engineRef = useRef<MetronomeEngine | null>(null);
   if (engineRef.current === null) {
     // setBeat is a stable useState setter and statsRef is stable, so this
     // listener never needs rebinding.
     const base = createEmitter ? createEmitter() : silentClickEmitter;
+    emitterRef.current = base;
     engineRef.current = new MetronomeEngine(
       { bpm, beatsPerBar },
       {
@@ -125,6 +136,19 @@ export function useMetronome({
   }, [start, stop]);
 
   const readDriftStats = useCallback(() => statsRef.current, []);
+  const readEmitterDiagnostics = useCallback(
+    () => emitterRef.current?.getDiagnostics?.() ?? null,
+    [],
+  );
 
-  return { running, bpm: clampBpm(bpm), beat, start, stop, toggle, readDriftStats };
+  return {
+    running,
+    bpm: clampBpm(bpm),
+    beat,
+    start,
+    stop,
+    toggle,
+    readDriftStats,
+    readEmitterDiagnostics,
+  };
 }

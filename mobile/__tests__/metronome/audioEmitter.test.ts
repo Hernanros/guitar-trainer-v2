@@ -19,6 +19,7 @@ import {
   CLICK_REWIND_DELAY_MS,
   DEFAULT_VOICES_PER_SOUND,
   createAudioClickEmitter,
+  formatVoicePoolDiagnostics,
   prepareClickAudioMode,
 } from '../../src/metronome/audioEmitter';
 import type { AudioModuleLike, AudioPlayerLike } from '../../src/metronome/audioEmitter';
@@ -65,6 +66,16 @@ interface FakePlayer extends AudioPlayerLike {
   position: number;
   /** The position observed at the instant of every `play()` call, in order. */
   positionAtPlay: number[];
+  /**
+   * FLE-77's actual root cause: on the real package, a seek with no (or
+   * infinite) tolerance can resolve its promise without moving the playhead
+   * at all. Setting this makes the fake's `seekTo` do the same — "succeed"
+   * while leaving `position` untouched — so tests can prove the adapter
+   * verifies `currentTime` instead of trusting the resolution.
+   */
+  seekIsNoop: boolean;
+  /** One-shot: makes the next `seekTo` call reject instead of resolving. */
+  failOnSeek: boolean;
 }
 
 function createFakeAudio() {
@@ -81,13 +92,22 @@ function createFakeAudio() {
         failOnPlay: false,
         position: 0,
         positionAtPlay: [],
-        seekTo(seconds: number) {
-          player.calls.push(`seekTo(${seconds})`);
+        seekIsNoop: false,
+        failOnSeek: false,
+        get currentTime() {
+          return player.position;
+        },
+        seekTo(seconds: number, toleranceMillisBefore?: number, toleranceMillisAfter?: number) {
+          player.calls.push(`seekTo(${seconds}, ${toleranceMillisBefore}, ${toleranceMillisAfter})`);
+          if (player.failOnSeek) {
+            player.failOnSeek = false; // one-shot, so a retry can succeed
+            return Promise.reject(new Error('native seek failed'));
+          }
           // Genuinely async: the position only moves once this promise's
           // continuation runs, which is at least one microtask after the
           // call — never in the same synchronous stretch that called it.
           return Promise.resolve().then(() => {
-            player.position = seconds;
+            if (!player.seekIsNoop) player.position = seconds;
           });
         },
         play() {
@@ -243,7 +263,9 @@ describe('createAudioClickEmitter — playback', () => {
     clock.advanceBy(CLICK_REWIND_DELAY_MS);
     await flushMicrotasks();
 
-    expect(player.calls).toEqual(['play', 'seekTo(0)']);
+    // Zero tolerance both sides (FLE-77) — see audioEmitter.ts's file header
+    // for why an un-toleranced seekTo(0) can resolve without moving anything.
+    expect(player.calls).toEqual(['play', 'seekTo(0, 0, 0)']);
     expect(player.position).toBe(0);
   });
 
@@ -325,18 +347,14 @@ describe('createAudioClickEmitter — playback', () => {
     expect(ticks[1].positionAtPlay).toEqual([0, 0]);
   });
 
-  it('FLE-77: keeps clicking every beat, cycling the fallback, when every rewind is starved', () => {
-    // The adversarial case the old fixed-delay timer could not defend
-    // against: every rewind is slower than the gap between beats (no clock
-    // is injected here, so none ever resolves). `next()` then has no
-    // confirmed-ready voice to offer for any beat past the first cycle, so it
-    // takes the all-busy fallback every time. That fallback trades a doubled
-    // attack for a possibly-silent one (a `play()` landing on a voice not yet
-    // proven at 0) — FLE-77's OTHER symptom, and the one this module cannot
-    // fully rule out without a native completion signal. What must still
-    // hold: the beat is never dropped outright, and the fallback keeps
-    // cycling through the whole pool rather than hammering a single voice
-    // (which would starve it further and make the silence worse).
+  it('FLE-77: skips a beat rather than forcing a busy voice, when every rewind is starved', () => {
+    // The adversarial case: every rewind is slower than the gap between
+    // beats (no clock is injected here, so none ever resolves). `next()`
+    // then has no confirmed-ready voice to offer for any beat past the first
+    // cycle. FLE-57's fix forced the cursor's own busy voice here — exactly
+    // the path that could land a stale seek inside a live click, i.e. the
+    // doubled attack this whole rework exists to remove. This pass never
+    // does that: a starved pool skips the click and counts it instead.
     const { audio, forSource } = createFakeAudio();
     const emitter = createAudioClickEmitter(audio, SOURCES, { voicesPerSound: 2 });
 
@@ -344,14 +362,18 @@ describe('createAudioClickEmitter — playback', () => {
 
     const ticks = forSource('tick.wav') as FakePlayer[];
     expect(ticks).toHaveLength(2);
-    // No beat dropped: 6 beats in, 6 plays out, split evenly across the pool.
-    expect(ticks[0].calls.filter((c) => c === 'play')).toHaveLength(3);
-    expect(ticks[1].calls.filter((c) => c === 'play')).toHaveLength(3);
+    // The first 2 beats claim the pool; the other 4 have nothing confirmed
+    // ready (nothing ever rewinds, since no clock is injected) and are
+    // silently skipped rather than doubling either voice.
+    expect(ticks[0].calls.filter((c) => c === 'play')).toHaveLength(1);
+    expect(ticks[1].calls.filter((c) => c === 'play')).toHaveLength(1);
+    expect(emitter.getDiagnostics?.().starvedBeats).toBe(4);
   });
 
-  it('cancels a pending rewind before arming a new one for the same voice', () => {
-    // Defensive: armRewind() must not leak a timer if a voice is somehow
-    // reused before its previous rewind fired.
+  it('never plays a still-busy single-voice pool twice, and leaves exactly one rewind armed', () => {
+    // A voice reused before its rewind fired is the exact FLE-77 mechanism —
+    // this pins that it cannot happen through the public emit() path, and
+    // that armRewind() does not leak a second timer trying.
     const clock = new MultiTimerClock();
     const { audio, played } = createFakeAudio();
     const emitter = createAudioClickEmitter(audio, SOURCES, {
@@ -361,10 +383,72 @@ describe('createAudioClickEmitter — playback', () => {
     });
 
     emitter.emit(beat({ beatIndex: 1 }));
-    emitter.emit(beat({ beatIndex: 2 }));
+    emitter.emit(beat({ beatIndex: 2 })); // the only voice is still busy — must be skipped
 
-    expect(played()).toHaveLength(1); // same single-voice pool, reused
-    expect(clock.pendingCount()).toBe(1); // the first rewind was cancelled, not left dangling
+    expect(played()).toHaveLength(1);
+    expect(clock.pendingCount()).toBe(1); // exactly one rewind armed, not leaked or doubled
+  });
+
+  it('FLE-77: does not trust a resolved seekTo that left the playhead non-zero — retries instead of clearing busy', async () => {
+    // The actual root cause: expo-audio's seekTo tolerances default to
+    // +-infinity, so AVFoundation can resolve a seek to 0 without moving the
+    // playhead at all. A promise resolving must not be trusted on its own.
+    const clock = new MultiTimerClock();
+    const { audio, forSource } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      voicesPerSound: 1,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    emitter.emit(beat({ beatIndex: 1 }));
+    const player = forSource('tick.wav')[0] as FakePlayer;
+    player.seekIsNoop = true; // the seek "succeeds" without ever reaching 0
+
+    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(player.position).toBe(1); // still parked at EOF — the no-op was not trusted
+    emitter.emit(beat({ beatIndex: 2 })); // still busy, so this must be skipped, not doubled
+    expect(player.calls.filter((c) => c === 'play')).toHaveLength(1);
+
+    player.seekIsNoop = false; // the retried rewind actually lands this time
+    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    emitter.emit(beat({ beatIndex: 3 }));
+    expect(player.calls.filter((c) => c === 'play')).toHaveLength(2); // now confirmed ready
+    expect(emitter.getDiagnostics?.().nonZeroRewinds).toBeGreaterThan(0);
+  });
+
+  it('FLE-77: retries after a rejected seekTo instead of stranding the voice as busy forever', async () => {
+    const clock = new MultiTimerClock();
+    const { audio, forSource } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      voicesPerSound: 1,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    emitter.emit(beat({ beatIndex: 1 }));
+    const player = forSource('tick.wav')[0] as FakePlayer;
+    player.failOnSeek = true;
+
+    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    for (let i = 0; i < 4; i += 1) await flushMicrotasks(); // rejection propagates through an extra .then()/.catch() hop
+
+    emitter.emit(beat({ beatIndex: 2 })); // the rejected seek must not have cleared busy
+    expect(player.calls.filter((c) => c === 'play')).toHaveLength(1);
+
+    clock.advanceBy(CLICK_REWIND_DELAY_MS); // the retried seekTo, which now succeeds
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    emitter.emit(beat({ beatIndex: 3 }));
+    expect(player.calls.filter((c) => c === 'play')).toHaveLength(2);
+    expect(emitter.getDiagnostics?.().rewindErrors).toBeGreaterThan(0);
   });
 
   it('routes the downbeat to the accent sound and everything else to the tick', () => {
@@ -379,15 +463,28 @@ describe('createAudioClickEmitter — playback', () => {
     expect(forSource('tick.wav').filter((p) => p.calls.includes('play'))).toHaveLength(2);
   });
 
-  it('cycles voices so a click never retriggers the player used on the previous beat', () => {
+  it('cycles voices so a click never retriggers the player used on the previous beat', async () => {
     // This is the whole reason the pool exists: seekTo() is async, so reusing
     // one player makes each click race the rewind of the click before it.
+    // Each beat here is spaced far enough apart for the previous rewind to be
+    // confirmed, so round-robin distribution is the only thing under test —
+    // a starved pool is covered separately above.
+    const clock = new MultiTimerClock();
     const { audio, forSource } = createFakeAudio();
-    const emitter = createAudioClickEmitter(audio, SOURCES, { voicesPerSound: 2 });
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      voicesPerSound: 2,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
 
-    for (let i = 1; i <= 4; i += 1) emitter.emit(beat({ beatIndex: i, barBeat: i % 4 || 1 }));
+    for (let i = 1; i <= 4; i += 1) {
+      emitter.emit(beat({ beatIndex: i, barBeat: i % 4 || 1 }));
+      clock.advanceBy(CLICK_REWIND_DELAY_MS);
+      await flushMicrotasks();
+      await flushMicrotasks();
+    }
 
-    const ticks = forSource('tick.wav');
+    const ticks = forSource('tick.wav') as FakePlayer[];
     expect(ticks).toHaveLength(2);
     // Four beats, alternating: each player took exactly two of them.
     expect(ticks[0].calls.filter((c) => c === 'play')).toHaveLength(2);
@@ -479,6 +576,63 @@ describe('createAudioClickEmitter — teardown', () => {
 
     expect(player.calls).toEqual(['play']); // no seekTo after dispose
     expect(player.removed).toBe(true);
+  });
+});
+
+describe('createAudioClickEmitter — diagnostics (FLE-77)', () => {
+  it('reports a clean run as zero no-ops, zero rejections, zero starved beats', async () => {
+    const clock = new MultiTimerClock();
+    const { audio } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    emitter.emit(beat({ beatIndex: 1 }));
+    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    const diagnostics = emitter.getDiagnostics?.();
+    expect(diagnostics?.seekCount).toBe(1);
+    expect(diagnostics?.nonZeroRewinds).toBe(0);
+    expect(diagnostics?.rewindErrors).toBe(0);
+    expect(diagnostics?.starvedBeats).toBe(0);
+  });
+
+  it('measures seekTo latency off the injected clock, not a guess', async () => {
+    const clock = new MultiTimerClock();
+    let wallClockMs = 0;
+    const { audio } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      voicesPerSound: 1,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+      now: () => wallClockMs,
+    });
+
+    emitter.emit(beat({ beatIndex: 1 }));
+    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    wallClockMs = 42; // the seekTo call "took" 42ms to resolve, from now()'s perspective
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(emitter.getDiagnostics?.().seekLatencyP50Ms).toBe(42);
+  });
+});
+
+describe('formatVoicePoolDiagnostics', () => {
+  it('renders every counter the device tester needs to confirm or refute the FLE-77 root cause', () => {
+    const line = formatVoicePoolDiagnostics({
+      seekCount: 120,
+      seekLatencyP50Ms: 8,
+      seekLatencyP95Ms: 24,
+      nonZeroRewinds: 0,
+      rewindErrors: 0,
+      starvedBeats: 0,
+    });
+
+    expect(line).toBe('120 seeks · p50 8ms / p95 24ms · 0 no-op · 0 rejected · 0 starved');
   });
 });
 
