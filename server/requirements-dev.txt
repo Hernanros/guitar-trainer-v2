@@ -1,0 +1,15 @@
+# Test-only dependencies. NOT installed on Railway — requirements.txt is the deploy
+# manifest and must stay free of test packages.
+#
+#   python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+#
+# pytest-asyncio floors at 1.0 deliberately. pytest.ini sets both
+# asyncio_default_fixture_loop_scope and asyncio_default_test_loop_scope; the first
+# landed in 0.24 and the second in 0.26, and on anything older BOTH are silently
+# ignored as unknown config options, which puts fixtures and test bodies on different
+# event loops and takes the suite from green to ~170 failures. See FLE-62.
+-r requirements.txt
+
+pytest==8.4.2
+pytest-asyncio==1.4.0
+httpx==0.28.1

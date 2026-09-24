@@ -131,21 +131,15 @@ async def db():
        failure as (2) arriving by the back door, and it is not preventable from a
        synchronous teardown. No session object, no finalizer to mis-schedule.
 
-    1. Per test, on NullPool. The session-scoped engine that
-       test_alembic_0003/0004/0006/0007 share pools connections ACROSS tests, and an
-       asyncpg connection is bound to the event loop that opened it. Under
-       pytest-asyncio 0.23.8 (with conftest.py's deprecated session-scoped
-       `event_loop` override) different modules end up on different loops, so the
-       pooled connection gets reused from the wrong one and the run dies with
-       "got Future attached to a different loop". That is not hypothetical:
-       test_alembic_0007 passes alone and fails 11 of its own tests in a full-suite
-       run for exactly this reason, today, before this file existed.
+    1. Per test, on NullPool. An asyncpg connection is bound to the event loop that
+       opened it, so a pooled connection shared across tests is only safe while every
+       test stays on one loop. That now holds — pytest.ini pins both the fixture and
+       the test loop scope to session (FLE-62) — but NullPool keeps this module's
+       isolation independent of that setting rather than silently depending on it.
 
-    2. No `await` after the `yield`. A fixture finalizer is driven by
-       `event_loop.run_until_complete(...)` against conftest.py's SESSION-scoped
-       loop, not the per-function loop the test body ran on — so an
-       `await session.rollback()` here would reach a connection owned by a loop that
-       is closing, which is the same failure by a different route. Instead the
+    2. No `await` after the `yield`. Async teardown here would need the connection's
+       own loop to still be running the fixture finalizer; a synchronous teardown is
+       true regardless of how the surrounding harness schedules finalizers. The
        teardown reaches the raw asyncpg connection and calls its synchronous
        `terminate()`: the transport closes immediately, the server rolls back the
        open transaction, and no loop is touched.
@@ -154,9 +148,11 @@ async def db():
     every user, skill node, drill and session these tests create is discarded when
     the test that made it ends.
 
-    The suite-wide loop management is a real defect and worth its own fix. This
-    module works around it rather than adding to it — a test file that is green
-    alone and red in CI teaches people to ignore CI.
+    Historical note: this module was written while the suite ran fixtures and test
+    bodies on DIFFERENT loops (conftest.py overrode `event_loop`, which pytest-asyncio
+    0.23 had already deprecated), which made a full-suite run die with "got Future
+    attached to a different loop". FLE-62 fixed that at the harness level; the three
+    choices above are kept because each is locally correct, not as a workaround.
     """
     engine = create_async_engine(TEST_DB_URL, echo=False, poolclass=NullPool)
     conn = await engine.connect()
