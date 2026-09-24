@@ -734,11 +734,18 @@ async def test_unreached_items_are_not_recent(db):
 # ---------------------------------------------------------------------------
 
 async def test_local_day_is_computed_from_the_offset(db):
-    """D-10. Two offsets either side of UTC midnight must land on different days."""
+    """D-10. Two offsets either side of UTC midnight must land on different days.
+
+    UTC+14 and UTC-12 are 26 hours apart, so the two local dates are ALWAYS 1 or 2
+    days apart, never 0 — which of the two depends on where the UTC time-of-day
+    sits. The old assertion accepted 0 and rejected 2, so it went red on any run
+    whose UTC clock was inside the ~2-hour window where both sides wrap
+    (e.g. 10:20 UTC: ahead = the 25th, behind = the 23rd).
+    """
     ahead = await local_day(db, 840)    # UTC+14
     behind = await local_day(db, -720)  # UTC-12
-    assert (ahead - behind).days in (0, 1)
-    assert ahead >= behind
+    assert (ahead - behind).days in (1, 2)
+    assert ahead > behind
 
 
 async def test_loading_a_snapshot_writes_nothing(db):
