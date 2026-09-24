@@ -9,12 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.admin import router as admin_router
 from app.api.v1.breakdowns import router as breakdowns_router
+from app.api.v1.practice_sessions import router as practice_sessions_router
 from app.api.v1.sessions import router as sessions_router
 from app.api.v1.song_of_day import router as song_router
 from app.api.v1.users import router as users_router
 from app.db.seed import seed_songs
 from app.db.session import AsyncSessionLocal
-from app.scheduler import decay_all_nodes, get_scheduler
+from app.scheduler import decay_all_nodes, get_scheduler, sweep_abandoned_sessions
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ app.add_middleware(
 
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(breakdowns_router, prefix="/api/v1")
+app.include_router(practice_sessions_router, prefix="/api/v1")
 app.include_router(sessions_router, prefix="/api/v1")
 app.include_router(song_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
@@ -67,5 +69,20 @@ async def on_startup() -> None:
         id="decay_all_nodes",
         replace_existing=True,
     )
+    # FLE-21 §3's backstop. HOURLY rather than nightly, and that is not arbitrary: the
+    # pilot roster spans timezones, so "the user's local day rolled" happens at 24
+    # different UTC instants. A nightly job fixed at one UTC hour would leave a
+    # participant's session counted as open for up to a day after they walked away.
+    scheduler.add_job(
+        sweep_abandoned_sessions,
+        trigger="cron",
+        minute=15,
+        timezone="UTC",
+        id="sweep_abandoned_sessions",
+        replace_existing=True,
+    )
     scheduler.start()
-    logger.info("Startup: APScheduler started. decay_all_nodes scheduled nightly at 03:00 UTC (SKILL-05).")
+    logger.info(
+        "Startup: APScheduler started. decay_all_nodes nightly at 03:00 UTC (SKILL-05); "
+        "sweep_abandoned_sessions hourly at :15 (FLE-21 §3)."
+    )

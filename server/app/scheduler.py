@@ -1,12 +1,13 @@
-"""APScheduler in-process nightly mastery decay scheduler.
+"""APScheduler in-process background jobs.
 
 Single-worker safe: designed for `uvicorn --workers 1` (see server/railway.toml).
 If workers ever increase beyond 1, replace with a postgres advisory lock or move
-the decay job to a Railway cron plugin service so only one worker fires the job.
+the jobs to a Railway cron plugin service so only one worker fires them.
 
 Exports:
-  get_scheduler() -> AsyncIOScheduler  -- singleton factory
-  decay_all_nodes() -> None            -- nightly 5% decay job (SKILL-05)
+  get_scheduler() -> AsyncIOScheduler    -- singleton factory
+  decay_all_nodes() -> None              -- nightly 5% decay job (SKILL-05)
+  sweep_abandoned_sessions() -> None     -- hourly abandonment backstop (FLE-21 §3)
 
 Registered in app.main::on_startup via:
     scheduler = get_scheduler()
@@ -114,3 +115,54 @@ async def decay_all_nodes() -> None:
                 await err_db.commit()
             logger.error("Decay run failed: %s", exc)
             # Do NOT re-raise — the scheduler continues; audit row surfaces the failure.
+
+
+async def sweep_abandoned_sessions() -> None:
+    """Hourly backstop that closes open practice sessions (FLE-21 §3).
+
+    Load-bearing, not hygiene. `store.resolve_or_generate` already closes a user's
+    stale sessions inline and transactionally — but only when that user comes BACK.
+    This is for the user who does not: without it their last session stays
+    `in_progress` forever, counted as neither completed nor abandoned, and FLE-21 §4's
+    completion rate is `completed / (completed + abandoned)`. A session stuck open is
+    silently removed from the denominator, so the pilot's headline metric drifts UP as
+    participants drop out. A number that improves because data went missing is the
+    worst failure mode available here, because it reads as success.
+
+    Two conditions, and they are not peers:
+
+    1. **The day roll** (FLE-4 §6, adopted verbatim by FLE-21 R3) — the real rule.
+       Evaluated per row against that row's own `tz_offset_minutes`, because "the day
+       rolled" is a claim about the user's local clock and the pilot roster is not in
+       one timezone.
+    2. **36 hours since `last_activity_at`** — protection against a corrupt
+       `tz_offset_minutes`, nothing more. It should fire approximately never; when it
+       does, `lifecycle.sweep_open_sessions` logs a WARNING per row, and that is a bug
+       report rather than a metric.
+
+    Runs hourly (see main.py) so the day roll is caught within an hour of the user's
+    local midnight regardless of which timezone they are in.
+
+    Failures are logged and swallowed, matching `decay_all_nodes`: a scheduler job that
+    raises kills nothing useful and the next hour's run retries anyway. There is no
+    audit table for this job — the UPDATE is idempotent (a closed session no longer
+    matches `state = ANY(open_states)`), so a missed run costs at most an hour of
+    staleness rather than a lost write.
+    """
+    from app.sessions.lifecycle import sweep_open_sessions
+
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await sweep_open_sessions(db)
+            await db.commit()
+            if result.total:
+                logger.info(
+                    "Session sweep: closed %d (day_rolled=%d, timeout=%d).",
+                    result.total,
+                    result.day_rolled,
+                    result.timed_out,
+                )
+        except Exception as exc:
+            await db.rollback()
+            logger.error("Session sweep failed: %s", exc)
+            # Do NOT re-raise — next hourly run retries; the UPDATE is idempotent.
