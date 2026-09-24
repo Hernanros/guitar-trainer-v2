@@ -45,7 +45,7 @@ from app.ai.governor import BudgetExceededError, AnthropicQuotaExceededError
 from app.api.deps import get_tz_offset_minutes, get_user_id
 from app.db.session import get_db
 from app.models.db import SkillNode, Song, SongSkill, UserSession
-from app.models.song import Breakdown, BreakdownEnvelope
+from app.models.song import Breakdown, BreakdownEnvelope, is_renderable_breakdown
 from app.selectors.player_level import floor_player_level
 
 logger = logging.getLogger(__name__)
@@ -177,7 +177,14 @@ async def get_breakdown(
 
     # 3. Cache hit — short-circuit without Sonnet call (T-03-02-02, D-11)
     # Insert a governor_calls row to record the cached view (cap tracking for all views).
-    if song.breakdown_generated_at is not None:
+    #
+    # FLE-67: the cache is only a hit if the snapshot is actually renderable. A row
+    # marked generated whose JSONB is empty or partial would 500 in
+    # _load_cached_breakdown below; treating it as a miss regenerates it instead,
+    # which is the same self-heal the D-11 cache-forever contract already grants a
+    # row that never generated. Costs one Sonnet call against a state no prod row
+    # is in today — strictly better than a hard failure on the app's main CTA.
+    if song.breakdown_generated_at is not None and is_renderable_breakdown(song.breakdown):
         # Record cached breakdown access in governor_calls (so the cap correctly
         # counts cache-hit views against the 3/7d limit)
         import uuid as _uuid

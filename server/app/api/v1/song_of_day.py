@@ -25,7 +25,13 @@ from app.ai.governor import BREAKDOWN_CAP, effective_cap
 from app.api.deps import get_tz_offset_minutes, get_user_id
 from app.db.session import get_db
 from app.models.db import Song
-from app.models.song import BreakdownQuota, SongResponse, TodayRatingInfo, TodaySongResponse
+from app.models.song import (
+    BreakdownQuota,
+    SongResponse,
+    TodayRatingInfo,
+    TodaySongResponse,
+    is_renderable_breakdown,
+)
 from app.selectors.today_song import select_today_song
 
 router = APIRouter()
@@ -242,7 +248,14 @@ async def get_song_of_day(
 
     return TodaySongResponse(
         song=SongResponse.model_validate(row),
-        breakdown_available=(row.breakdown_generated_at is not None),
+        # FLE-67: both halves — the cache signal AND a renderable snapshot. A row
+        # marked generated whose JSONB is empty/partial is dropped to None by
+        # SongResponse, and GET /songs/{id}/breakdown now treats it as a miss, so
+        # reporting it available would promise a cached breakdown neither returns.
+        breakdown_available=(
+            row.breakdown_generated_at is not None
+            and is_renderable_breakdown(row.breakdown)
+        ),
         from_bank=from_bank,
         bank_source=bank_source,
         rerolled=rerolled,
@@ -336,7 +349,14 @@ async def reroll_today_song(
 
     return TodaySongResponse(
         song=SongResponse.model_validate(row),
-        breakdown_available=(row.breakdown_generated_at is not None),
+        # FLE-67: both halves — the cache signal AND a renderable snapshot. A row
+        # marked generated whose JSONB is empty/partial is dropped to None by
+        # SongResponse, and GET /songs/{id}/breakdown now treats it as a miss, so
+        # reporting it available would promise a cached breakdown neither returns.
+        breakdown_available=(
+            row.breakdown_generated_at is not None
+            and is_renderable_breakdown(row.breakdown)
+        ),
         from_bank=True,  # rerolls are always bank picks (D-05)
         bank_source=bank_source,
         rerolled=True,

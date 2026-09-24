@@ -217,6 +217,26 @@ class Breakdown(BaseModel):
     drills: list[Drill] = Field(default_factory=list, min_length=2, max_length=4)
 
 
+# The keys a persisted JSONB snapshot must carry to be a renderable Breakdown.
+# `drills` is deliberately absent — it has a default_factory, so pre-4.1 cached
+# breakdowns are still complete. Derived from the model so adding a required
+# field to Breakdown cannot silently desync this set. See FLE-67.
+_REQUIRED_BREAKDOWN_KEYS = frozenset(
+    name for name, f in Breakdown.model_fields.items() if f.is_required()
+)
+
+
+def is_renderable_breakdown(v: object) -> bool:
+    """True when a persisted `songs.breakdown` value is a full breakdown snapshot.
+
+    FLE-67: the inverse of what SongResponse.coerce_placeholder_breakdown nulls
+    out. Callers that report breakdown availability to the client should consult
+    this alongside `breakdown_generated_at` so they never advertise a breakdown
+    that the response body had to drop.
+    """
+    return isinstance(v, dict) and _REQUIRED_BREAKDOWN_KEYS.issubset(v)
+
+
 # ---------------------------------------------------------------------------
 # song_specific enforcement (FLE-44)
 # ---------------------------------------------------------------------------
@@ -369,7 +389,7 @@ class SongResponse(BaseModel):
     @field_validator("breakdown", mode="before")
     @classmethod
     def coerce_placeholder_breakdown(cls, v):
-        """Coerce placeholder JSONB dicts to None (Grace-E, restored 2026-09-08).
+        """Coerce not-yet-generated JSONB dicts to None (Grace-E, restored 2026-09-08).
 
         Rows inserted during onboarding land with `breakdown = {"placeholder": "..."}`
         as a marker that a real breakdown has not been generated yet. Without this
@@ -386,8 +406,20 @@ class SongResponse(BaseModel):
 
         Real breakdowns are dicts with tab/chords/technique_notes keys — those pass
         through unchanged. None passes through unchanged (already-Optional path).
+
+        FLE-67 (2026-09-24): the `"placeholder" in v` guard was too narrow. Prod
+        song 73 carried a bare `{}` — no `placeholder` key, so it fell through to
+        Breakdown and 500'd GET /api/v1/song-of-day with three missing-field errors.
+        Before FLE-54 that self-healed (the next GET recomputed a different pick);
+        once the day's pick is persisted, the 500 is permanent for that user-day.
+        The test is now the positive one — a dict is a breakdown only if it carries
+        every required key — so ANY partial or empty snapshot degrades to "not
+        generated yet" instead of 500ing the app's main screen. That matches what
+        the client already renders for a song whose breakdown is pending, and it
+        stays consistent with TodaySongResponse.breakdown_available, which now
+        requires a renderable snapshot as well as breakdown_generated_at.
         """
-        if isinstance(v, dict) and "placeholder" in v and "tab" not in v:
+        if isinstance(v, dict) and not _REQUIRED_BREAKDOWN_KEYS.issubset(v):
             return None
         return v
 
