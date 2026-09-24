@@ -280,6 +280,75 @@ describe('createAudioClickEmitter — playback', () => {
     }
   });
 
+  it('FLE-77: skips a voice whose rewind has not resolved yet, picking a confirmed-ready one instead', async () => {
+    // FLE-57 treated the rewind TIMER firing as proof the voice was at 0. On
+    // device the timer firing only means seekTo(0) was *issued* — the promise
+    // it returns can still resolve later, especially under exactly the kind
+    // of JS-thread jitter this whole module already expects (see
+    // scheduler.ts). This simulates that: three voices are played through
+    // once each, but only the middle one's seekTo has actually resolved by
+    // the time the 4th beat needs a voice. The cursor's own turn would land
+    // back on voice 0 (still unconfirmed) — the fix must reach past it for
+    // voice 1 instead of forcing a voice that might still be mid-rewind.
+    const timers: Array<() => void> = [];
+    const setTimer = (callback: () => void): TimerHandle => {
+      timers.push(callback);
+      return timers.length - 1;
+    };
+    const clearTimer = () => {};
+    const { audio, forSource } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      voicesPerSound: 3,
+      setTimer,
+      clearTimer,
+    });
+
+    emitter.emit(beat({ beatIndex: 1 })); // voice 0
+    emitter.emit(beat({ beatIndex: 2 })); // voice 1
+    emitter.emit(beat({ beatIndex: 3 })); // voice 2
+
+    const ticks = forSource('tick.wav') as FakePlayer[];
+    // Fire only voice 1's rewind timer and let its seekTo promise resolve.
+    // Voice 0's and voice 2's timers are deliberately left unfired — on
+    // hardware this is a rewind that simply has not landed yet.
+    timers[1]();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    emitter.emit(beat({ beatIndex: 4 }));
+
+    expect(ticks[1].calls.filter((c) => c === 'play')).toHaveLength(2); // reused
+    expect(ticks[0].calls.filter((c) => c === 'play')).toHaveLength(1); // skipped, still unconfirmed
+    expect(ticks[2].calls.filter((c) => c === 'play')).toHaveLength(1); // skipped, still unconfirmed
+    // The reused voice was genuinely at 0 both times it played — never a
+    // doubled attack on top of a click still finishing.
+    expect(ticks[1].positionAtPlay).toEqual([0, 0]);
+  });
+
+  it('FLE-77: keeps clicking every beat, cycling the fallback, when every rewind is starved', () => {
+    // The adversarial case the old fixed-delay timer could not defend
+    // against: every rewind is slower than the gap between beats (no clock
+    // is injected here, so none ever resolves). `next()` then has no
+    // confirmed-ready voice to offer for any beat past the first cycle, so it
+    // takes the all-busy fallback every time. That fallback trades a doubled
+    // attack for a possibly-silent one (a `play()` landing on a voice not yet
+    // proven at 0) — FLE-77's OTHER symptom, and the one this module cannot
+    // fully rule out without a native completion signal. What must still
+    // hold: the beat is never dropped outright, and the fallback keeps
+    // cycling through the whole pool rather than hammering a single voice
+    // (which would starve it further and make the silence worse).
+    const { audio, forSource } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, { voicesPerSound: 2 });
+
+    for (let i = 1; i <= 6; i += 1) emitter.emit(beat({ beatIndex: i }));
+
+    const ticks = forSource('tick.wav') as FakePlayer[];
+    expect(ticks).toHaveLength(2);
+    // No beat dropped: 6 beats in, 6 plays out, split evenly across the pool.
+    expect(ticks[0].calls.filter((c) => c === 'play')).toHaveLength(3);
+    expect(ticks[1].calls.filter((c) => c === 'play')).toHaveLength(3);
+  });
+
   it('cancels a pending rewind before arming a new one for the same voice', () => {
     // Defensive: armRewind() must not leak a timer if a voice is somehow
     // reused before its previous rewind fired.

@@ -93,12 +93,12 @@ export const CLICK_REWIND_DELAY_MS = 60;
 
 export interface AudioClickEmitterOptions {
   /**
-   * Players allocated per sound, cycled round-robin.
-   *
-   * A voice is rewound to 0 on a timer AFTER it plays, not on the beat path —
-   * so a voice must not be reused before that rewind has landed. Two voices
-   * cut it close for a bar's run of tick beats at MAX_BPM (200ms apart); three
-   * keeps a full extra beat of margin at every tempo this engine allows.
+   * Players allocated per sound, cycled round-robin among whichever are
+   * confirmed rewound to 0 (see createVoicePool). More voices give that
+   * search more idle candidates to find before it has to fall back to forcing
+   * a still-busy one, but the fallback is what keeps a beat from going
+   * silent, not this number — three is enough headroom at MAX_BPM's tightest
+   * gap (200ms) without allocating players nothing will use.
    */
   voicesPerSound?: number;
   /**
@@ -115,12 +115,27 @@ export interface AudioClickEmitterOptions {
 export const DEFAULT_VOICES_PER_SOUND = 3;
 
 /**
- * Round-robin over a fixed set of players.
+ * Round-robin over a fixed set of players, skipping any voice not yet
+ * confirmed rewound.
  *
- * Also owns each player's post-click rewind: `armRewind` schedules the
- * `seekTo(0)` that parks a voice back at the head, well ahead of its next
- * turn, and `removeAll` cancels whatever is still pending so dispose() never
- * lets a rewind land on a player that has already been freed.
+ * FLE-57 assumed a voice was safely at position 0 once `CLICK_REWIND_DELAY_MS`
+ * had elapsed — a guess about how long the timer delay plus the native
+ * `seekTo` round trip would take. On device that guess was sometimes wrong in
+ * both directions: a voice could still be mid-rewind (or its click still
+ * audibly tailing off) when its next turn came up, which produced FLE-77's
+ * doubled attack (a `play()` landing on a voice `seekTo` was still moving) and
+ * silent beats (`play()` landing on a voice still parked at EOF).
+ *
+ * The fix ties "ready" to the actual `seekTo(0)` PROMISE resolving, not to the
+ * timer that requested it, and `next()` prefers a confirmed-ready voice over
+ * blindly following the round-robin cursor into one that is not. This is
+ * self-healing under exactly the jitter the JS thread cannot avoid (see
+ * scheduler.ts's own comment on per-beat jitter): a slow rewind just makes
+ * `next()` reach for a different idle voice instead of forcing the slow one.
+ * Only when every voice is still unconfirmed does it fall back to the cursor's
+ * voice anyway — a possible collision beats a dropped beat, and that only
+ * happens if the whole pool is starved at once, which needs the same kind of
+ * JS-thread stall that already costs the scheduler a beat.
  */
 function createVoicePool(
   audio: AudioModuleLike,
@@ -132,26 +147,53 @@ function createVoicePool(
   const players = Array.from({ length: Math.max(1, size) }, () =>
     audio.createAudioPlayer(source, CLICK_PLAYER_OPTIONS),
   );
-  const pendingRewinds = new Map<AudioPlayerLike, TimerHandle>();
+  const pendingTimers = new Map<AudioPlayerLike, TimerHandle>();
+  /** Voices played but not yet confirmed rewound to 0 by their own seekTo's resolution. */
+  const busy = new Set<AudioPlayerLike>();
+  /**
+   * Bumped every armRewind() call for a player. Guards against a STALE
+   * resolution: if a busy voice is force-reused (the all-busy fallback) before
+   * its previous seekTo resolves, that earlier promise must not be allowed to
+   * mark the voice ready out from under the newer play/rewind cycle.
+   */
+  const generation = new Map<AudioPlayerLike, number>();
   let cursor = 0;
   return {
     next() {
+      for (let i = 0; i < players.length; i += 1) {
+        const index = (cursor + i) % players.length;
+        const player = players[index];
+        if (!busy.has(player)) {
+          cursor = (index + 1) % players.length;
+          return player;
+        }
+      }
+      // Every voice is still unconfirmed — fall back to the cursor's own turn.
       const player = players[cursor];
       cursor = (cursor + 1) % players.length;
       return player;
     },
     armRewind(player) {
-      const pending = pendingRewinds.get(player);
+      const pending = pendingTimers.get(player);
       if (pending !== undefined) clearTimer(pending);
+      busy.add(player);
+      const myGeneration = (generation.get(player) ?? 0) + 1;
+      generation.set(player, myGeneration);
       const handle = setTimer(() => {
-        pendingRewinds.delete(player);
-        player.seekTo(0);
+        pendingTimers.delete(player);
+        Promise.resolve(player.seekTo(0)).then(() => {
+          // Only the rewind cycle that is still current may clear busy — a
+          // resolution from a superseded cycle would otherwise mark a voice
+          // ready that a later armRewind() has already re-armed.
+          if (generation.get(player) === myGeneration) busy.delete(player);
+        });
       }, CLICK_REWIND_DELAY_MS);
-      pendingRewinds.set(player, handle);
+      pendingTimers.set(player, handle);
     },
     removeAll() {
-      for (const handle of pendingRewinds.values()) clearTimer(handle);
-      pendingRewinds.clear();
+      for (const handle of pendingTimers.values()) clearTimer(handle);
+      pendingTimers.clear();
+      busy.clear();
       for (const player of players) player.remove();
     },
   };
