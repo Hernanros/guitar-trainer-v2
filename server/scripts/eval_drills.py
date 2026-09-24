@@ -47,8 +47,10 @@ rating and validate target_skill_node_id resolves to a real skill_nodes row.
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 import time
@@ -338,8 +340,25 @@ async def _query_total_tokens(db, uids: list[uuid.UUID]) -> dict:
 # Core eval loop
 # ---------------------------------------------------------------------------
 
-async def run_eval() -> None:
-    """Run the live-Anthropic drill eval for all 5 EVAL_SONGS.
+def _select_songs(pattern: str | None) -> list[dict]:
+    """Resolve a --song pattern to a subset of EVAL_SONGS (case-insensitive substring).
+
+    FLE-43: the eval had no way to run one song, so confirming a single-song fix
+    meant paying for all five. Exits non-zero on no match rather than silently
+    running the whole catalogue.
+    """
+    if not pattern:
+        return list(EVAL_SONGS)
+    needle = pattern.strip().lower()
+    matches = [s for s in EVAL_SONGS if needle in s["title"].lower()]
+    if not matches:
+        titles = ", ".join(repr(s["title"]) for s in EVAL_SONGS)
+        sys.exit(f"ERROR: --song {pattern!r} matched none of: {titles}")
+    return matches
+
+
+async def run_eval(songs: list[dict] | None = None) -> None:
+    """Run the live-Anthropic drill eval for `songs` (default: all 5 EVAL_SONGS).
 
     W5 FIX: calls _check_env_and_normalise_db_url() first — exits with clear
     error if ANTHROPIC_API_KEY or DATABASE_URL (real Postgres only) is missing.
@@ -348,6 +367,16 @@ async def run_eval() -> None:
     - On AIBreakdownError per song: prints the exception and continues to the next song.
     - After all songs: prints total token usage from governor_calls (actuals).
     """
+    songs = list(songs) if songs is not None else list(EVAL_SONGS)
+
+    # FLE-43: app.ai.breakdown logs stop_reason/output_tokens at INFO on every
+    # call. With no root handler those lines are swallowed — which is precisely
+    # why the Wonderwall truncation had to be inferred from token arithmetic.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="  [log] %(levelname)s %(name)s: %(message)s",
+    )
+
     # W5 FIX: validate env before any DB/app imports — exits if missing or non-Postgres
     db_url = _check_env_and_normalise_db_url()
     # Override DATABASE_URL so app/db/session.py picks up the normalised value
@@ -360,7 +389,8 @@ async def run_eval() -> None:
 
     print("\n" + _SEPARATOR)
     print("GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)")
-    print(f"Songs: {len(EVAL_SONGS)} | Landmine gates: 6 per song = {6 * len(EVAL_SONGS)} total")
+    print(f"Songs: {len(songs)} ({', '.join(s['title'] for s in songs)}) | "
+          f"Landmine gates: 6 per song = {6 * len(songs)} total")
     print(f"N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.")
     print(f"Real L2 coverage lives in Task 3 device step o.")
     print(_SEPARATOR)
@@ -385,7 +415,7 @@ async def run_eval() -> None:
     errors: list[tuple[str, Exception]] = []
 
     try:
-        for idx, song in enumerate(EVAL_SONGS):
+        for idx, song in enumerate(songs):
             _print_song_header(idx, song)
 
             throwaway_uid = uuid.uuid4()
@@ -408,6 +438,7 @@ async def run_eval() -> None:
 
             print(f"\n  Calling run_technique_breakdown for {song['title']}... (live Anthropic)")
 
+            call_started = time.monotonic()
             try:
                 async with session_factory() as db:
                     breakdown = await run_technique_breakdown(
@@ -419,6 +450,13 @@ async def run_eval() -> None:
                         user_id=throwaway_uid,
                         timeout_seconds=_EVAL_TIMEOUT_SECONDS,
                     )
+
+                # FLE-43/FLE-18: the per-call wall clock is the number the 300s
+                # timeout has to cover. Printed per song so the margin is a
+                # measurement, not arithmetic over a 5-song aggregate.
+                print(f"\n  Wall clock for {song['title']!r}: "
+                      f"{time.monotonic() - call_started:.1f}s "
+                      f"(timeout={_EVAL_TIMEOUT_SECONDS:.0f}s)")
 
                 drills = breakdown.drills
                 if not drills:
@@ -436,6 +474,8 @@ async def run_eval() -> None:
                 _print_landmine_checklist(song, target_skills)
 
             except AIBreakdownError as exc:
+                print(f"\n  Wall clock before failure: "
+                      f"{time.monotonic() - call_started:.1f}s")
                 print(f"\n  ERROR (AIBreakdownError) for {song['title']!r}: {exc}")
                 errors.append((song["title"], exc))
                 continue
@@ -467,7 +507,7 @@ async def run_eval() -> None:
     print(f"\n{_SEPARATOR}")
     print("EVAL SUMMARY")
     print(_SEPARATOR)
-    print(f"  Songs attempted     : {len(EVAL_SONGS)}")
+    print(f"  Songs attempted     : {len(songs)}")
     print(f"  Songs with errors   : {len(errors)}")
     if errors:
         for title, exc in errors:
@@ -494,4 +534,15 @@ async def run_eval() -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    asyncio.run(run_eval())
+    _parser = argparse.ArgumentParser(
+        description="Live-Anthropic drill quality eval. Each song is one Sonnet call.",
+    )
+    _parser.add_argument(
+        "--song",
+        default=None,
+        metavar="TITLE",
+        help="Run only songs whose title contains TITLE (case-insensitive). "
+             "Default: all 5 EVAL_SONGS.",
+    )
+    _args = _parser.parse_args()
+    asyncio.run(run_eval(songs=_select_songs(_args.song)))
