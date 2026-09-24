@@ -666,6 +666,11 @@ export interface components {
          *     that soft-fails to drills=[] on ValidationError — the endpoint NEVER 500s
          *     from a drills-shape violation.
          *
+         *     FLE-72 tap budget: `repetitions` and the start→target span are CLAMPED, not
+         *     rejected (see MAX_LADDER_SPAN_BPM above and the two validators below), because
+         *     that soft-fail is all-or-nothing per song — one off-guidance number would cost
+         *     the user every drill in the breakdown.
+         *
          *     target_skill_temp_id validity (is-this-a-real-skill-node-owned-by-the-user)
          *     is NOT enforced at the Pydantic layer — validation lives at the endpoint
          *     where the per-request resolved skill list is in scope (Plan 04.1-01 Task 3).
@@ -705,12 +710,12 @@ export interface components {
             start_bpm: number;
             /**
              * Target Bpm
-             * @description Stretch tempo. Multiple of 5. Between 10 and 40 BPM higher than start_bpm.
+             * @description Stretch tempo. Multiple of 5. Between 10 and 15 BPM higher than start_bpm.
              */
             target_bpm: number;
             /**
              * Repetitions
-             * @description Reps per tempo step. Between 8 and 30.
+             * @description Reps per tempo step. Between 6 and 12.
              */
             repetitions: number;
             /**

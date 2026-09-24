@@ -318,9 +318,16 @@ TEMPO IS NOT THE DIFFICULTY SIGNAL. Do not try to make start_bpm or
 target_bpm rise across drills. A harder mechanic is often drilled SLOWER
 than an easy one, and that is correct. Set each drill's tempo from its own
 note density alone: start_bpm is a comfortable warmup for that specific
-mechanic, target_bpm is a stretch 10-40 BPM higher, both in 5-BPM
-increments to match the skill graph's 5-bpm bins. Repetitions: 8-30 per
+mechanic, target_bpm is a stretch 10-15 BPM higher, both in 5-BPM
+increments to match the skill graph's 5-bpm bins. Repetitions: 6-12 per
 tempo step.
+
+KEEP THE LADDER SHORT. The user plays every 5-BPM rung from start_bpm to
+target_bpm, `repetitions` times each, in one sitting, and cannot rate the
+drill until the top rung is done. A +15 BPM stretch at 12 reps is 48 reps
+of work — that is the CEILING, not the target. Prefer +10 at 8 reps. Never
+buy difficulty by widening the span or raising the rep count; buy it with
+the mechanic and the note density.
 
 target_skill_temp_id MUST be one of the ids listed in the user message.
 Do not invent ids. If none of the listed skills fit a drill you'd

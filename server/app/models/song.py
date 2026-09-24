@@ -79,6 +79,24 @@ class TechniqueNote(BaseModel):
     body: str
 
 
+# FLE-72 — tap-count budget for one drill run.
+#
+# The mobile drill screen (mobile/src/app/breakdown/[songId]/drill/[drillIndex].tsx,
+# advanceRepOrTempo) walks the ladder in ONE sitting: `repetitions` taps at every
+# 5-BPM rung from start_bpm to target_bpm, and the rating pills only appear once the
+# top rung is finished. So the taps a user owes before they can rate is
+#
+#     rungs x repetitions   where rungs = (target_bpm - start_bpm) / 5 + 1
+#
+# Under the pre-FLE-72 bounds (repetitions 8-30, span guidance 10-40 BPM) that was up
+# to 9 x 30 = 270 taps, and an ordinary breakdown measured 72-96 (FLE-56, song 71
+# "Pride and Joy"). These two constants are the whole fix: 4 rungs x 12 reps caps the
+# worst case at 48 taps, and the typical 10-BPM/8-rep drill lands at 24.
+MAX_LADDER_SPAN_BPM = 15        # 4 rungs at RUNG_STEP_BPM=5, counting start_bpm
+MIN_DRILL_REPETITIONS = 6       # == app.sessions.plan.MIN_PLANNED_REPS, deliberately
+MAX_DRILL_REPETITIONS = 12
+
+
 class Drill(BaseModel):
     """A single Fletcher-voiced practice drill (Phase 4.1, Plan 04.1-01).
 
@@ -93,6 +111,11 @@ class Drill(BaseModel):
     The breakdowns endpoint wraps run_technique_breakdown parsing in a try/except
     that soft-fails to drills=[] on ValidationError — the endpoint NEVER 500s
     from a drills-shape violation.
+
+    FLE-72 tap budget: `repetitions` and the start→target span are CLAMPED, not
+    rejected (see MAX_LADDER_SPAN_BPM above and the two validators below), because
+    that soft-fail is all-or-nothing per song — one off-guidance number would cost
+    the user every drill in the breakdown.
 
     target_skill_temp_id validity (is-this-a-real-skill-node-owned-by-the-user)
     is NOT enforced at the Pydantic layer — validation lives at the endpoint
@@ -165,13 +188,16 @@ class Drill(BaseModel):
         ...,
         ge=40,
         le=220,
-        description="Stretch tempo. Multiple of 5. Between 10 and 40 BPM higher than start_bpm.",
+        description="Stretch tempo. Multiple of 5. Between 10 and 15 BPM higher than start_bpm.",
     )
     repetitions: int = Field(
         ...,
-        ge=8,
-        le=30,
-        description="Reps per tempo step. Between 8 and 30.",
+        ge=MIN_DRILL_REPETITIONS,
+        le=MAX_DRILL_REPETITIONS,
+        description=(
+            f"Reps per tempo step. Between {MIN_DRILL_REPETITIONS} and "
+            f"{MAX_DRILL_REPETITIONS}."
+        ),
     )
     success_criterion: str = Field(
         ...,
@@ -182,18 +208,77 @@ class Drill(BaseModel):
         description="Optional. One sentence about the mistake beginners make on this mechanic.",
     )
 
+    @field_validator("repetitions", mode="before")
+    @classmethod
+    def _clamp_repetitions(cls, v: object) -> object:
+        """FLE-72: pull an off-guidance rep count into range instead of rejecting it.
+
+        CLAMP, not raise, because the cost of raising here is not "this drill is
+        dropped" — it is "every drill for this song is dropped". breakdown.py's
+        Landmine #3 soft-fail catches a ValidationError anywhere under `drills` by
+        stripping the whole `drills` key and re-parsing, so one rep count of 20
+        would cost the user all 2-4 drills. Narrowing the bound from 8-30 to 6-12
+        makes that outcome LIKELY, not hypothetical: Sonnet reaches for round
+        numbers, and 16 and 20 were both inside the old window.
+
+        The ge/le on the field stays as the number Sonnet is ASKED for — it is what
+        model_json_schema() ships in the tool definition — and this clamp is the
+        backstop for when it answers with something else. mode="before" means it
+        runs ahead of the int + ge/le core validation, so the constraint is never
+        the thing that fires. Non-int input still falls through to Pydantic's own
+        type error.
+        """
+        if isinstance(v, bool) or not isinstance(v, int):
+            return v
+        clamped = min(max(v, MIN_DRILL_REPETITIONS), MAX_DRILL_REPETITIONS)
+        if clamped != v:
+            logger.warning(
+                "Drill.repetitions %d is outside the FLE-72 tap budget — clamped to %d.",
+                v, clamped,
+            )
+        return clamped
+
     @model_validator(mode="after")
     def _target_bpm_above_start(self) -> "Drill":
         """W2 fix: target_bpm must be strictly greater than start_bpm.
 
-        Any positive delta validates — the 10-40 BPM range is SYSTEM_PROMPT guidance,
-        not Pydantic-enforced (Sonnet-side quality gate, not a hard schema constraint).
+        Still a raise, not a clamp: equal or inverted bpms mean Sonnet emitted a
+        zero-progress ladder, and there is no honest repair for that — any target we
+        invented would be our tempo judgement, not the model's. The FLE-72 span cap
+        below only ever moves target_bpm DOWN toward start_bpm, so it can never
+        create the violation this check rejects.
         """
         if self.target_bpm <= self.start_bpm:
             raise ValueError(
                 f"target_bpm ({self.target_bpm}) must be strictly greater than "
                 f"start_bpm ({self.start_bpm})"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _cap_ladder_span(self) -> "Drill":
+        """FLE-72: cap start->target at MAX_LADDER_SPAN_BPM so a ladder is <=4 rungs.
+
+        Clamped for the same reason as _clamp_repetitions — rejecting an 80-BPM
+        stretch would cost the song all of its drills, and a drill whose stretch is
+        trimmed to +15 is still a usable drill. target_bpm comes down rather than
+        start_bpm going up: start_bpm is the warmup tempo Sonnet chose for this
+        specific mechanic and is load-bearing for the drill being playable at all,
+        while target_bpm is the stretch, which is exactly what we are budgeting.
+
+        Runs AFTER _target_bpm_above_start (definition order), so `self.target_bpm >
+        self.start_bpm` already holds and the clamped value stays above start_bpm:
+        the ceiling is start_bpm + 15, and any value strictly above start_bpm that
+        exceeds the ceiling lands ON the ceiling.
+        """
+        ceiling = self.start_bpm + MAX_LADDER_SPAN_BPM
+        if self.target_bpm > ceiling:
+            logger.warning(
+                "Drill ladder span %d->%d BPM exceeds the FLE-72 budget of %d BPM — "
+                "target_bpm clamped to %d.",
+                self.start_bpm, self.target_bpm, MAX_LADDER_SPAN_BPM, ceiling,
+            )
+            self.target_bpm = ceiling
         return self
 
 

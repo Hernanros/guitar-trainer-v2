@@ -341,8 +341,13 @@ def planned_reps(
 ) -> Optional[int]:
     """§5.5 — fit reps to the clock. Returns None when the drill does not fit.
 
-    The drill's own `repetitions` (8-30) is a CEILING, not a plan. REP_DUTY_CYCLE
+    The drill's own `repetitions` (6-12 since FLE-72; 8-30 on rows generated before
+    it, which are not re-validated on read) is a CEILING, not a plan. REP_DUTY_CYCLE
     concedes a quarter of the slot to inter-rep reset and breath.
+
+    The FLE-72 floor is MIN_PLANNED_REPS on purpose, so the ceiling can no longer be
+    the reason a drill plans below the floor: min(fits, ceiling) >= MIN_PLANNED_REPS
+    for every post-FLE-72 drill that clears the `fits` gate.
 
     None means "drop this drill from candidates and take the next-highest score" —
     NOT "plan it for 3 reps". A slow 8-measure drill squeezed into a 15-minute

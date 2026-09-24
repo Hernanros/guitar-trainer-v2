@@ -15,6 +15,9 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.song import (
+    MAX_DRILL_REPETITIONS,
+    MAX_LADDER_SPAN_BPM,
+    MIN_DRILL_REPETITIONS,
     Beat,
     Breakdown,
     Drill,
@@ -50,7 +53,7 @@ def _valid_drill(**overrides) -> Drill:
         tab_snippet=_tab_snippet(),
         start_bpm=60,
         target_bpm=70,
-        repetitions=20,
+        repetitions=10,
         success_criterion="Slide arrives on the beat without a bump.",
         common_trap="Beginners over-anchor the ring finger.",
     )
@@ -70,7 +73,7 @@ def test_drill_schema_valid():
     assert drill.song_specific is True
     assert drill.start_bpm == 60
     assert drill.target_bpm == 70
-    assert drill.repetitions == 20
+    assert drill.repetitions == 10
     assert drill.common_trap == "Beginners over-anchor the ring finger."
 
 
@@ -109,17 +112,13 @@ def test_drill_schema_missing_required():
 
 
 def test_drill_schema_bpm_ranges():
-    """start_bpm/target_bpm/repetitions must satisfy ge/le bounds."""
+    """start_bpm/target_bpm must satisfy ge/le bounds."""
     with pytest.raises(ValidationError):
         _valid_drill(start_bpm=39)          # below 40
     with pytest.raises(ValidationError):
         _valid_drill(start_bpm=181, target_bpm=200)  # above 180
     with pytest.raises(ValidationError):
         _valid_drill(target_bpm=221)        # above 220
-    with pytest.raises(ValidationError):
-        _valid_drill(repetitions=7)         # below 8
-    with pytest.raises(ValidationError):
-        _valid_drill(repetitions=31)        # above 30
 
 
 def test_drill_schema_bpm_multiple_of_5_not_enforced():
@@ -131,7 +130,7 @@ def test_drill_schema_bpm_multiple_of_5_not_enforced():
 def test_drill_target_bpm_gt_start_bpm():
     """W2 fix: target_bpm must be strictly greater than start_bpm.
 
-    Any positive delta validates — the 10-40 BPM range is SYSTEM_PROMPT guidance,
+    Any positive delta validates — the 10-15 BPM range is SYSTEM_PROMPT guidance,
     not Pydantic-enforced.
     """
     # equal → invalid
@@ -143,6 +142,69 @@ def test_drill_target_bpm_gt_start_bpm():
     # any positive delta → valid
     drill = _valid_drill(start_bpm=60, target_bpm=61)
     assert drill.target_bpm > drill.start_bpm
+
+
+# ---------------------------------------------------------------------------
+# FLE-72 — tap budget. Both bounds CLAMP rather than raise, because a raise
+# anywhere under `drills` costs the song every drill (breakdown.py Landmine #3
+# soft-fail strips the whole key and re-parses).
+# ---------------------------------------------------------------------------
+
+
+def test_drill_repetitions_clamped_into_tap_budget():
+    """Out-of-range rep counts are pulled to the nearest bound, not rejected."""
+    assert _valid_drill(repetitions=30).repetitions == MAX_DRILL_REPETITIONS
+    assert _valid_drill(repetitions=13).repetitions == MAX_DRILL_REPETITIONS
+    assert _valid_drill(repetitions=1).repetitions == MIN_DRILL_REPETITIONS
+    # In-range values are untouched, including both bounds.
+    assert _valid_drill(repetitions=MIN_DRILL_REPETITIONS).repetitions == MIN_DRILL_REPETITIONS
+    assert _valid_drill(repetitions=8).repetitions == 8
+    assert _valid_drill(repetitions=MAX_DRILL_REPETITIONS).repetitions == MAX_DRILL_REPETITIONS
+
+
+def test_drill_repetitions_non_int_still_type_errors():
+    """The clamp passes non-ints through so Pydantic's own type error still fires."""
+    with pytest.raises(ValidationError):
+        _valid_drill(repetitions="lots")
+
+
+def test_drill_ladder_span_capped():
+    """A stretch wider than MAX_LADDER_SPAN_BPM clamps target_bpm down."""
+    drill = _valid_drill(start_bpm=60, target_bpm=140)
+    assert drill.target_bpm == 60 + MAX_LADDER_SPAN_BPM
+    assert drill.start_bpm == 60, "start_bpm is the warmup — it must not move"
+    # Exactly at the cap is untouched.
+    assert _valid_drill(start_bpm=60, target_bpm=75).target_bpm == 75
+    # Inside the cap is untouched.
+    assert _valid_drill(start_bpm=60, target_bpm=70).target_bpm == 70
+
+
+def test_drill_ladder_span_cap_holds_off_grid_start_bpm():
+    """The cap never clamps target_bpm to or below an off-grid start_bpm."""
+    drill = _valid_drill(start_bpm=63, target_bpm=200)
+    assert drill.target_bpm == 78
+    assert drill.target_bpm > drill.start_bpm
+
+
+def test_drill_worst_case_tap_count_is_48():
+    """The point of FLE-72: the taps owed before the rating pills unlock.
+
+    Mirrors mobile advanceRepOrTempo — `repetitions` taps at every 5-BPM rung from
+    start_bpm to target_bpm inclusive, in one sitting. The pre-FLE-72 worst case was
+    9 rungs x 30 reps = 270.
+    """
+    def taps(drill: Drill) -> int:
+        rungs = (drill.target_bpm - drill.start_bpm) // 5 + 1
+        return rungs * drill.repetitions
+
+    # Worst case a Drill can now represent: both bounds asked for far past the cap,
+    # both clamped. target_bpm=220 / repetitions=30 is the pre-FLE-72 ceiling.
+    worst = _valid_drill(start_bpm=60, target_bpm=220, repetitions=30)
+    assert taps(worst) == 48
+
+    # The shape the prompt actually asks for: +10 BPM at 8 reps.
+    typical = _valid_drill(start_bpm=60, target_bpm=70, repetitions=8)
+    assert taps(typical) == 24
 
 
 # ---------------------------------------------------------------------------
