@@ -7,7 +7,7 @@
 # client at mobile/src/api/sessions.ts:26. Redefining it would collide in the generated
 # `components['schemas']` and break `useSubmitRating` at the next `npm run codegen` —
 # in a file nobody touched, which is the worst kind of break to diagnose.
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -18,6 +18,54 @@ SessionStateLiteral = Literal["planned", "in_progress", "completed", "abandoned"
 TerminalReasonLiteral = Literal["user_completed", "day_rolled", "timeout"]
 ItemStateLiteral = Literal["not_reached", "in_progress", "completed", "skipped"]
 AdvanceModeLiteral = Literal["user_tap", "auto"]
+
+
+class EmbeddedDrill(BaseModel):
+    """A drill's renderable content, carried inline on the item that plans it.
+
+    NO `user_id` FIELD, deliberately. FLE-4 §12.1's hand-authored warm-up drills are
+    global rows (`user_id IS NULL`) and a warm-up item can resolve to one; if
+    ownership appeared here the player would need a kind-of-drill branch on top of
+    the kind-of-item branch it already has. A seed drill and a generated drill are
+    structurally indistinguishable on the wire, which is the point.
+
+    `start_bpm` / `target_bpm` / `repetitions` are the DRILL's own prescription and
+    are not the same numbers as the item's `planned_bpm` / `planned_reps`, which the
+    generator set for today. The item's values win when they are present (FLE-10 R5 —
+    the client derives nothing); these are here for the drill's own copy, e.g. "work
+    this from 60 to 90".
+    """
+
+    drill_id: UUID
+    name: str
+    what: str
+    tab_snippet: Any
+    start_bpm: int
+    target_bpm: int
+    repetitions: int
+    success_criterion: str
+    common_trap: Optional[str] = None
+    song_specific: bool
+
+
+class EmbeddedSong(BaseModel):
+    """A song's renderable content, carried inline on the item that plans it.
+
+    `breakdown` is the full tab/chords/technique_notes envelope rather than a flag
+    pointing at the client's per-song `useBreakdown` cache: that cache is only warm
+    if the user opened the Today card first, and a resumed session — or one opened
+    from a notification — has no such guarantee. Measured at <=10KB per song, and a
+    session references at most one.
+    """
+
+    song_id: int
+    title: str
+    artist: str
+    genre: Optional[str] = None
+    difficulty: Optional[str] = None
+    bpm: Optional[int] = None
+    key: Optional[str] = None
+    breakdown: Any = None
 
 
 class PracticeSessionItemResponse(BaseModel):
@@ -38,6 +86,13 @@ class PracticeSessionItemResponse(BaseModel):
     drill_id: Optional[UUID] = None
     song_id: Optional[int] = None
     target_skill_node_id: Optional[UUID] = None
+
+    # The embed (FLE-63 decision 1, ruled on FLE-21 2026-09-24). `drill` is present
+    # iff kind == "drill"; `song` iff kind is song_section/song_play. Both are still
+    # Optional because the referenced row can be deleted after the plan is written
+    # (drill_id is ON DELETE SET NULL) — the player must skip such an item, not crash.
+    drill: Optional[EmbeddedDrill] = None
+    song: Optional[EmbeddedSong] = None
 
     planned_seconds: int
     planned_bpm: Optional[int] = None

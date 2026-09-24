@@ -39,8 +39,10 @@ from app.sessions.store import resolve_or_generate  # noqa: E402
 
 from tests.test_session_snapshot import (  # noqa: E402
     TEST_DB_URL,
+    _link_song_skill,
     _make_drill,
     _make_root_chain,
+    _make_song,
     _make_user,
 )
 
@@ -300,3 +302,256 @@ async def test_another_users_session_is_404():
     finally:
         await _cleanup(owner)
         await _cleanup(intruder)
+
+
+# ---------------------------------------------------------------------------
+# FLE-63 — generate + read-back, and the embed
+# ---------------------------------------------------------------------------
+
+
+async def _seed_with_song(db: AsyncSession, uid: uuid.UUID) -> int:
+    """`_seed` plus a working-on song, so build_plan emits repertoire items.
+
+    The default fixture produces an all-drill plan, which cannot prove the song half
+    of the embed. Returns the song id.
+    """
+    await db.execute(
+        text("INSERT INTO users (id, preferences) VALUES (:id, CAST(:p AS jsonb))"),
+        {"id": uid, "p": '{"session_length_min": 30}'},
+    )
+    rhythm = await _make_root_chain(db, uid, "Rhythm", 0.2, 0.35)
+    lead = await _make_root_chain(db, uid, "Lead", 0.6, 0.55)
+    for leaf in rhythm + lead:
+        for _ in range(2):
+            await _make_drill(db, uid, leaf)
+    song_id = await _make_song(db, uid, category="working_on", bpm=120)
+    for leaf in rhythm + lead:
+        await _link_song_skill(db, song_id, leaf)
+    await db.commit()
+    return song_id
+
+
+@pytest.mark.asyncio
+async def test_today_generates_then_resolves_one_session():
+    """FLE-63's done-when, and the double-tap the partial unique exists to arbitrate.
+
+    201 then 200 is not cosmetic: a resolved session may be one the user is halfway
+    through, so the player must be able to tell it from a fresh plan without guessing.
+    """
+    uid = uuid.uuid4()
+    async with _make_session() as db:
+        await _seed(db, uid)
+    try:
+        async with _client() as c:
+            first = await c.post(
+                "/api/v1/practice-sessions/today", headers=_headers(uid)
+            )
+            second = await c.post(
+                "/api/v1/practice-sessions/today", headers=_headers(uid)
+            )
+
+        assert first.status_code == 201, first.text
+        assert second.status_code == 200, second.text
+        assert first.json()["id"] == second.json()["id"], (
+            "two plans for one day — the open-day unique is not arbitrating"
+        )
+        assert first.json()["state"] == "planned"
+        assert first.json()["started_at"] is None, (
+            "generating must not look like starting (FLE-21 §1)"
+        )
+
+        async with _make_session() as db:
+            count = await db.scalar(
+                text("SELECT count(*) FROM practice_sessions WHERE user_id = :u"),
+                {"u": uid},
+            )
+        assert count == 1
+    finally:
+        await _cleanup(uid)
+
+
+@pytest.mark.asyncio
+async def test_today_embeds_drill_content_inline():
+    """FLE-63 decision 1, ruled EMBED on 2026-09-24.
+
+    The session must be runnable with no further network. A drill item that carries
+    only `drill_id` forces a fetch at the item boundary — i.e. mid-practice, in a room
+    with bad wifi — which is exactly what the ruling rejected.
+    """
+    uid = uuid.uuid4()
+    async with _make_session() as db:
+        await _seed(db, uid)
+    try:
+        async with _client() as c:
+            resp = await c.post(
+                "/api/v1/practice-sessions/today", headers=_headers(uid)
+            )
+        assert resp.status_code == 201, resp.text
+        items = resp.json()["items"]
+        drill_items = [i for i in items if i["kind"] == "drill"]
+        assert drill_items, "fixture produced no drill items — scenario is wrong"
+
+        for item in drill_items:
+            d = item["drill"]
+            assert d is not None, f"item {item['item_index']} embeds no drill content"
+            assert d["drill_id"] == item["drill_id"]
+            for field in (
+                "name",
+                "what",
+                "tab_snippet",
+                "start_bpm",
+                "target_bpm",
+                "repetitions",
+                "success_criterion",
+            ):
+                assert d[field] is not None, f"{field} missing — the item cannot render"
+            # FLE-4 §12.1: a warm-up item can resolve to a GLOBAL seed drill. If
+            # ownership leaked onto the wire the player would need a kind-of-drill
+            # branch on top of the kind-of-item branch it already has.
+            assert "user_id" not in d, (
+                "embedded drill leaks ownership — seed and generated drills must be "
+                "structurally identical on the wire"
+            )
+    finally:
+        await _cleanup(uid)
+
+
+@pytest.mark.asyncio
+async def test_today_embeds_song_content_inline():
+    """The song half. `breakdown` ships inline rather than relying on the client's
+    per-song useBreakdown cache, which is only warm if the user opened the Today card
+    first — a resumed session has no such guarantee."""
+    uid = uuid.uuid4()
+    async with _make_session() as db:
+        song_id = await _seed_with_song(db, uid)
+    try:
+        async with _client() as c:
+            resp = await c.post(
+                "/api/v1/practice-sessions/today",
+                json={"song_id": song_id},
+                headers=_headers(uid),
+            )
+        assert resp.status_code == 201, resp.text
+        items = resp.json()["items"]
+        song_items = [i for i in items if i["kind"] in ("song_section", "song_play")]
+        assert song_items, "fixture produced no repertoire items — scenario is wrong"
+
+        for item in song_items:
+            s = item["song"]
+            assert s is not None, f"item {item['item_index']} embeds no song content"
+            assert s["song_id"] == item["song_id"] == song_id
+            assert s["title"] and s["artist"]
+            assert "breakdown" in s
+            assert item["drill"] is None, "a song item must not carry drill content"
+    finally:
+        await _cleanup(uid)
+
+
+@pytest.mark.asyncio
+async def test_current_carries_the_same_embedded_content_as_today():
+    """The resume path must be self-sufficient too.
+
+    FLE-10 resumes through `GET /current`, not through `/today`. If only the generate
+    response embedded content, every resumed session would be a blank player.
+    """
+    uid = uuid.uuid4()
+    async with _make_session() as db:
+        await _seed(db, uid)
+    try:
+        async with _client() as c:
+            generated = await c.post(
+                "/api/v1/practice-sessions/today", headers=_headers(uid)
+            )
+            current = await c.get(
+                "/api/v1/practice-sessions/current", headers=_headers(uid)
+            )
+        assert current.status_code == 200, current.text
+        assert [i["drill"] for i in generated.json()["items"]] == [
+            i["drill"] for i in current.json()["items"]
+        ]
+    finally:
+        await _cleanup(uid)
+
+
+@pytest.mark.asyncio
+async def test_get_session_by_id_reads_back_and_does_not_shadow_current():
+    """Route ordering. `/current` is a literal and must not be parsed as a UUID —
+    if `GET /{session_id}` is ever declared above it, this fails instead of the pilot.
+    """
+    uid = uuid.uuid4()
+    async with _make_session() as db:
+        await _seed(db, uid)
+    try:
+        async with _client() as c:
+            sid = (
+                await c.post("/api/v1/practice-sessions/today", headers=_headers(uid))
+            ).json()["id"]
+            by_id = await c.get(
+                f"/api/v1/practice-sessions/{sid}", headers=_headers(uid)
+            )
+            current = await c.get(
+                "/api/v1/practice-sessions/current", headers=_headers(uid)
+            )
+
+        assert by_id.status_code == 200, by_id.text
+        assert by_id.json()["id"] == sid
+        assert by_id.json()["items"] == current.json()["items"]
+        assert current.status_code == 200, (
+            "/current was swallowed by the {session_id} route"
+        )
+    finally:
+        await _cleanup(uid)
+
+
+@pytest.mark.asyncio
+async def test_get_another_users_session_is_404():
+    """Same access-control rule as the lifecycle writes: a crafted UUID must not read
+    another participant's plan."""
+    owner = uuid.uuid4()
+    intruder = uuid.uuid4()
+    async with _make_session() as db:
+        await _seed(db, owner)
+        await _seed(db, intruder)
+        sid = await _generate_today(db, owner)
+    try:
+        async with _client() as c:
+            resp = await c.get(
+                f"/api/v1/practice-sessions/{sid}", headers=_headers(intruder)
+            )
+        assert resp.status_code == 404, resp.text
+    finally:
+        await _cleanup(owner)
+        await _cleanup(intruder)
+
+
+@pytest.mark.asyncio
+async def test_today_for_an_unknown_user_is_404():
+    """SnapshotError — no such user row. Distinct from 409 (user exists, nothing to
+    practise), which is a real product state with a screen behind it."""
+    async with _client() as c:
+        resp = await c.post(
+            "/api/v1/practice-sessions/today", headers=_headers(uuid.uuid4())
+        )
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_today_with_no_material_is_409_not_500():
+    """A user with no drills and no song. The outbox drops 4xx and retries the rest,
+    so a 500 here would be an infinite retry loop against a user who simply has
+    nothing banked yet."""
+    uid = uuid.uuid4()
+    async with _make_session() as db:
+        await db.execute(
+            text("INSERT INTO users (id, preferences) VALUES (:id, '{}'::jsonb)"),
+            {"id": uid},
+        )
+        await db.commit()
+    try:
+        async with _client() as c:
+            resp = await c.post(
+                "/api/v1/practice-sessions/today", headers=_headers(uid)
+            )
+        assert resp.status_code == 409, resp.text
+    finally:
+        await _cleanup(uid)
