@@ -62,6 +62,63 @@ class PrimarySkillRoot(str, enum.Enum):
 
 
 # -------------------------------------------------------------------------
+# FLE-4 §13 drill taxonomy enums (migration 0011)
+#
+# MIRRORED, NOT IMPORTED — deliberately, and for the same reason
+# app.sessions.taxonomy mirrors PrimarySkillRoot back the other way: the pure
+# session core imports no SQLAlchemy, and the ORM layer does not import session
+# logic. test_alembic_0011.py pins all three copies (here, taxonomy.py, and
+# migration 0011's tuples) to each other so the duplication cannot drift silently.
+#
+# `TechniqueFamilyEnum` carries the `Enum` suffix only to avoid colliding with
+# taxonomy.TechniqueFamily at import sites that pull in both.
+# -------------------------------------------------------------------------
+
+class TechniqueFamilyEnum(str, enum.Enum):
+    """§8 — the 18 technique families. Global and fixed; never per-user."""
+    R1 = "R1"
+    R2 = "R2"
+    R3 = "R3"
+    L1 = "L1"
+    L2 = "L2"
+    L3 = "L3"
+    L4 = "L4"
+    C1 = "C1"
+    C2 = "C2"
+    C3 = "C3"
+    C4 = "C4"
+    F1 = "F1"
+    F2 = "F2"
+    F3 = "F3"
+    T1 = "T1"
+    T2 = "T2"
+    M1 = "M1"
+    M2 = "M2"
+
+
+class DrillTier(str, enum.Enum):
+    """§9 — five difficulty tiers on the [0,1] mastery scale."""
+    D1 = "D1"
+    D2 = "D2"
+    D3 = "D3"
+    D4 = "D4"
+    D5 = "D5"
+
+
+class DrillStatus(str, enum.Enum):
+    """§13 — bank lifecycle. Only ACTIVE is selectable and counts toward coverage.
+
+    PENDING_REVIEW exists so a future quality gate can quarantine a drill without
+    deleting it: it leaves the selectable pool and the coverage count, but the row
+    and its history survive.
+    """
+    ACTIVE = "active"
+    DUPLICATE = "duplicate"
+    RETIRED = "retired"
+    PENDING_REVIEW = "pending_review"
+
+
+# -------------------------------------------------------------------------
 # User ORM model (Phase 2 — POC single-user with multi-user seams)
 # -------------------------------------------------------------------------
 
@@ -542,6 +599,51 @@ class Drill(Base):
         Integer, ForeignKey("songs.id", ondelete="SET NULL"), nullable=True
     )
     origin_drill_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # --- FLE-4 §13 taxonomy (migration 0011) ---
+    #
+    # family/tier/tier_raw_score are NULLABLE and NULL means NOT YET CLASSIFIED, not
+    # "has no family". scripts/backfill_drill_taxonomy.py fills them; a NULL-family
+    # drill stocks no §10 cell and is counted as unclassified rather than as absent.
+    family: Mapped[Optional[TechniqueFamilyEnum]] = mapped_column(
+        SAEnum(
+            TechniqueFamilyEnum,
+            name="technique_family",
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,  # created by migration 0011 raw SQL
+        ),
+        nullable=True,
+        doc="§8 family — which CELL this drill stocks. Not the same axis as "
+        "skill_node_id, which is whose weakness it serves.",
+    )
+    tier: Mapped[Optional[DrillTier]] = mapped_column(
+        SAEnum(
+            DrillTier,
+            name="drill_tier",
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,
+        ),
+        nullable=True,
+        doc="§9 tier, computed by app.sessions.taxonomy.compute_tier() and STORED so "
+        "retuning §9.1 is one UPDATE.",
+    )
+    tier_raw_score: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="§9.1 raw 0-20 feature sum behind `tier`. Paired with it by "
+        "ck_drills_tier_pairs_raw_score — both present or neither.",
+    )
+    status: Mapped[DrillStatus] = mapped_column(
+        SAEnum(
+            DrillStatus,
+            name="drill_status",
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,
+        ),
+        nullable=False,
+        server_default=text("'active'"),
+        doc="§13 lifecycle. Only ACTIVE counts toward §10 coverage. Kept in lockstep "
+        "with canonical_drill_id by ck_drills_status_matches_canonical.",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

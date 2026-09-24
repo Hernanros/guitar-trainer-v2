@@ -44,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.selectors.player_level import floor_player_level
 from app.sessions.assemble import ConsolidationSong, GeneratorInputs, SongMaterial
 from app.sessions.select import DrillCandidate
-from app.sessions.taxonomy import SkillRoot
+from app.sessions.taxonomy import SkillRoot, TechniqueFamily, Tier
 
 # §12.1's hand-authored warm-up drills are GLOBAL rows (`user_id IS NULL`) and
 # `drills.user_id` is NOT NULL today, so no query can return them. The seam stays
@@ -200,6 +200,8 @@ _CANDIDATES_SQL = text(
         d.target_bpm              AS target_bpm,
         d.repetitions             AS repetitions,
         d.song_specific           AS song_specific,
+        d.family::text            AS family,
+        d.tier::text              AS tier,
         leaf.mastery              AS node_mastery,
         root.name                 AS root_name,
         p.state::text             AS progress_state,
@@ -217,7 +219,7 @@ _CANDIDATES_SQL = text(
       LEFT JOIN skill_nodes root ON root.id = sub.parent_id AND root.level = 'root'
       LEFT JOIN drill_progress p ON p.drill_id = d.id AND p.user_id = d.user_id
      WHERE d.user_id = :user_id
-       AND d.canonical_drill_id IS NULL
+       AND d.status = 'active'
      ORDER BY d.id
     """
 )
@@ -337,10 +339,13 @@ async def _load_candidates(db: AsyncSession, user_id: UUID) -> list[DrillCandida
                 repetitions=int(r.repetitions),
                 song_specific=bool(r.song_specific),
                 is_canonical=True,  # the WHERE clause already guarantees it
-                # family stays None until FLE-8 backfills drills.family; `root` is
-                # its documented proxy, and family_key degrades family -> root -> node
-                # on its own, so nothing here needs to know which one is present.
-                family=None,
+                # §8/§9 from the FLE-13 columns. Both stay Optional: the columns are
+                # nullable and NULL means the backfill has not reached this row (or
+                # declined to classify it). family_key degrades family -> root -> node
+                # on its own and _tier_of() recomputes an absent tier, so a NULL here
+                # costs precision, never correctness.
+                family=TechniqueFamily(r.family) if r.family else None,
+                tier=Tier(r.tier) if r.tier else None,
                 root=SkillRoot(root_value) if root_value else None,
                 node_mastery=_as_float(r.node_mastery) or 0.0,
                 # A drill with no drill_progress row is 'active' at its start_bpm with

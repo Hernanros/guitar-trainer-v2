@@ -16,26 +16,27 @@
 # reproducible and debuggable. Do not put a model in this path without an explicit
 # product decision from Miagi.
 #
-# --- Two places this runs ahead of the schema ------------------------------
+# --- Where this runs ahead of the schema -----------------------------------
 #
-# FLE-8 shipped the bank WITHOUT §13's `family`, `tier`, `tier_raw_score` and
-# `status` columns, and with `drills.user_id` NOT NULL (so §12.1's global seed
-# drills cannot exist yet). Rather than block, this module degrades in two
-# documented ways, both of which become no-ops the day those columns land:
+# FLE-13 (migration 0011) landed §13's `family`, `tier`, `tier_raw_score` and
+# `status` columns, so the two degradations this module used to carry are gone:
+# snapshot.py now reads family and tier straight off the row, and `status =
+# 'active'` replaced the `canonical_drill_id IS NULL` proxy in the candidate query.
 #
-#   family  -> None. The family is used for the tier-range clamp (§9.1), the
-#              family_repeat penalty (§11.2) and the warm-up's family inheritance
-#              (§5.1a). With no column, `DrillCandidate.family_key` falls back to
-#              the drill's skill-node ROOT, which is the axis families are hung off
-#              anyway (§8). The penalty is coarser -- it stops two lead drills
-#              stacking, not two alternate-picking drills -- and the band filter is
-#              UNAFFECTED, because §11.1's band is computed from root mastery and
-#              never reads the family itself.
-#   status  -> `canonical_drill_id IS NULL` is the faithful proxy. That is exactly
-#              what dedup suppression sets today (app/ai/drill_dedupe.py), and it is
-#              what §13's status='duplicate' will mean.
+# The degradation PATHS stay in the code, because the columns are nullable and a row
+# the backfill has not reached yet still has to select. They are now per-row
+# fallbacks rather than a whole-table condition:
 #
-# Both are tracked as follow-ups on FLE-9; see SPEC_GAPS at the bottom of this file.
+#   family IS NULL  -> `DrillCandidate.family_key` falls back to the drill's
+#              skill-node ROOT (§8's own axis), so §11.2's family_repeat penalty runs
+#              coarser for that row -- it stops two lead drills stacking rather than
+#              two alternate-picking drills. §11.1's band filter is UNAFFECTED either
+#              way: it is computed from root mastery and never reads the family.
+#   tier IS NULL -> `_tier_of()` recomputes it with compute_tier(). Same function
+#              that produced the stored value, so the two cannot disagree.
+#
+# `drills.user_id` is still NOT NULL, so §12.1's global seed drills remain
+# impossible; that one is unchanged. See SPEC_GAPS at the bottom of this file.
 
 from __future__ import annotations
 
@@ -146,10 +147,15 @@ class DrillCandidate:
     target_bpm: int
     repetitions: int
     song_specific: bool = False
-    # `canonical_drill_id IS NULL` today; `status == 'active'` once §13 ships.
+    # `status == 'active'` since FLE-13; `canonical_drill_id IS NULL` before it.
     is_canonical: bool = True
-    # §8. None until FLE-8 backfills the column; see the module header.
+    # §8. Read from drills.family (FLE-13). Still Optional, because the column is
+    # nullable and NULL means the classifier declined — family_key degrades around it.
     family: Optional[TechniqueFamily] = None
+    # §9. Read from drills.tier once the backfill has reached this row. None means
+    # "not stored yet", and _tier_of() recomputes it — the two cannot disagree, since
+    # the stored value came from the same compute_tier() call on the same columns.
+    tier: Optional[Tier] = None
     # The drill's skill node's primary root. The family proxy while family is None.
     root: Optional[SkillRoot] = None
     # Mastery of target_skill_node_id, [0,1]. Drives `deficit`, the dominant term.
@@ -360,6 +366,15 @@ class _Scored:
 
 
 def _tier_of(candidate: DrillCandidate) -> Tier:
+    """The candidate's tier — STORED if the backfill has reached it, else computed.
+
+    §9.1 wants tier stored so the rubric is retunable with one UPDATE, and the stored
+    value is authoritative here for that reason: after a retune, recomputing on read
+    would silently serve the OLD rubric's answer and make the UPDATE pointless. The
+    fallback is not a disagreement, just a row the backfill has not visited yet.
+    """
+    if candidate.tier is not None:
+        return candidate.tier
     tier, _raw = compute_tier(
         candidate.tab_snippet,
         start_bpm=candidate.start_bpm,
@@ -673,9 +688,10 @@ def _build_warmup(candidate: DrillCandidate, seconds: int, rule: str) -> WarmupP
 # ---------------------------------------------------------------------------
 
 SPEC_GAPS = (
-    "drills.family / tier / tier_raw_score / status — §13 columns FLE-8 did not "
-    "ship. family degrades to the skill-node root (family_key), status degrades to "
-    "canonical_drill_id IS NULL, tier is computed on read instead of stored.",
+    "drills.family is nullable and NULL for any row the FLE-13 backfill declined to "
+    "classify (scripts/backfill_drill_taxonomy.py). Such a row selects normally but "
+    "its family_repeat penalty degrades to the skill-node root, and it stocks no §10 "
+    "coverage cell — app/sessions/coverage.py counts it as unclassified, not absent.",
     "drills.user_id is NOT NULL, so §12.1's three global seed warm-up drills cannot "
     "exist. §5.1 rule (d) is unreachable; `fallback_slot1` stands in for it.",
 )

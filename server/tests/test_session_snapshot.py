@@ -157,15 +157,27 @@ async def _make_drill(
     repetitions: int = 12,
     song_specific: bool = False,
     canonical_drill_id: uuid.UUID | None = None,
+    family: str | None = None,
+    tier: str | None = None,
 ) -> uuid.UUID:
     did = uuid.uuid4()
+    # status is DERIVED from canonical_drill_id rather than passed in. FLE-13's
+    # ck_drills_status_matches_canonical makes "status = 'duplicate'" and
+    # "canonical_drill_id IS NOT NULL" the same statement, so a helper that let the
+    # two be set independently could only ever build rows the database rejects.
+    status = "duplicate" if canonical_drill_id is not None else "active"
+    # tier and tier_raw_score are paired by ck_drills_tier_pairs_raw_score; the raw
+    # score is a fixed in-range filler because no assertion here reads it.
     await db.execute(
         text(
             "INSERT INTO drills (id, user_id, name, name_normalized, skill_node_id, "
             "canonical_drill_id, song_specific, what, tab_snippet, start_bpm, "
-            "target_bpm, repetitions, success_criterion) "
+            "target_bpm, repetitions, success_criterion, status, family, tier, "
+            "tier_raw_score) "
             "VALUES (:id, :uid, :name, :norm, :node, :canon, :ss, 'what', "
-            "'{}'::jsonb, :start, :target, :reps, 'clean')"
+            "'{}'::jsonb, :start, :target, :reps, 'clean', "
+            "CAST(:status AS drill_status), CAST(:family AS technique_family), "
+            "CAST(:tier AS drill_tier), CASE WHEN :tier IS NULL THEN NULL ELSE 8 END)"
         ),
         {
             "id": did,
@@ -178,6 +190,9 @@ async def _make_drill(
             "start": start_bpm,
             "target": target_bpm,
             "reps": repetitions,
+            "status": status,
+            "family": family,
+            "tier": tier,
         },
     )
     return did

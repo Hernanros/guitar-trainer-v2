@@ -103,14 +103,26 @@ async def _seed_user_song_skill(db: AsyncSession) -> tuple[str, int, str]:
     return user_id, song_id, skill_id
 
 
+# `status` is set from canonical_drill_id rather than defaulted. Migration 0011 added
+# ck_drills_status_matches_canonical, which makes "status = 'duplicate'" and
+# "canonical_drill_id IS NOT NULL" the same statement — so a collapsed duplicate built
+# here has to say it is one, or the row is rejected before this module's 0006-era
+# assertions ever get to run.
 _INSERT_DRILL = text(
     "INSERT INTO drills "
     "  (id, user_id, name, name_normalized, skill_node_id, canonical_drill_id, "
     "   dedupe_score, song_specific, what, tab_snippet, start_bpm, target_bpm, "
-    "   repetitions, success_criterion, common_trap, origin_song_id, origin_drill_index) "
-    "VALUES (:id, :uid, :name, :norm, :skill, :canon, :score, :song_specific, :what, "
+    "   repetitions, success_criterion, common_trap, origin_song_id, origin_drill_index, "
+    "   status) "
+    "VALUES (:id, :uid, :name, :norm, :skill, CAST(:canon AS uuid), :score, "
+    "        :song_specific, :what, "
     "        '{}'::jsonb, :start_bpm, :target_bpm, 12, 'Clean at tempo.', NULL, "
-    "        :song_id, :drill_index)"
+    "        :song_id, :drill_index, "
+    # The CAST is required, not cosmetic: :canon appears here only inside IS NULL,
+    # which gives asyncpg nothing to infer a parameter type from, and it raises
+    # AmbiguousParameterError rather than guessing.
+    "        CAST(CASE WHEN CAST(:canon AS uuid) IS NULL THEN 'active' "
+    "                  ELSE 'duplicate' END AS drill_status))"
 )
 
 
