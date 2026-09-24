@@ -50,6 +50,36 @@ did — the bank sits alongside it, and wiring the two together is a later task.
    near-duplicates the bank exists to remove. Any future list endpoint will do this
    server-side, but the field is visible in the schema so the reason is stated here.
 
+### Addendum, 2026-09-24 — migration `0011` added four columns to `drills`
+
+Everything above still holds. `0011_drills_taxonomy_columns` (FLE-13) is live in
+production and adds the §13 taxonomy columns the table shipped without.
+
+| column | type | null | notes |
+|---|---|---|---|
+| `family` | enum `technique_family` | **yes** | §8 technique family — 18 values: `R1-R3`, `L1-L4`, `C1-C4`, `F1-F3`, `T1-T2`, `M1-M2`. NULL = **not yet classified**, never "has no family" |
+| `tier` | enum `drill_tier` | **yes** | §9 difficulty, `D1`–`D5` |
+| `tier_raw_score` | int | **yes** | §9.1 raw 0–20 feature sum behind `tier`. CHECK `0..20`; paired with `tier` — both present or neither |
+| `status` | enum `drill_status` | no | `active` · `duplicate` · `retired` · `pending_review`. Default `active` |
+
+**What this changes for mobile:**
+
+1. **`status` supersedes the `canonical_drill_id IS NULL` filter above.** They are
+   held equal by a CHECK constraint (`status = 'duplicate'` ⇔ `canonical_drill_id
+   IS NOT NULL`), so the old rule is not wrong — but `status = 'active'` is the
+   filter to write, because it also excludes `retired` and `pending_review`, which
+   `canonical_drill_id` cannot express. Anything not `active` is not selectable.
+
+2. **`family` and `tier` are nullable and are NULL for now.** They are filled by
+   `scripts/backfill_drill_taxonomy.py`, not by the drill write path, so a freshly
+   banked drill has both NULL until that script runs. Any UI that groups or labels
+   by family/tier needs an unclassified case — this is the common state today, not
+   an edge case. As measured on 2026-09-24, the classifier resolves a family for
+   **8 of 16** candidate drills.
+
+3. **`family` is not `skill_node_id`.** `skill_node_id` says whose weakness the
+   drill serves; `family` says which cell of the bank it stocks. Both, not either.
+
 ## `drill_attempts` — per-drill history
 
 | column | type | null | notes |
