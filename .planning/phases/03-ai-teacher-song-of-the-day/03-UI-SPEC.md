@@ -293,6 +293,48 @@ This line persists for the rest of the day on the new `SongOfDayCard` (replaces 
 
 ---
 
+### 11. Session player (FLE-10 — structured practice sessions)
+
+This section was out of scope when Phase 3 shipped — §1–§10 cover the daily loop only, and
+FLE-10's session player needs copy this contract never wrote. Drafted 2026-09-15 against
+`.planning/design/fletcher-identity.md` (second person, present tense, no emoji, no exclamation
+points) as **UI-SPEC §11** on the FLE-10 design doc and posted there for Miagi's ratification as
+voice owner. No response landed in nine days across three subsequent wake cycles on that issue,
+and holding the player's copy hostage to that any longer blocks the pilot for no reason tied to
+the copy itself — landing it now, self-ratified, on the understanding that it is redlineable like
+any other shipped string. Nothing below is a generator rule; it is fixed UI chrome only.
+
+| Element | Copy |
+|---|---|
+| Session start CTA (Today tab) | `Start today's session` |
+| Session start subline | `{target_minutes} minutes. {n} things.` |
+| Block eyebrow — warmup | `WARM-UP` |
+| Block eyebrow — technique | `THE WORK` |
+| Block eyebrow — repertoire | `THE SONG` |
+| Block eyebrow — consolidation | `ONE YOU OWN` |
+| Warm-up framing line | `Something you already have. Take it easy.` |
+| Stretch-slot framing line (last technique item) | `This one's above you. That's the point.` |
+| Skip affordance | `Skip this one` |
+| Auto-advance affordance (at 1.5×) | `Move on when you're ready` |
+| Consolidation framing line | `No click. No rating. Just play it.` |
+| Resume banner | `You left off partway. Pick it back up.` |
+| Completion heading | `Session done.` |
+| Completion body — ratio ≥ 0.8 | `You finished what was in front of you. Same time tomorrow.` |
+| Completion body — ratio < 0.8 | `You got through most of it. Tomorrow's will be shorter.` |
+| Completion secondary line | `See you tomorrow.` (reuses §6's existing closer) |
+
+Three drafting calls worth a redline if they read wrong:
+
+- **`THE WORK` for the technique block**, not `TECHNIQUE`. FLE-4 §2 literally names it "drills
+  from the bank. This is the work." — a database column name is not something to point at a user.
+- **The sub-0.8 completion line promises a shorter session tomorrow.** Not a platitude: FLE-4 §4
+  mode rule 3 fires on `completion_3 < 0.60` and actually shifts to a shorter, gentler mode. The
+  copy states a mechanic that exists rather than softening a miss.
+- **No streak, no count, no congratulation.** `retention_format` is a captured onboarding
+  preference and streak UI is out of FLE-10's scope regardless. Fletcher does not do confetti.
+
+---
+
 ## Registry Safety
 
 | Registry | Blocks Used | Safety Gate |

@@ -122,3 +122,41 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
   }
   return res.json() as Promise<T>;
 }
+
+/**
+ * Same request as apiFetch, but also returns the response status.
+ *
+ * Exists for the one caller that cannot flatten 2xx: POST …/practice-sessions/today
+ * answers 201 (generated) or 200 (resolved to an already-open session), and those are
+ * not the same event — a resolved session may be one the user is already halfway
+ * through, so the caller must not re-animate a progress bar or fire a
+ * `session_generated` event on a 200 (FLE-10 design doc §9). Every other call site's
+ * status code is either always the same value or irrelevant, so this stays a sibling
+ * rather than a signature change to apiFetch.
+ *
+ * fetch-only (no timeoutMs) — none of today's status-sensitive calls need the XHR path.
+ */
+export async function apiFetchWithStatus<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<{ data: T; status: number }> {
+  const base = process.env.EXPO_PUBLIC_API_URL;
+  if (!base) {
+    throw new Error('EXPO_PUBLIC_API_URL is not set — check your .env or eas.json env config.');
+  }
+  const url = `${base}${path}`;
+  const userId = getOrCreateUserId();
+  const tzOffset = -new Date().getTimezoneOffset();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-User-ID': userId,
+    'X-Timezone-Offset': String(tzOffset),
+    ...((init.headers as Record<string, string> | undefined) ?? {}),
+  };
+  const res = await fetch(url, { ...init, headers });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} ${init.method ?? 'GET'} ${path}`);
+  }
+  const data = (await res.json()) as T;
+  return { data, status: res.status };
+}

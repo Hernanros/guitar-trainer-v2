@@ -20,12 +20,14 @@ import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
+  Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTodaySong, useReroll } from '../../api/todaySong';
 import { SongOfDayCard } from '../../components/SongOfDayCard';
 import { FromTheBankTag } from '../../components/FromTheBankTag';
+import { useCurrentPracticeSession } from '../../api/practiceSessions';
 import type { RatingLiteral } from '../../api/sessions';
 
 const LABELS: Record<RatingLiteral, string> = {
@@ -39,6 +41,7 @@ export default function TodayScreen() {
   const reroll = useReroll();
   const router = useRouter();
   const qc = useQueryClient();
+  const currentSession = useCurrentPracticeSession();
 
   // Pull-to-refresh — invalidate the today-song query so the response refetches from server.
   // Needed because staleTime: Infinity + MMKV persistence means a stale cache survives force-quit;
@@ -123,7 +126,43 @@ export default function TodayScreen() {
         }
         onReroll={onReroll}
       />
+      <SessionStartCard
+        session={currentSession.data ?? null}
+        onPress={() => router.push('/session')}
+      />
     </ScrollView>
+  );
+}
+
+/**
+ * Start-today's-session CTA (UI-SPEC §11). Resume copy takes priority over the
+ * subline whenever a session is already `in_progress` — both routes go to the
+ * same /session entry, which resolves start-vs-resume server-side (FLE-63).
+ */
+function SessionStartCard({
+  session,
+  onPress,
+}: {
+  session: { state: string; target_minutes: number; item_count: number } | null;
+  onPress: () => void;
+}) {
+  const isResume = session?.state === 'in_progress';
+  const subline = isResume
+    ? "You left off partway. Pick it back up."
+    : session
+      ? `${session.target_minutes} minutes. ${session.item_count} things.`
+      : null;
+
+  return (
+    <Pressable
+      style={styles.sessionCard}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Start today's session"
+    >
+      <Text style={styles.sessionCta}>Start today's session</Text>
+      {subline && <Text style={styles.sessionSubline}>{subline}</Text>}
+    </Pressable>
   );
 }
 
@@ -159,5 +198,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#999',
     textAlign: 'center',
+  },
+  sessionCard: {
+    backgroundColor: '#242424',
+    borderRadius: 12,
+    padding: 20,
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  sessionCta: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#E07B39',
+  },
+  sessionSubline: {
+    fontSize: 13,
+    color: '#999',
+    marginTop: 6,
   },
 });

@@ -65,20 +65,257 @@ export interface paths {
         };
         /**
          * Get Breakdown
-         * @description Return the technique breakdown for song_id, generating it on first tap.
+         * @description Return the technique breakdown envelope for song_id, generating it on first tap.
+         *
+         *     Response envelope (Plan 04.1-02 B1 FIX):
+         *         {
+         *           "breakdown": { tab, chords, technique_notes, drills },   # cached-forever
+         *           "drill_rated_today_indices": [0, 2, ...]                 # per-request
+         *         }
          *
          *     Cache hit: songs.breakdown_generated_at IS NOT NULL  → return JSON directly.
          *     Cache miss: call run_technique_breakdown, persist to songs.breakdown + set
-         *                 breakdown_generated_at atomically, return Breakdown.
+         *                 breakdown_generated_at atomically, return envelope.
          *
          *     Returns:
-         *         200 Breakdown on success.
+         *         200 BreakdownEnvelope on success.
          *         404 if song_id not owned by X-User-ID.
          *         503 with Fletcher-voiced detail if Sonnet call fails after retry.
          */
         get: operations["get_breakdown_api_v1_songs__song_id__breakdown_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/practice-sessions/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Today
+         * @description Today's session: the existing open one, or a new one written now.
+         *
+         *     **201 means generated, 200 means resolved.** That distinction is the entire reason
+         *     this is a POST and not a GET, and the player must not flatten it: a resolved
+         *     session is one the user may already be halfway through, so re-animating a progress
+         *     bar or emitting a `session_generated` event on a 200 would both be wrong.
+         *
+         *     NO DEBOUNCE, NO LOCK, deliberately (FLE-63 decision 2). The double-tap is already
+         *     handled one layer down by migration 0009's partial unique
+         *     `uq_practice_sessions_open_day`; a guard here would mask the index that is doing
+         *     the real work and, being per-process, would not survive two Railway replicas.
+         *
+         *     Status codes are the player's outbox control flow (FLE-21 §5.2):
+         *         201 — generated. 200 — resolved, already existed.
+         *         404 — no such user (SnapshotError).
+         *         409 — the user exists and has nothing to practise (NoMaterialError). A real
+         *               product state with a screen behind it, NOT an error to retry.
+         */
+        post: operations["generate_today_api_v1_practice_sessions_today_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/practice-sessions/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Current
+         * @description The caller's open session for their local day, or 404.
+         *
+         *     Read-only by contract (FLE-21 §5) — it NEVER writes, not even to bump
+         *     `last_activity_at`. A resume check that mutated would make merely opening the app
+         *     indistinguishable from practising, and `last_activity_at` is what the §3 sweep
+         *     reads to decide whether a session was abandoned.
+         *
+         *     404 is the normal answer on a day the user has not generated a session yet; it is
+         *     not an error condition for the player.
+         */
+        get: operations["get_current_api_v1_practice_sessions_current_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/practice-sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session
+         * @description Read back one session with its ordered items, terminal or not.
+         *
+         *     Unlike `/current` this does not care about the local day: the player uses it to
+         *     re-read a session it already holds an id for, which includes a completed one it is
+         *     showing a summary of.
+         *
+         *     404 covers "no such session" AND "not yours" with one message, which is
+         *     deliberate — `lifecycle.load_session` filters by user_id as access control, and
+         *     distinguishing the two here would confirm the existence of another participant's
+         *     session id.
+         */
+        get: operations["get_session_api_v1_practice_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/practice-sessions/{session_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start
+         * @description Mark the session opened. Write-once, idempotent (FLE-21 R5).
+         *
+         *     `started_at` is the day-7 return metric, so a second call — a retry, or a resume
+         *     after the user put the phone down — must NOT move it. Answers 200 either way; a
+         *     no-op is a success, not a conflict.
+         */
+        post: operations["start_api_v1_practice_sessions__session_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/practice-sessions/{session_id}/items/{item_index}/enter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enter Item
+         * @description Item → in_progress; bump the session's high-water mark.
+         *
+         *     A late `enter` arriving behind its own `complete` (the outbox can flush out of
+         *     order) is a no-op 200 with `applied=false` — it must not resurrect a finished item.
+         */
+        post: operations["enter_item_api_v1_practice_sessions__session_id__items__item_index__enter_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/practice-sessions/{session_id}/items/{item_index}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete Item
+         * @description Item → completed, with the rating if there is one (FLE-21 §5.1).
+         *
+         *     `rating: null` is valid and still lands `completed` (R1) — warm-up, `song_play`,
+         *     consolidation and any slot dropped by MAX_RATING_TAPS are unrated BY DESIGN, and
+         *     in a 15-minute session that is most of the items.
+         *
+         *     **A non-null rating fans out (§5.2, FLE-64).** One transaction writes the item
+         *     row, then — for a drill item — a `drill_attempts` row with a server-classified
+         *     §7.1 outcome and the §7.2 ladder transition, or — for the rated repertoire item —
+         *     the `user_sessions` daily verdict. This is the player's ONLY rating call; it does
+         *     not also POST /api/v1/sessions. The fan-out is once per attempt: a duplicate
+         *     flush answers 200 with `ladder: null` rather than moving the rung twice.
+         *
+         *     422 `rating_not_permitted_for_item` when a rating arrives for an item whose
+         *     server-side `rated` flag is false. That can only come from a client bug, and the
+         *     player's outbox must treat it as terminal — drop it, do not retry.
+         *
+         *     409 when the repertoire item's daily verdict was already recorded — e.g. the user
+         *     also rated the song on the Today card. Per FLE-21 §5.2 that keeps UI-SPEC §10's
+         *     meaning: invalidate and let the rated state repopulate, no error toast. Note what
+         *     it does NOT mean here — the item's rating is COMMITTED before the status is
+         *     chosen. Rolling the write back to report a row that was already there would throw
+         *     away telemetry the player will never send again.
+         */
+        post: operations["complete_item_api_v1_practice_sessions__session_id__items__item_index__complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/practice-sessions/{session_id}/items/{item_index}/skip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Skip Item
+         * @description Item → skipped. Its own call, never inferred from navigation (FLE-21 §5.4).
+         *
+         *     This is the endpoint FLE-13's "which block do they skip" is made of. Advancing
+         *     past an item is not a skip unless the user chose to pass — an auto-advance goes to
+         *     `/complete` with `advance_mode='auto'` instead.
+         */
+        post: operations["skip_item_api_v1_practice_sessions__session_id__items__item_index__skip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/practice-sessions/{session_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete Session
+         * @description Session → completed, with the summary numbers (FLE-10 R8).
+         *
+         *     Outranks the clock (FLE-21 §3.1): a user who practised across midnight gets
+         *     day-rolled underneath them by the sweep, and when they then tap "done" that is the
+         *     truth. Since R7 deleted `superseded`, the clock is the only thing that can abandon
+         *     a session — so every abandonment is overridable here, and only here.
+         */
+        post: operations["complete_session_api_v1_practice_sessions__session_id__complete_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -96,7 +333,14 @@ export interface paths {
         put?: never;
         /**
          * Submit Rating
-         * @description Record a session rating and atomically update mastery on all attached skill_nodes.
+         * @description Record a session rating and atomically update mastery.
+         *
+         *     Two write paths (Plan 04.1-02):
+         *       1. Whole-song rating (body.drill_index is None) — UPDATE mastery on every
+         *          leaf skill_node in song_skills for this song (existing D-07 equal-weight path).
+         *       2. Drill rating (body.drill_index is not None) — UPDATE mastery on exactly ONE
+         *          skill_node (body.target_skill_node_id), guarded by SkillNode.user_id == user_id
+         *          (T-04.1-05 defense in depth).
          *
          *     Single `async with db.begin():` transaction wraps ALL operations (reads + writes).
          *     No LLM call — deterministic writes principle (SKILL-03, D-08).
@@ -315,7 +559,12 @@ export interface components {
          * @description Full Phase 3-ready song breakdown (D-01).
          *
          *     Phase 3 will add: practice_loops, difficulty_tags — additive fields, no breaking change.
-         *     Phase 4.1 adds: drills — additive field, empty [] for pre-4.1 cached rows.
+         *
+         *     Phase 4.1 (Plan 04.1-01): `drills` field added — Sonnet emits 2-4 practice drills
+         *     alongside tab/chords/technique_notes in the SAME tool call. `default_factory=list`
+         *     means pre-4.1 cached breakdowns (where `drills` is absent from the JSONB) read back
+         *     as `drills=[]` without triggering min_length=2 — that check only fires when a caller
+         *     (i.e., Sonnet output parse) EXPLICITLY provides a drills list.
          */
         Breakdown: {
             tab: components["schemas"]["Tab"];
@@ -324,64 +573,44 @@ export interface components {
             /** Technique Notes */
             technique_notes: components["schemas"]["TechniqueNote"][];
             /** Drills */
-            drills: components["schemas"]["Drill"][];
+            drills?: components["schemas"]["Drill"][];
         };
         /**
          * BreakdownEnvelope
-         * @description Phase 4.1 B1 fix — server-derived drill state envelope.
+         * @description Envelope wrapper for GET /api/v1/songs/{id}/breakdown response.
          *
-         *     Wraps the cached Breakdown (D-11 cache-forever preserved) with per-request
-         *     drill_rated_today_indices computed from user_sessions on every read. Mobile
-         *     consumes this to render "drill rated today" UI state durably (survives app
-         *     restart / cache invalidation / cross-component navigation).
+         *     Phase 4.1 (Plan 04.1-02 B1 FIX): wraps the cached-forever Breakdown with
+         *     EPHEMERAL per-request state derived from user_sessions.
+         *
+         *     `drill_rated_today_indices` is the durable server-derived source of truth for
+         *     the mobile drill-primary UI logic — replaces the fragile client-side QueryClient
+         *     mutation-cache subscription pattern flagged by the plan checker.
+         *
+         *     Contract preservation:
+         *       - The `breakdown` field is the SAME shape as the raw Breakdown that was
+         *         previously returned directly by get_breakdown (mobile consumers must now
+         *         access response.breakdown.drills / .tab / .chords / .technique_notes rather
+         *         than response.drills etc. — see Plan 03 schema.d.ts regen).
+         *       - The `drill_rated_today_indices` field is computed on EVERY request from
+         *         user_sessions and is NOT cached. This preserves the D-11 cache-forever
+         *         contract for the Breakdown itself — the envelope is a pure request-scoped
+         *         wrapper.
          */
         BreakdownEnvelope: {
             breakdown: components["schemas"]["Breakdown"];
-            /** Drill Rated Today Indices */
-            drill_rated_today_indices: number[];
-        };
-        /**
-         * Drill
-         * @description A named practice drill emitted by Sonnet in the breakdown call.
-         *
-         *     Phase 4.1 core primitive — turns the breakdown from a static reference into
-         *     an actionable practice unit. Each drill targets a specific skill_node (via
-         *     target_skill_temp_id — a validated UUID) with a tempo ladder (start_bpm →
-         *     target_bpm), a repetition count, and a Fletcher-voiced success criterion.
-         *
-         *     song_specific: true → "For this song" (drill tied to this song's use of the technique)
-         *     song_specific: false → "Any song" (foundational skill drill, transferable)
-         *
-         *     tab_snippet: canonical exercise shape (NOT a slice of the main song tab —
-         *     enforced by Sonnet's SYSTEM_PROMPT DRILLS block).
-         */
-        Drill: {
-            /** Name */
-            name: string;
-            /** Target Skill Temp Id */
-            target_skill_temp_id: string;
-            /** Song Specific */
-            song_specific: boolean;
-            /** What */
-            what: string;
-            tab_snippet: components["schemas"]["Tab"];
-            /** Start Bpm */
-            start_bpm: number;
-            /** Target Bpm */
-            target_bpm: number;
-            /** Repetitions */
-            repetitions: number;
-            /** Success Criterion */
-            success_criterion: string;
-            /** Common Trap */
-            common_trap?: string | null;
+            /**
+             * Drill Rated Today Indices
+             * @description 0-based drill_index values the current user has rated for this song today. Sorted ascending. Empty when no drill ratings exist yet. Server-derived — cannot be set by clients.
+             */
+            drill_rated_today_indices?: number[];
         };
         /**
          * BreakdownQuota
          * @description Phase 4 quota snapshot embedded in TodaySongResponse (D-06).
          *
          *     remaining: calls left in the current 7-day rolling window (0..cap).
-         *     cap: per-user cap (always 3 for the breakdown feature per D-01).
+         *     cap: per-user cap — 3 for the breakdown feature per D-01, unless
+         *          FLETCHER_CAP_BREAKDOWN overrides it for this deploy.
          *     resets_at: ISO datetime string — oldest_call_in_window + 7 days, server-authoritative.
          */
         BreakdownQuota: {
@@ -421,10 +650,270 @@ export interface components {
             /** Finger */
             finger?: number | null;
         };
+        /**
+         * Drill
+         * @description A single Fletcher-voiced practice drill (Phase 4.1, Plan 04.1-01).
+         *
+         *     Sonnet emits 2-4 of these per breakdown as part of the SAME `emit_breakdown`
+         *     tool call (no new endpoint, no new governor category). Each drill isolates
+         *     ONE skill from the target_skills list. `tab_snippet` is a CANONICAL EXERCISE
+         *     SHAPE composed by Sonnet — NOT a slice of the main song tab (see SYSTEM_PROMPT
+         *     DRILLS block BAD/GOOD example).
+         *
+         *     Landmine #3 protection: target_bpm > start_bpm is enforced by @model_validator
+         *     so a lazy Sonnet emit (equal bpms → zero-progress drill) fails at parse time.
+         *     The breakdowns endpoint wraps run_technique_breakdown parsing in a try/except
+         *     that soft-fails to drills=[] on ValidationError — the endpoint NEVER 500s
+         *     from a drills-shape violation.
+         *
+         *     target_skill_temp_id validity (is-this-a-real-skill-node-owned-by-the-user)
+         *     is NOT enforced at the Pydantic layer — validation lives at the endpoint
+         *     where the per-request resolved skill list is in scope (Plan 04.1-01 Task 3).
+         */
+        Drill: {
+            /**
+             * Name
+             * @description Short imperative name, e.g., 'Isolate the b3→3 slide'. Fletcher voice: sharp, diagnostic.
+             */
+            name: string;
+            /**
+             * Target Skill Temp Id
+             * @description The single skill_temp_id from target_skills this drill exercises. Exactly one. MUST be one of the ids in the user message.
+             */
+            target_skill_temp_id: string;
+            /**
+             * Song Specific
+             * @description True if `what` copy names this song. False if the drill is a foundational technique any guitarist could use regardless of song context.
+             */
+            song_specific: boolean;
+            /**
+             * What
+             * @description 1-2 sentences explaining what the user does. If song_specific=true, name the song and the moment. MUST describe the same exercise the tab_snippet actually produces: do not promise a chord, barre, voicing or strum unless the snippet sounds more than one string at once.
+             */
+            what: string;
+            /**
+             * Mechanic Tier
+             * @description Which tier of the MECHANIC TIERS list in the system prompt this drill's hardest moment sits in: 1 single sustained note, 2 two-string alternation, 3 held shape struck, 4 shape change, 5 shape change with position shift, 6 polyphonic independence. Drills MUST be emitted in non-decreasing tier order. Equal tiers are allowed and are correct whenever a later drill trades one difficulty for another rather than adding one.
+             */
+            mechanic_tier?: number | null;
+            /** @description Canonical exercise shape. 1-2 measures max. MUST NOT be a slice of the main song tab. */
+            tab_snippet: components["schemas"]["Tab"];
+            /**
+             * Start Bpm
+             * @description Warmup tempo. Multiple of 5. Between 40 and 180.
+             */
+            start_bpm: number;
+            /**
+             * Target Bpm
+             * @description Stretch tempo. Multiple of 5. Between 10 and 40 BPM higher than start_bpm.
+             */
+            target_bpm: number;
+            /**
+             * Repetitions
+             * @description Reps per tempo step. Between 8 and 30.
+             */
+            repetitions: number;
+            /**
+             * Success Criterion
+             * @description One sentence — what 'unlocked' sounds like. Fletcher voice.
+             */
+            success_criterion: string;
+            /**
+             * Common Trap
+             * @description Optional. One sentence about the mistake beginners make on this mechanic.
+             */
+            common_trap?: string | null;
+        };
+        /**
+         * EmbeddedDrill
+         * @description A drill's renderable content, carried inline on the item that plans it.
+         *
+         *     NO `user_id` FIELD, deliberately. FLE-4 §12.1's hand-authored warm-up drills are
+         *     global rows (`user_id IS NULL`) and a warm-up item can resolve to one; if
+         *     ownership appeared here the player would need a kind-of-drill branch on top of
+         *     the kind-of-item branch it already has. A seed drill and a generated drill are
+         *     structurally indistinguishable on the wire, which is the point.
+         *
+         *     `start_bpm` / `target_bpm` / `repetitions` are the DRILL's own prescription and
+         *     are not the same numbers as the item's `planned_bpm` / `planned_reps`, which the
+         *     generator set for today. The item's values win when they are present (FLE-10 R5 —
+         *     the client derives nothing); these are here for the drill's own copy, e.g. "work
+         *     this from 60 to 90".
+         */
+        EmbeddedDrill: {
+            /**
+             * Drill Id
+             * Format: uuid
+             */
+            drill_id: string;
+            /** Name */
+            name: string;
+            /** What */
+            what: string;
+            /** Tab Snippet */
+            tab_snippet: unknown;
+            /** Start Bpm */
+            start_bpm: number;
+            /** Target Bpm */
+            target_bpm: number;
+            /** Repetitions */
+            repetitions: number;
+            /** Success Criterion */
+            success_criterion: string;
+            /** Common Trap */
+            common_trap?: string | null;
+            /** Song Specific */
+            song_specific: boolean;
+        };
+        /**
+         * EmbeddedSong
+         * @description A song's renderable content, carried inline on the item that plans it.
+         *
+         *     `breakdown` is the full tab/chords/technique_notes envelope rather than a flag
+         *     pointing at the client's per-song `useBreakdown` cache: that cache is only warm
+         *     if the user opened the Today card first, and a resumed session — or one opened
+         *     from a notification — has no such guarantee. Measured at <=10KB per song, and a
+         *     session references at most one.
+         */
+        EmbeddedSong: {
+            /** Song Id */
+            song_id: number;
+            /** Title */
+            title: string;
+            /** Artist */
+            artist: string;
+            /** Genre */
+            genre?: string | null;
+            /** Difficulty */
+            difficulty?: string | null;
+            /** Bpm */
+            bpm?: number | null;
+            /** Key */
+            key?: string | null;
+            /** Breakdown */
+            breakdown?: unknown;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * ItemCompleteRequest
+         * @description Body for `POST …/items/{index}/complete` (FLE-21 §5.1).
+         *
+         *     `rating` is nullable and a null rating still lands `state = 'completed'` (R1).
+         *     `active_seconds` is required — it is the honest half of FLE-13's "did the
+         *     generated duration match the time they actually had", and a client that omits it
+         *     turns that question back into self-report.
+         */
+        ItemCompleteRequest: {
+            /** Rating */
+            rating?: ("not_my_tempo" | "getting_closer" | "thats_what_im_looking_for") | null;
+            /** Active Seconds */
+            active_seconds: number;
+            /** Completed Reps */
+            completed_reps?: number | null;
+            /** Advance Mode */
+            advance_mode?: ("user_tap" | "auto") | null;
+        };
+        /**
+         * ItemEventResponse
+         * @description What an item transition returns: the item's new state and the session header.
+         *
+         *     `applied` is false when FLE-21 §5.3's lattice rejected a backwards move — a late
+         *     `enter` landing on an item the user already finished. The call still answers 200
+         *     because the write is idempotent rather than failed, and the player's outbox must
+         *     be able to tell "delivered" from "retry me" without parsing prose.
+         */
+        ItemEventResponse: {
+            /** Item Index */
+            item_index: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "not_reached" | "in_progress" | "completed" | "skipped";
+            /** Applied */
+            applied: boolean;
+            /** Active Seconds */
+            active_seconds: number;
+            /**
+             * Clamped
+             * @description True when active_seconds was clamped to 4x planned_seconds (FLE-21 §6). Clamped items are excluded from the readout's duration comparison.
+             * @default false
+             */
+            clamped: boolean;
+            /** @description FLE-21 §5.2 steps 2-3. Set when this call was the first rating on a drill item; null on every other path, including a duplicate flush. */
+            ladder?: components["schemas"]["LadderMoveResponse"] | null;
+            /**
+             * Daily Verdict Recorded
+             * @description FLE-21 §5.2 step 4 — the rated repertoire item wrote its user_sessions daily verdict. A duplicate verdict answers 409 instead, and the item's own rating is still committed.
+             * @default false
+             */
+            daily_verdict_recorded: boolean;
+            session: components["schemas"]["PracticeSessionResponse"];
+        };
+        /**
+         * ItemSkipRequest
+         * @description Body for `POST …/items/{index}/skip`.
+         *
+         *     No `rating` field, by design — a skip is the user declining the item, and a
+         *     verdict on something they did not do is not a thing the readout can use.
+         */
+        ItemSkipRequest: {
+            /**
+             * Active Seconds
+             * @default 0
+             */
+            active_seconds: number;
+            /** Completed Reps */
+            completed_reps?: number | null;
+        };
+        /**
+         * LadderMoveResponse
+         * @description What the rating did to the drill's tempo ladder (FLE-4 §7.2, FLE-64).
+         *
+         *     Present only on a rated `/complete` for a drill item, and only on the FIRST one —
+         *     a duplicate flush of the same rating answers 200 with `ladder: null`, because the
+         *     §7.2 transition is applied once per attempt and a second `rung_after` would be
+         *     reporting a move that did not happen.
+         *
+         *     Server-decided, like every other number the player renders (FLE-10 R5): the
+         *     client is TOLD the outcome, it never classifies one. `push_withheld` is the
+         *     honest name for §7.4's veto — the clears banked, the rung did not move, and the
+         *     push will land in the next session.
+         */
+        LadderMoveResponse: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "CLEAR" | "HOLD" | "MISS" | "SKIP";
+            /** Rung Before */
+            rung_before: number;
+            /** Rung After */
+            rung_after: number;
+            /**
+             * Progress State
+             * @enum {string}
+             */
+            progress_state: "active" | "maintenance" | "mastered" | "retired";
+            /**
+             * Pushed
+             * @default false
+             */
+            pushed: boolean;
+            /**
+             * Dropped
+             * @default false
+             */
+            dropped: boolean;
+            /**
+             * Push Withheld
+             * @default false
+             */
+            push_withheld: boolean;
         };
         /**
          * Measure
@@ -451,7 +940,168 @@ export interface components {
             /** Duration */
             duration: string;
         };
-        /** SessionCreate */
+        /**
+         * PracticeSessionItemResponse
+         * @description One item of the plan, with whatever progress has been recorded against it.
+         *
+         *     Every boolean here is SERVER-TOLD and the client derives none of them (FLE-10 R5).
+         *     `skippable` in particular is stored rather than re-derived because FLE-21 §4.1
+         *     needs it at readout time: `repertoire.item1` is unskippable BY CONSTRUCTION
+         *     (FLE-4 §5.3), so its zero skip count is a property of the generator and must be
+         *     excluded from the skip denominator rather than read as a participant preference.
+         */
+        PracticeSessionItemResponse: {
+            /** Item Index */
+            item_index: number;
+            /**
+             * Block
+             * @enum {string}
+             */
+            block: "warmup" | "technique" | "repertoire" | "consolidation";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "drill" | "song_section" | "song_play";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "not_reached" | "in_progress" | "completed" | "skipped";
+            /** Drill Id */
+            drill_id?: string | null;
+            /** Song Id */
+            song_id?: number | null;
+            /** Target Skill Node Id */
+            target_skill_node_id?: string | null;
+            drill?: components["schemas"]["EmbeddedDrill"] | null;
+            song?: components["schemas"]["EmbeddedSong"] | null;
+            /** Planned Seconds */
+            planned_seconds: number;
+            /** Planned Bpm */
+            planned_bpm?: number | null;
+            /** Planned Reps */
+            planned_reps?: number | null;
+            /** Completed Reps */
+            completed_reps?: number | null;
+            /** Rated */
+            rated: boolean;
+            /** Skippable */
+            skippable: boolean;
+            /** Click Enabled */
+            click_enabled: boolean;
+            /** Re Entry */
+            re_entry: boolean;
+            /** Repeat Ok */
+            repeat_ok: boolean;
+            /** Is Consolidation */
+            is_consolidation: boolean;
+            /** Started At */
+            started_at?: string | null;
+            /** Ended At */
+            ended_at?: string | null;
+            /**
+             * Active Seconds
+             * @default 0
+             */
+            active_seconds: number;
+            /** Rating */
+            rating?: ("not_my_tempo" | "getting_closer" | "thats_what_im_looking_for") | null;
+            /** Advance Mode */
+            advance_mode?: ("user_tap" | "auto") | null;
+        };
+        /**
+         * PracticeSessionResponse
+         * @description The session header plus its ordered items.
+         *
+         *     `generated_at` and `started_at` are both present and are NOT the same thing
+         *     (FLE-21 §1): a session generated and never opened is an ignored plan, not an
+         *     abandoned session, and only rows with `started_at` set enter the completion-rate
+         *     denominator. A client that treats `generated_at` as "when practice began" would
+         *     reintroduce exactly the conflation this record exists to prevent.
+         */
+        PracticeSessionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Local Calendar Day */
+            local_calendar_day: string;
+            /** Tz Offset Minutes */
+            tz_offset_minutes: number;
+            /** Song Id */
+            song_id?: number | null;
+            /** Target Minutes */
+            target_minutes: number;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "BUILD" | "BALANCED" | "PERFORM";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "planned" | "in_progress" | "completed" | "abandoned";
+            /** Terminal Reason */
+            terminal_reason?: ("user_completed" | "day_rolled" | "timeout") | null;
+            /** Generated At */
+            generated_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Last Activity At */
+            last_activity_at: string;
+            /** Ended At */
+            ended_at?: string | null;
+            /** Completion Ratio */
+            completion_ratio?: number | null;
+            /** Elapsed Active Seconds */
+            elapsed_active_seconds: number;
+            /** Item Count */
+            item_count: number;
+            /** Last Item Index Reached */
+            last_item_index_reached?: number | null;
+            /** Items */
+            items?: components["schemas"]["PracticeSessionItemResponse"][];
+        };
+        /**
+         * SessionCompleteResponse
+         * @description Body for `POST …/{id}/complete` (FLE-10 R8).
+         *
+         *     All four numbers are returned because the summary screen needs them and because
+         *     the readout should never have to re-derive a ratio from counts it did not see.
+         *     `done_items + skipped_items` does NOT necessarily equal `planned_items`: the
+         *     remainder is `not_reached`, and keeping that gap visible is the whole point of
+         *     FLE-21 §2 writing every item row at generation time.
+         */
+        SessionCompleteResponse: {
+            session: components["schemas"]["PracticeSessionResponse"];
+            /** Completion Ratio */
+            completion_ratio?: number | null;
+            /** Done Items */
+            done_items: number;
+            /** Skipped Items */
+            skipped_items: number;
+            /** Planned Items */
+            planned_items: number;
+        };
+        /**
+         * SessionCreate
+         * @description Request body for POST /api/v1/sessions.
+         *
+         *     Phase 4.1: drill_index + target_skill_node_id both default to None (whole-song
+         *     rating — existing behavior). When both are set, this is a drill rating and the
+         *     handler writes mastery only to the target_skill_node_id row (not all song leaves).
+         *
+         *     Both-or-neither is enforced by _drill_pair_both_or_neither. Providing exactly one
+         *     of the two fields raises ValidationError → 422 at the endpoint.
+         */
         SessionCreate: {
             /** Song Id */
             song_id: number;
@@ -462,13 +1112,16 @@ export interface components {
             rating: "not_my_tempo" | "getting_closer" | "thats_what_im_looking_for";
             /** Drill Index */
             drill_index?: number | null;
-            /**
-             * Target Skill Node Id
-             * Format: uuid
-             */
+            /** Target Skill Node Id */
             target_skill_node_id?: string | null;
         };
-        /** SessionResponse */
+        /**
+         * SessionResponse
+         * @description Response body for POST /api/v1/sessions (201 Created).
+         *
+         *     Phase 4.1: drill_index + target_skill_node_id echo whatever was submitted so
+         *     the mobile client can confirm the write shape without a follow-up read.
+         */
         SessionResponse: {
             /**
              * Id
@@ -493,10 +1146,7 @@ export interface components {
             rated_at: string;
             /** Drill Index */
             drill_index?: number | null;
-            /**
-             * Target Skill Node Id
-             * Format: uuid
-             */
+            /** Target Skill Node Id */
             target_skill_node_id?: string | null;
         };
         /**
@@ -655,6 +1305,21 @@ export interface components {
             rated_at: string;
         };
         /**
+         * TodayRequest
+         * @description Optional overrides for today's generation. An empty body is the normal call.
+         *
+         *     Both fields are IGNORED when an open session is resolved rather than generated
+         *     (store.resolve_or_generate). FLE-4 §5.3 says a session never re-rolls its song,
+         *     and honouring a new `song_id` here would let a mid-day re-pick rewrite a plan the
+         *     user is halfway through.
+         */
+        TodayRequest: {
+            /** Song Id */
+            song_id?: number | null;
+            /** Target Minutes */
+            target_minutes?: number | null;
+        };
+        /**
          * TodaySongResponse
          * @description Response shape for GET /api/v1/song-of-day (Phase 3 per-user selector).
          *
@@ -665,7 +1330,9 @@ export interface components {
          *     rerolled: True if the user used their one daily re-roll.
          *     rated: populated with TodayRatingInfo when the user has rated today's song; null otherwise.
          *     rerolls_left: 0 if the user has already rerolled today, 1 otherwise (D-05 one-per-day).
-         *     breakdown_quota: Phase 4 — always populated; carries remaining/cap/resets_at for the quota chip (D-06).
+         *     breakdown_quota: Phase 4 — carries remaining/cap/resets_at for the quota chip (D-06).
+         *                      Null only when the cap is switched off via FLETCHER_CAP_BREAKDOWN,
+         *                      which the client reads as "no chip, CTA always enabled".
          */
         TodaySongResponse: {
             song: components["schemas"]["SongResponse"];
@@ -680,7 +1347,7 @@ export interface components {
             rated?: components["schemas"]["TodayRatingInfo"] | null;
             /** Rerolls Left */
             rerolls_left: number;
-            breakdown_quota: components["schemas"]["BreakdownQuota"];
+            breakdown_quota?: components["schemas"]["BreakdownQuota"] | null;
         };
         /**
          * UserBootstrapRequest
@@ -831,6 +1498,7 @@ export interface operations {
             query?: never;
             header: {
                 "X-User-ID": string;
+                "X-Timezone-Offset"?: number;
             };
             path: {
                 song_id: number;
@@ -846,6 +1514,320 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BreakdownEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_today_api_v1_practice_sessions_today_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+                "X-Timezone-Offset"?: number;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TodayRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Resolved — an open session already existed for today. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PracticeSessionResponse"];
+                };
+            };
+            /** @description Generated — a new plan was written. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PracticeSessionResponse"];
+                };
+            };
+            /** @description No such user. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The user exists but has nothing to practise. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_current_api_v1_practice_sessions_current_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+                "X-Timezone-Offset"?: number;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PracticeSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_api_v1_practice_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PracticeSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_api_v1_practice_sessions__session_id__start_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PracticeSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enter_item_api_v1_practice_sessions__session_id__items__item_index__enter_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+            };
+            path: {
+                session_id: string;
+                item_index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemEventResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_item_api_v1_practice_sessions__session_id__items__item_index__complete_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+            };
+            path: {
+                session_id: string;
+                item_index: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded. `ladder` is set on a drill item's first rating. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemEventResponse"];
+                };
+            };
+            /** @description No such session, item, or drill. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The rated repertoire item's daily verdict already existed. A state-sync signal, NOT a failure — every other write committed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemEventResponse"];
+                };
+            };
+            /** @description rating_not_permitted_for_item — the item is unrated. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    skip_item_api_v1_practice_sessions__session_id__items__item_index__skip_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+            };
+            path: {
+                session_id: string;
+                item_index: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemSkipRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemEventResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_session_api_v1_practice_sessions__session_id__complete_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionCompleteResponse"];
                 };
             };
             /** @description Validation Error */
