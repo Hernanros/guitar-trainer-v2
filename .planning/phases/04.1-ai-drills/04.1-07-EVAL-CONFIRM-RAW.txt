@@ -1,0 +1,2182 @@
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Lenny': stop_reason=tool_use output_tokens=5428 max_tokens=20000
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 5 (Lenny, Kashmir, Little Wing, Beat It, Wonderwall) | Landmine gates: 6 per song = 30 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Lenny — Stevie Ray Vaughan
+================================================================================
+
+  Throwaway eval user for this song: 8a169012-4aba-4caf-bb3c-9d195aa0ab0b
+
+  target_skills provided to Sonnet:
+    id=7715910f-34dd-4828-913f-c4289e9ce886  name='b3-3 slide E-shape'
+    id=8eaef5a9-b885-44ee-8f8c-f1efa2b66870  name='chord-melody attack'
+    id=c1d414bd-2193-4c96-912b-1587c52c90d9  name='E-shape barre voicings'
+
+  Calling run_technique_breakdown for Lenny... (live Anthropic)
+
+  Wall clock for 'Lenny': 71.3s (timeout=300s)
+
+  MAIN SONG TAB — 8 measure(s), tuning=['Eb', 'Ab', 'Db', 'Gb', 'Bb', 'Eb']
+    m1 (12/8): [6/0 4/1 3/0 2/0] [1/0] [2/0] [3/1] [3/0] [2/0] [1/0]
+    m2 (12/8): [6/0 4/1 3/0 2/0] [1/0] [2/3] [2/3] [2/5] [1/3] [1/0]
+    m3 (12/8): [6/5 5/7 4/7 3/6] [2/5] [1/5] [2/5] [3/6] [3/5] [2/5]
+    m4 (12/8): [6/5 5/7 4/7 3/6] [2/5] [1/5] [2/7] [2/8] [1/7] [1/5]
+    m5 (12/8): [6/7 5/9 4/9 3/8] [2/7] [1/7] [2/7] [3/8] [3/7] [2/7]
+    m6 (12/8): [6/7 5/9 4/9 3/8] [2/7] [1/7] [2/8] [2/8] [3/8] [3/7]
+    m7 (12/8): [6/5 5/7 4/7 3/6] [2/5] [1/5] [2/5] [3/6] [2/5] [1/5]
+    m8 (12/8): [6/0 4/1 3/0 2/0] [1/0] [2/0] [3/1] [3/0] [2/0] [1/0]
+
+  Drills emitted: 3
+
+  DRILL 1: Anchor and Pluck: Chord-Melody Thumb-Finger Independence
+    song_specific : False
+    target_skill  : 'chord-melody attack' (id=8eaef5a9-b885-44ee-8f8c-f1efa2b66870)
+    tempo         : 50 → 80 BPM
+    mechanic_tier : 2 (two-string alternation)
+    repetitions   : 12
+
+    what          : Hold an open E chord shape. Strike string 6 with your thumb on beat 1, then pluck strings 2 and 1 in sequence with your index and middle fingers on beats 2 and 3. Keep the chord shape fully fretted throughout — the exercise trains your picking hand to operate independently of a static fretting hand.
+    success_criterion: The bass note rings for its full value while the melody notes speak clearly on top — no muting, no hesitation between thumb and fingers.
+    common_trap   : Players tense the fretting hand when activating the pick-hand fingers, accidentally muting strings — keep the left hand absolutely still.
+
+    tab_snippet   : 2 measure(s), tuning=['Eb', 'Ab', 'Db', 'Gb', 'Bb', 'Eb']
+      m1 (3/4): [6/0] [2/0] [1/0]
+      m2 (3/4): [6/0] [3/1] [1/0]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 2,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 1,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "3/4"
+                  },
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 3,
+                                                "fret": 1,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 1,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "3/4"
+                  }
+            ],
+            "tuning": [
+                  "Eb",
+                  "Ab",
+                  "Db",
+                  "Gb",
+                  "Bb",
+                  "Eb"
+            ]
+      }
+
+  DRILL 2: Lock the E-Shape Barre at Fret 5
+    song_specific : False
+    target_skill  : 'E-shape barre voicings' (id=c1d414bd-2193-4c96-912b-1587c52c90d9)
+    tempo         : 50 → 70 BPM
+    mechanic_tier : 3 (held shape struck)
+    repetitions   : 10
+
+    what          : Plant an E-shape barre at fret 5 (A major in Eb standard). Strike the full six-string chord on beat 1, then test strings 2 and 1 individually on beats 2 and 3 to verify the barre is sealing cleanly. Shift to fret 7 and repeat the same three-strike check. This builds the hand-setting habit before any melody movement is added.
+    success_criterion: Strings 1 and 2 ring pitch-perfect and sustained on the test pluck — no buzz, no choke — at both fret positions.
+    common_trap   : Releasing barre pressure the instant other fingers land on strings 4 and 5 — the index finger must stay locked regardless of what the other fingers do.
+
+    tab_snippet   : 2 measure(s), tuning=['Eb', 'Ab', 'Db', 'Gb', 'Bb', 'Eb']
+      m1 (3/4): [6/5 5/7 4/7 3/6 2/5 1/5] [2/5] [1/5]
+      m2 (3/4): [6/7 5/9 4/9 3/8 2/7 1/7] [2/7] [1/7]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 6,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 2,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 1,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "3/4"
+                  },
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 9,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 9,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 8,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 2,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 1,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "3/4"
+                  }
+            ],
+            "tuning": [
+                  "Eb",
+                  "Ab",
+                  "Db",
+                  "Gb",
+                  "Bb",
+                  "Eb"
+            ]
+      }
+
+  DRILL 3: Isolate the b3→3 Slide on String 3
+    song_specific : False
+    target_skill  : 'b3-3 slide E-shape' (id=7715910f-34dd-4828-913f-c4289e9ce886)
+    tempo         : 55 → 85 BPM
+    mechanic_tier : 4 (shape change)
+    repetitions   : 12
+
+    what          : Hold an E-shape barre at fret 5. With your ring finger, fret string 3 at fret 5 (one fret below the chord's major third at fret 6), pick it once, then slide UP to fret 6 without re-picking. Let the note ring on arrival. Repeat at fret 7 barre — slide string 3 from fret 7 to fret 8. This is the exact minor-to-major-third slide mechanic used over both barre chord positions.
+    success_criterion: The destination note (fret 6 or fret 8) speaks with the same volume as the picked note — no fade-out on arrival, clear pitch at the top of the slide.
+    common_trap   : Lifting the barre finger off strings 1 and 2 while executing the slide — keep the whole shape locked and only the ring finger moves.
+
+    tab_snippet   : 1 measure(s), tuning=['Eb', 'Ab', 'Db', 'Gb', 'Bb', 'Eb']
+      m1 (4/4): [3/5] [3/6] [3/7] [3/8]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 3,
+                                                "fret": 5,
+                                                "duration": "half"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 3,
+                                                "fret": 6,
+                                                "duration": "half"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 3,
+                                                "fret": 7,
+                                                "duration": "half"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 3,
+                                                "fret": 8,
+                                                "duration": "half"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "Eb",
+                  "Ab",
+                  "Db",
+                  "Gb",
+                  "Bb",
+                  "Eb"
+            ]
+      }
+
+  ------------------------------------------------------------
+  LANDMINE GATE CHECKLIST — Lenny (Stevie Ray Vaughan)
+  ------------------------------------------------------------
+  NOTE (N1 caveat): L2 coverage is LIMITED — eval uses fake UUIDs.
+  Full L2 coverage requires Task 3 device step o (real user breakdown).  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Kashmir': stop_reason=tool_use output_tokens=8694 max_tokens=20000
+
+
+  [ ] L1: tab_snippet is a canonical isolated shape (NOT a slice of the main song tab)?
+  [ ] L2: all target_skill_temp_ids match IDs in the provided list?  (LIMITED per N1)
+  [ ] L3: drill count in [2, 4]? (drills=[] means Landmine #3 soft-fail fired)
+  [ ] L4: song_specific=true iff `what` explicitly names the song?
+  [ ] L5: mechanic_tier non-decreasing down the drill list? (equal tiers are OK)
+  [ ] L6: tab_snippet.measures.length in {1, 2}?
+  [ ] A1: does each `what` describe the exercise its tab_snippet actually produces?
+
+  SONG DISPOSITION: [ ] SHIP  [ ] REVISE PROMPT  [ ] REVISE SCHEMA  [ ] DEFER
+  Notes: _________________________________________________________
+
+================================================================================
+SONG 2/5: Kashmir — Led Zeppelin
+================================================================================
+
+  Throwaway eval user for this song: c1626c6c-6aa7-4d5a-9f84-e61e7c7193de
+
+  target_skills provided to Sonnet:
+    id=0a3f404c-56a2-4366-a67b-0b9c3ce27738  name='DADGAD sus4 voicings'
+    id=7bf7c240-8724-418b-92b6-1544e2bf4a31  name='cross-rhythm strumming'
+
+  Calling run_technique_breakdown for Kashmir... (live Anthropic)
+
+  Wall clock for 'Kashmir': 99.8s (timeout=300s)
+
+  MAIN SONG TAB — 8 measure(s), tuning=['D', 'A', 'D', 'G', 'A', 'D']
+    m1 (4/4): [6/0 5/0 4/0 3/0 2/0 1/0] [6/0 5/0 4/0 3/0 2/0 1/0] [6/0 5/0 4/0 3/2 2/2 1/0] [6/0 5/0 4/0 3/2 2/2 1/0]
+    m2 (4/4): [6/0 5/0 4/0 3/0 2/0 1/0] [6/0 5/0 4/0 3/0 2/0 1/0] [6/5 5/5 4/5 3/5 2/5 1/5] [6/5 5/5 4/5 3/5 2/5 1/5]
+    m3 (4/4): [6/0 5/0 4/0 3/0 2/0 1/0] [6/0 5/0 4/0 3/0 2/0 1/0] [6/0 5/0 4/0 3/2 2/2 1/0] [6/0 5/0 4/0 3/2 2/2 1/0]
+    m4 (4/4): [6/7 5/7 4/7 3/7 2/7 1/7] [6/7 5/7 4/7 3/7 2/7 1/7] [6/5 5/5 4/5 3/5 2/5 1/5] [6/5 5/5 4/5 3/5 2/5 1/5]
+    m5 (4/4): [6/0 5/0 4/0 3/0 2/0 1/0] [6/0 5/0 4/0 3/0 2/0 1/0] [6/0 5/0 4/0 3/2 2/2 1/0] [6/0 5/0 4/0 3/2 2/2 1/0]
+    m6 (4/4): [6/0 5/0 4/0 3/0 2/0 1/0] [6/0 5/0 4/0 3/0 2/0 1/0] [6/5 5/5 4/5 3/5 2/5 1/5] [6/7 5/7 4/7 3/7 2/7 1/7]
+    m7 (4/4): [6/0 5/0 4/0 3/0 2/0 1/0] [6/0 5/0 4/0 3/0 2/0 1/0] [6/0 5/0 4/0 3/2 2/2 1/0] [6/0 5/0 4/0 3/2 2/2 1/0]
+    m8 (4/4): [6/7 5/7 4/7 3/9 2/9 1/7] [6/7 5/7 4/7 3/9 2/9 1/7] [6/5 5/5 4/5 3/5 2/5 1/5] [6/5 5/5 4/5 3/5 2/5 1/5]
+
+  Drills emitted: 3
+
+  DRILL 1: Flat-Barre Hover and Strike
+    song_specific : False
+    target_skill  : 'DADGAD sus4 voicings' (id=0a3f404c-56a2-4366-a67b-0b9c3ce27738)
+    tempo         : 50 → 80 BPM
+    mechanic_tier : 3 (held shape struck)
+    repetitions   : 12
+
+    what          : In DADGAD tuning, hold a full six-string flat barre at fret 5. Strike all six strings together on beats 1 and 3, lift the barre completely on beats 2 and 4 (strings ring open), and re-land the barre cleanly. The goal is a zero-buzz landing every time — no slide in, straight down.
+    success_criterion: Every fret-5 strike rings all six strings clearly with no buzz or muted string — the sus4 cluster sounds full and even.
+    common_trap   : Beginners curl the barre finger at the first joint, deadening strings 1 and 2 — keep the entire finger flat like a ruler across the fret.
+
+    tab_snippet   : 1 measure(s), tuning=['D', 'A', 'D', 'G', 'A', 'D']
+      m1 (4/4): [6/5 5/5 4/5 3/5 2/5 1/5] [6/0 5/0 4/0 3/0 2/0 1/0] [6/5 5/5 4/5 3/5 2/5 1/5] [6/0 5/0 4/0 3/0 2/0 1/0]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "D",
+                  "A",
+                  "D",
+                  "G",
+                  "A",
+                  "D"
+            ]
+      }
+
+  DRILL 2: sus4 Color Finger Add: Barre Plus Upper Extensions
+    song_specific : False
+    target_skill  : 'DADGAD sus4 voicings' (id=0a3f404c-56a2-4366-a67b-0b9c3ce27738)
+    tempo         : 50 → 75 BPM
+    mechanic_tier : 4 (shape change)
+    repetitions   : 10
+
+    what          : In DADGAD, hold a flat barre at fret 7 with finger 1. On beat 2, add fingers 3 and 4 to strings 3 and 2 at fret 9 to voice the sus4 extension color — then remove them on beat 3 to return to the plain barre. Repeat the add/remove within one position, never moving the barre finger.
+    success_criterion: The shift between plain barre and the 9th extension sounds like one seamless color change — no gap, no muted strings between voicings.
+    common_trap   : Players lift the barre finger when adding fingers 3 and 4, collapsing the bass strings — anchor finger 1 firmly and only move fingers 3 and 4.
+
+    tab_snippet   : 1 measure(s), tuning=['D', 'A', 'D', 'G', 'A', 'D']
+      m1 (4/4): [6/7 5/7 4/7 3/7 2/7 1/7] [6/7 5/7 4/7 3/9 2/9 1/7] [6/7 5/7 4/7 3/7 2/7 1/7] [6/7 5/7 4/7 3/9 2/9 1/7]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 9,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 9,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 9,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 9,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "D",
+                  "A",
+                  "D",
+                  "G",
+                  "A",
+                  "D"
+            ]
+      }
+
+  DRILL 3: Three-Position Barre Shift in 4/4
+    song_specific : False
+    target_skill  : 'cross-rhythm strumming' (id=7bf7c240-8724-418b-92b6-1544e2bf4a31)
+    tempo         : 55 → 80 BPM
+    mechanic_tier : 5 (shape change with position shift)
+    repetitions   : 12
+
+    what          : In DADGAD, cycle through three flat-barre positions — fret 5, fret 7, and fret 10 — each struck once per beat in 4/4. Beat 4 returns to fret 5. This drills the hand-travel timing that underlies the cross-rhythmic feel: your shift must land exactly on the beat, not after it.
+    success_criterion: Every barre lands square on the click with full ring — no late arrivals, no early strikes before the finger is set.
+    common_trap   : Players strike before the barre is fully pressed, producing a dull thud instead of a full chord — hear the note first, then trust the tempo.
+
+    tab_snippet   : 1 measure(s), tuning=['D', 'A', 'D', 'G', 'A', 'D']
+      m1 (4/4): [6/5 5/5 4/5 3/5 2/5 1/5] [6/7 5/7 4/7 3/7 2/7 1/7] [6/10 5/10 4/10 3/10 2/10 1/10] [6/5 5/5 4/5 3/5 2/5 1/5]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 7,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Little Wing': stop_reason=tool_use output_tokens=4867 max_tokens=20000
+
+                                          {
+                                                "string": 6,
+                                                "fret": 10,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 10,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 10,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 10,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 10,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 10,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "D",
+                  "A",
+                  "D",
+                  "G",
+                  "A",
+                  "D"
+            ]
+      }
+
+  ------------------------------------------------------------
+  LANDMINE GATE CHECKLIST — Kashmir (Led Zeppelin)
+  ------------------------------------------------------------
+  NOTE (N1 caveat): L2 coverage is LIMITED — eval uses fake UUIDs.
+  Full L2 coverage requires Task 3 device step o (real user breakdown).
+
+  [ ] L1: tab_snippet is a canonical isolated shape (NOT a slice of the main song tab)?
+  [ ] L2: all target_skill_temp_ids match IDs in the provided list?  (LIMITED per N1)
+  [ ] L3: drill count in [2, 4]? (drills=[] means Landmine #3 soft-fail fired)
+  [ ] L4: song_specific=true iff `what` explicitly names the song?
+  [ ] L5: mechanic_tier non-decreasing down the drill list? (equal tiers are OK)
+  [ ] L6: tab_snippet.measures.length in {1, 2}?
+  [ ] A1: does each `what` describe the exercise its tab_snippet actually produces?
+
+  SONG DISPOSITION: [ ] SHIP  [ ] REVISE PROMPT  [ ] REVISE SCHEMA  [ ] DEFER
+  Notes: _________________________________________________________
+
+================================================================================
+SONG 3/5: Little Wing — Jimi Hendrix
+================================================================================
+
+  Throwaway eval user for this song: 7b2c3d31-9e04-4743-920f-d30e7b1ff077
+
+  target_skills provided to Sonnet:
+    id=0b0d6e9e-d75d-4d1a-906a-4adcb9c4ac18  name='thumb-over bass notes'
+    id=9062042d-9e28-4dc9-8a28-cb74c8d9b52b  name='chord-melody arpeggios'
+
+  Calling run_technique_breakdown for Little Wing... (live Anthropic)
+
+  Wall clock for 'Little Wing': 69.2s (timeout=300s)
+
+  MAIN SONG TAB — 6 measure(s), tuning=['Eb', 'Ab', 'Db', 'Gb', 'Bb', 'Eb']
+    m1 (12/8): [6/0] [2/3] [1/3] [6/3] [2/3] [1/3]
+    m2 (12/8): [5/2] [2/1] [1/3] [5/0] [2/1] [1/1]
+    m3 (12/8): [4/0] [2/1] [1/3] [4/2] [2/1] [1/3]
+    m4 (12/8): [5/3] [2/0] [1/3] [5/2] [2/1] [1/1]
+    m5 (12/8): [4/0] [2/1] [1/3] [5/0] [2/1] [1/1]
+    m6 (12/8): [6/0] [2/3] [1/3] [6/3] [2/3] [1/3]
+
+  Drills emitted: 4
+
+  DRILL 1: Thumb-Over Bass Anchor on E
+    song_specific : False
+    target_skill  : 'thumb-over bass notes' (id=0b0d6e9e-d75d-4d1a-906a-4adcb9c4ac18)
+    tempo         : 50 → 75 BPM
+    mechanic_tier : 2 (two-string alternation)
+    repetitions   : 12
+
+    what          : Wrap your thumb over the neck to fret the low E string at fret 3 (G), then alternate picking it open (fret 0) and fretted (fret 3) while your fingers hold the Am7 shape on the top strings. The goal is keeping the upper chord shape locked while your thumb independently fires on the bass string.
+    success_criterion: You can alternate open and fret-3 on string 6 with no tension in the thumb and zero movement in the fingers holding the treble shape.
+    common_trap   : Beginners death-grip the neck trying to wrap the thumb — keep the grip relaxed or the chord voicing above collapses.
+
+    tab_snippet   : 1 measure(s), tuning=['Eb', 'Ab', 'Db', 'Gb', 'Bb', 'Eb']
+      m1 (4/4): [6/0] [6/3] [6/0] [6/3]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "Eb",
+                  "Ab",
+                  "Db",
+                  "Gb",
+                  "Bb",
+                  "Eb"
+            ]
+      }
+
+  DRILL 2: Three-String Ascending Arpeggio Roll
+    song_specific : False
+    target_skill  : 'chord-melody arpeggios' (id=9062042d-9e28-4dc9-8a28-cb74c8d9b52b)
+    tempo         : 50 → 75 BPM
+    mechanic_tier : 2 (two-string alternation)
+    repetitions   : 16
+
+    what          : Hold an Am7 chord shape and roll upward through strings 4, 2, and 1 — one finger per string, letting each note sustain into the next. This builds the harp-like roll that carries the chord-melody texture. Focus entirely on the right-hand peel: thumb-free, use index on string 4, middle on string 2, ring on string 1.
+    success_criterion: All three notes of the roll ring simultaneously by the time string 1 is struck — the chord sounds like a harp, not three separate pick attacks.
+    common_trap   : Players mute the previous string when moving to the next — keep all fingers lightly depressed so notes overlap and sustain.
+
+    tab_snippet   : 1 measure(s), tuning=['Eb', 'Ab', 'Db', 'Gb', 'Bb', 'Eb']
+      m1 (4/4): [4/2] [2/1] [1/3] [4/2] [2/1] [1/3]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 2,
+                                                "fret": 1,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 2,
+                                                "fret": 1,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "Eb",
+                  "Ab",
+                  "Db",
+                  "Gb",
+                  "Bb",
+                  "Eb"
+            ]
+      }
+
+  DRILL 3: Bass-Plus-Roll Independence (Am7 to C)
+    song_specific : False
+    target_skill  : 'thumb-over bass notes' (id=0b0d6e9e-d75d-4d1a-906a-4adcb9c4ac18)
+    tempo         : 45 → 65 BPM
+    mechanic_tier : 6 (polyphonic independence)
+    repetitions   : 10
+
+    what          : From an Am7 shape, fire the open A string with your thumb, then immediately roll fingers 1-2-3 up strings 3, 2, 1. Then shift to C shape: thumb fires string 5 at fret 3, roll again. The challenge is coordinating the thumb bass attack independently from the upward finger roll — two rhythmic layers in one hand.
+    success_criterion: The bass note and the start of the treble roll land cleanly without a gap or a double-hit — you hear a distinct bass downbeat followed by a smooth, even upward roll.
+    common_trap   : Players rush the roll to 'catch up' to the bass note — the bass fires FIRST, then the roll follows. Keep the two motions separate in your mind.
+
+    tab_snippet   : 1 measure(s), tuning=['Eb', 'Ab', 'Db', 'Gb', 'Bb', 'Eb']
+      m1 (4/4): [5/0] [3/0] [2/1] [1/3] [5/3] [3/0] [2/1] [1/3]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 5,
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 2,
+                                                "fret": 1,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 5,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 3,  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Beat It': stop_reason=tool_use output_tokens=5655 max_tokens=20000
+
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 2,
+                                                "fret": 1,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "Eb",
+                  "Ab",
+                  "Db",
+                  "Gb",
+                  "Bb",
+                  "Eb"
+            ]
+      }
+
+  DRILL 4: Chord-Melody Shape Change with Shared Tone
+    song_specific : False
+    target_skill  : 'chord-melody arpeggios' (id=9062042d-9e28-4dc9-8a28-cb74c8d9b52b)
+    tempo         : 55 → 80 BPM
+    mechanic_tier : 4 (shape change)
+    repetitions   : 12
+
+    what          : Move between an Am7 voicing and a C voicing at fret 1-3, keeping the B-string (string 2, fret 1) finger planted as a pivot. Strum or roll both chords and listen that the B-string note never mutes during the transition. This builds the smooth melodic voice-leading that makes chord-melody arpeggios sing rather than stutter.
+    success_criterion: The B-string fret-1 note rings continuously through both shapes with no dead click — the transition sounds like one seamless melodic phrase, not two separate chords.
+    common_trap   : Lifting all fingers at once between shapes kills the pivot note — move only the fingers that must change, never the whole hand.
+
+    tab_snippet   : 2 measure(s), tuning=['Eb', 'Ab', 'Db', 'Gb', 'Bb', 'Eb']
+      m1 (4/4): [4/2] [2/1] [4/2] [1/3]
+      m2 (4/4): [5/3] [2/1] [5/3] [1/3]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 2,
+                                                "fret": 1,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  },
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 5,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 2,
+                                                "fret": 1,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 5,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "Eb",
+                  "Ab",
+                  "Db",
+                  "Gb",
+                  "Bb",
+                  "Eb"
+            ]
+      }
+
+  ------------------------------------------------------------
+  LANDMINE GATE CHECKLIST — Little Wing (Jimi Hendrix)
+  ------------------------------------------------------------
+  NOTE (N1 caveat): L2 coverage is LIMITED — eval uses fake UUIDs.
+  Full L2 coverage requires Task 3 device step o (real user breakdown).
+
+  [ ] L1: tab_snippet is a canonical isolated shape (NOT a slice of the main song tab)?
+  [ ] L2: all target_skill_temp_ids match IDs in the provided list?  (LIMITED per N1)
+  [ ] L3: drill count in [2, 4]? (drills=[] means Landmine #3 soft-fail fired)
+  [ ] L4: song_specific=true iff `what` explicitly names the song?
+  [ ] L5: mechanic_tier non-decreasing down the drill list? (equal tiers are OK)
+  [ ] L6: tab_snippet.measures.length in {1, 2}?
+  [ ] A1: does each `what` describe the exercise its tab_snippet actually produces?
+
+  SONG DISPOSITION: [ ] SHIP  [ ] REVISE PROMPT  [ ] REVISE SCHEMA  [ ] DEFER
+  Notes: _________________________________________________________
+
+================================================================================
+SONG 4/5: Beat It — Michael Jackson
+================================================================================
+
+  Throwaway eval user for this song: 39018a9f-32c4-4575-913f-726b49a8f27e
+
+  target_skills provided to Sonnet:
+    id=38cd8294-8610-4682-94cc-ba464d90e1d8  name='palm-muted eighth notes'
+    id=1624d0ad-4b76-423e-9ced-4615d9c71429  name='power-chord riff'
+
+  Calling run_technique_breakdown for Beat It... (live Anthropic)
+
+  Wall clock for 'Beat It': 70.9s (timeout=300s)
+
+  MAIN SONG TAB — 8 measure(s), tuning=['E', 'A', 'D', 'G', 'B', 'e']
+    m1 (4/4): [6/0 5/2] [5/2] [5/2] [5/0] [5/2] [5/3] [5/2] [5/0]
+    m2 (4/4): [6/0] [5/2] [5/2] [5/0] [5/2] [5/3] [5/2] [5/0]
+    m3 (4/4): [6/2 5/4] [6/2 5/4] [6/2 5/4] [6/0 5/2] [6/0 5/2] [6/0 5/2] [5/3 4/5] [5/3 4/5]
+    m4 (4/4): [6/2 5/4] [6/2 5/4] [6/2 5/4] [6/0 5/2] [6/0 5/2] [6/0 5/2] [5/3 4/5] [5/2 4/4]
+    m5 (4/4): [6/2] [5/2] [4/2] [4/0]
+    m6 (4/4): [6/2] [5/2] [4/2] [5/3]
+    m7 (4/4): [6/2 5/4] [6/2 5/4] [6/0 5/2] [6/0 5/2] [5/3 4/5] [5/3 4/5] [6/2 5/4] [6/0 5/2]
+    m8 (4/4): [6/2 5/4] [6/2 5/4] [6/0 5/2] [6/0 5/2] [5/3 4/5] [5/3 4/5] [6/2 5/4] [6/2 5/4]
+
+  Drills emitted: 3
+
+  DRILL 1: Lock the Palm Mute on Repeating Eighths
+    song_specific : False
+    target_skill  : 'palm-muted eighth notes' (id=38cd8294-8610-4682-94cc-ba464d90e1d8)
+    tempo         : 60 → 95 BPM
+    mechanic_tier : 1 (single sustained note)
+    repetitions   : 10
+
+    what          : Fret a single note at the 2nd fret on string 6 and pick it eight times as palm-muted eighth notes, keeping your picking-hand heel planted at the bridge the entire time. Every note must sound at the same volume and die at the same rate — no open ring, no choked silence.
+    success_criterion: All eight notes have identical attack and decay — the mute never shifts and no note rings longer than a sixteenth.
+    common_trap   : Beginners gradually roll the palm forward off the bridge during the phrase, losing the mute by beat 5.
+
+    tab_snippet   : 1 measure(s), tuning=['E', 'A', 'D', 'G', 'B', 'e']
+      m1 (4/4): [6/2] [6/2] [6/2] [6/2] [6/2] [6/2] [6/2] [6/2]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "E",
+                  "A",
+                  "D",
+                  "G",
+                  "B",
+                  "e"
+            ]
+      }
+
+  DRILL 2: 3-3-2 Eighth Grouping on a Single Power Chord
+    song_specific : False
+    target_skill  : 'power-chord riff' (id=1624d0ad-4b76-423e-9ced-4615d9c71429)
+    tempo         : 65 → 95 BPM
+    mechanic_tier : 3 (held shape struck)
+    repetitions   : 12
+
+    what          : Hold an F#5 power chord (index on string 6 fret 2, ring on string 5 fret 4) and strike it in a 3-3-2 grouping: three eighth notes, three eighth notes, two eighth notes. Keep the palm mute on throughout. The goal is to feel the syncopated pocket without changing chord.
+    success_criterion: The 3-3-2 grouping feels automatic at tempo — you can count out loud while playing without losing the groove.
+    common_trap   : Players accent only beat 1 and flatten the pattern into a uniform eight-note strum, losing the drive of the grouping.
+
+    tab_snippet   : 1 measure(s), tuning=['E', 'A', 'D', 'G', 'B', 'e']
+      m1 (4/4): [6/2 5/4] [6/2 5/4] [6/2 5/4] [6/2 5/4] [6/2 5/4] [6/2 5/4] [6/2 5/4] [6/2 5/4]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 4,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 4,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 4,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 4,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 4,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 4,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 4,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 4,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "E",
+                  "A",
+                  "D",
+                  "G",
+                  "B",
+                  "e"
+            ]
+      }
+
+  DRILL 3: F#5 → E5 → C5 Power Chord Switch Cycle
+    song_specific : False
+    target_skill  : 'power-chord riff' (id=1624d0ad-4b76-423e-9ced-4615d9c71429)
+    tempo         : 55 → 90 BPM
+    mechanic_tier : 4 (shape change)
+    repetitions   : 16
+
+    what          : Cycle through three power chord shapes — F#5 (6th string, fret 2), E5 (6th string open), and C5 (5th string, fret 3) — each held for two palm-muted quarter notes before switching. Keep fretting fingers hovering close to the strings between changes and mute strings 1–3 throughout.
+    success_criterion: Every chord change lands exactly on the beat with no gap or buzz — the switch sounds as confident as the hold.
+    common_trap   : The hand flies off the neck entirely between shapes; keep fingertips grazing the strings during the transition so you land in position, not on top of it.
+
+    tab_snippet   : 1 measure(s), tuning=['E', 'A', 'D', 'G', 'B', 'e']
+      m1 (4/4): [6/2 5/4] [6/2 5/4] [6/0 5/2] [5/3 4/5]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 4,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 2,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 4,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 2,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 5,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 5,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "E",
+                  "A",
+                  "D",
+                  "G",
+                  "B",
+                  "e"
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Wonderwall': stop_reason=tool_use output_tokens=9692 max_tokens=20000
+            ]
+      }
+
+  ------------------------------------------------------------
+  LANDMINE GATE CHECKLIST — Beat It (Michael Jackson)
+  ------------------------------------------------------------
+  NOTE (N1 caveat): L2 coverage is LIMITED — eval uses fake UUIDs.
+  Full L2 coverage requires Task 3 device step o (real user breakdown).
+
+  [ ] L1: tab_snippet is a canonical isolated shape (NOT a slice of the main song tab)?
+  [ ] L2: all target_skill_temp_ids match IDs in the provided list?  (LIMITED per N1)
+  [ ] L3: drill count in [2, 4]? (drills=[] means Landmine #3 soft-fail fired)
+  [ ] L4: song_specific=true iff `what` explicitly names the song?
+  [ ] L5: mechanic_tier non-decreasing down the drill list? (equal tiers are OK)
+  [ ] L6: tab_snippet.measures.length in {1, 2}?
+  [ ] A1: does each `what` describe the exercise its tab_snippet actually produces?
+
+  SONG DISPOSITION: [ ] SHIP  [ ] REVISE PROMPT  [ ] REVISE SCHEMA  [ ] DEFER
+  Notes: _________________________________________________________
+
+================================================================================
+SONG 5/5: Wonderwall — Oasis
+================================================================================
+
+  Throwaway eval user for this song: c84228ee-1068-4881-b3d3-e1fd5bd1c7e5
+
+  target_skills provided to Sonnet:
+    id=517bd65d-6ab4-41d9-ba5a-c923d88bb148  name='G-Em-D-A7sus4 chord changes'
+    id=5a9bc7f9-dc84-46be-954f-ee6a594652f8  name='downstroke pattern'
+
+  Calling run_technique_breakdown for Wonderwall... (live Anthropic)
+
+  Wall clock for 'Wonderwall': 107.3s (timeout=300s)
+
+  MAIN SONG TAB — 8 measure(s), tuning=['E', 'A', 'D', 'G', 'B', 'e']
+    m1 (4/4): [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3]
+    m2 (4/4): [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3]
+    m3 (4/4): [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3]
+    m4 (4/4): [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3]
+    m5 (4/4): [5/2 4/2 3/4 2/3 1/3] [5/2 4/2 3/4 2/3 1/3] [5/2 4/2 3/4 2/3 1/3] [5/2 4/2 3/4 2/3 1/3] [5/2 4/2 3/4 2/3 1/3] [5/2 4/2 3/4 2/3 1/3] [5/2 4/2 3/4 2/3 1/3] [5/2 4/2 3/4 2/3 1/3]
+    m6 (4/4): [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3]
+    m7 (4/4): [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3]
+    m8 (4/4): [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3] [4/0 3/2 2/3 1/3]
+
+  Drills emitted: 3
+
+  DRILL 1: Anchor-and-Swap: Top Two Strings Locked
+    song_specific : False
+    target_skill  : 'G-Em-D-A7sus4 chord changes' (id=517bd65d-6ab4-41d9-ba5a-c923d88bb148)
+    tempo         : 50 → 80 BPM
+    mechanic_tier : 4 (shape change)
+    repetitions   : 12
+
+    what          : Plant your ring and pinky fingers on fret 3 of strings 1 and 2 and hold them there throughout. With your remaining fingers, alternate between fretting strings 3 and 4 at fret 2 (Em7 shape) and leaving them open (Dsus4 shape). The anchor never lifts — every chord change happens below it.
+    success_criterion: Both changes — fretted to open, open to fretted — land cleanly with no buzz or hesitation on the high strings, at full tempo.
+    common_trap   : Beginners reflexively lift the anchor fingers to 'reset' before the next chord — that habit will always cause a gap. Lock them down.
+
+    tab_snippet   : 1 measure(s), tuning=['E', 'A', 'D', 'G', 'B', 'e']
+      m1 (4/4): [4/2 3/2 2/3 1/3] [4/2 3/2 2/3 1/3] [4/0 3/0 2/3 1/3] [4/0 3/0 2/3 1/3]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 2,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 2,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "quarter"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "E",
+                  "A",
+                  "D",
+                  "G",
+                  "B",
+                  "e"
+            ]
+      }
+
+  DRILL 2: Eight Downstrokes: Wrist Engine, Not Arm
+    song_specific : False
+    target_skill  : 'downstroke pattern' (id=5a9bc7f9-dc84-46be-954f-ee6a594652f8)
+    tempo         : 60 → 100 BPM
+    mechanic_tier : 3 (held shape struck)
+    repetitions   : 16
+
+    what          : Hold a static four-string chord shape (strings 4–1) and drive eight consecutive downstrokes per measure using only wrist rotation — your elbow stays still. Accent beats 1 and 3, ghost beats 2 and 4. No upstrokes at all.
+    success_criterion: All eight strokes land evenly and in the right string range, beats 1 and 3 are audibly louder, and your forearm shows zero tension at target tempo.
+    common_trap   : Players tighten their whole forearm to stay 'in time', which creates fatigue and unevenness — the power comes from loose, snapping wrist rotation.
+
+    tab_snippet   : 1 measure(s), tuning=['E', 'A', 'D', 'G', 'B', 'e']
+      m1 (4/4): [4/2 3/0 2/3 1/3] [4/2 3/0 2/3 1/3] [4/2 3/0 2/3 1/3] [4/2 3/0 2/3 1/3] [4/2 3/0 2/3 1/3] [4/2 3/0 2/3 1/3] [4/2 3/0 2/3 1/3] [4/2 3/0 2/3 1/3]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 4,
+                                                "fret": 2,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 0,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "eighth"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "E",
+                  "A",
+                  "D",
+                  "G",
+                  "B",
+                  "e"
+            ]
+      }
+
+  DRILL 3: G → A7sus4 Cold-Switch
+    song_specific : False
+    target_skill  : 'G-Em-D-A7sus4 chord changes' (id=517bd65d-6ab4-41d9-ba5a-c923d88bb148)
+    tempo         : 45 → 75 BPM
+    mechanic_tier : 5 (shape change with position shift)
+    repetitions   : 10
+
+    what          : From a G chord shape (fingers on strings 6, 5, 2, and 1), shift to an A7sus4 shape — dropping the bass strings and fretting only string 3 at fret 2, keeping strings 1 and 2 anchored. This exercises the same position shift that happens during the verse's widest chord leap, but in isolation. Do not strum — focus only on the fretting-hand transition, then strike the new chord once to check it rings cleanly.
+    success_criterion: Every note of both chords rings cleanly with no muffled strings or re-fretting, and the switch happens within the beat — no late arrivals.
+    common_trap   : Players move their anchor fingers first instead of last, which breaks the one thing that was already working — leave strings 1 and 2 planted and move everything else around them.
+
+    tab_snippet   : 1 measure(s), tuning=['E', 'A', 'D', 'G', 'B', 'e']
+      m1 (4/4): [6/3 5/2 2/3 1/3] [5/0 4/0 3/2 2/3 1/3]
+      {
+            "measures": [
+                  {
+                        "beats": [
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 6,
+                                                "fret": 3,
+                                                "duration": "half"
+                                          },
+                                          {
+                                                "string": 5,
+                                                "fret": 2,
+                                                "duration": "half"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "half"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "half"
+                                          }
+                                    ]
+                              },
+                              {
+                                    "notes": [
+                                          {
+                                                "string": 5,
+                                                "fret": 0,
+                                                "duration": "half"
+                                          },
+                                          {
+                                                "string": 4,
+                                                "fret": 0,
+                                                "duration": "half"
+                                          },
+                                          {
+                                                "string": 3,
+                                                "fret": 2,
+                                                "duration": "half"
+                                          },
+                                          {
+                                                "string": 2,
+                                                "fret": 3,
+                                                "duration": "half"
+                                          },
+                                          {
+                                                "string": 1,
+                                                "fret": 3,
+                                                "duration": "half"
+                                          }
+                                    ]
+                              }
+                        ],
+                        "time_signature": "4/4"
+                  }
+            ],
+            "tuning": [
+                  "E",
+                  "A",
+                  "D",
+                  "G",
+                  "B",
+                  "e"
+            ]
+      }
+
+  ------------------------------------------------------------
+  LANDMINE GATE CHECKLIST — Wonderwall (Oasis)
+  ------------------------------------------------------------
+  NOTE (N1 caveat): L2 coverage is LIMITED — eval uses fake UUIDs.
+  Full L2 coverage requires Task 3 device step o (real user breakdown).
+
+  [ ] L1: tab_snippet is a canonical isolated shape (NOT a slice of the main song tab)?
+  [ ] L2: all target_skill_temp_ids match IDs in the provided list?  (LIMITED per N1)
+  [ ] L3: drill count in [2, 4]? (drills=[] means Landmine #3 soft-fail fired)
+  [ ] L4: song_specific=true iff `what` explicitly names the song?
+  [ ] L5: mechanic_tier non-decreasing down the drill list? (equal tiers are OK)
+  [ ] L6: tab_snippet.measures.length in {1, 2}?
+  [ ] A1: does each `what` describe the exercise its tab_snippet actually produces?
+
+  SONG DISPOSITION: [ ] SHIP  [ ] REVISE PROMPT  [ ] REVISE SCHEMA  [ ] DEFER
+  Notes: _________________________________________________________
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 5
+  Songs with errors   : 0
+  Total run time      : 418.7s
+  Actual tokens used  : input=32609 | output=34336
+  Estimated cost      : $0.6129 (input $0.0978 + output $0.5150)
+  Governor dollars_actual: $0.0000
+  Budget remaining    : $20/mo cap — this eval used ~$0.61
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================
