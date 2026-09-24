@@ -12,8 +12,10 @@
 // isDrillAlreadyRatedToday) exported at file top for compile-time + pure-logic test
 // coverage in mobile/__tests__/app/breakdown/drill.test.tsx.
 //
-// Drill state (currentBpm, repCount) is component-local useState — no MMKV persistence,
-// no server persistence. Per CONTEXT.md: rep counter resets per-session in 4.1.
+// FLE-73 FIX: Drill state (currentBpm, repCount) lives in component-local useState,
+// mirrored to MMKV (src/api/mmkv.ts) on every rep/tempo advance and restored on mount
+// so backgrounding or killing the app mid-ladder doesn't lose rep progress. No server
+// persistence — Per CONTEXT.md: rep counter resets per-session in 4.1.
 //
 // CONTEXT.md-locked copy strings (do NOT alter):
 //   "Done one rep" — tap target label when below repetitions
@@ -45,6 +47,11 @@ import { TabNotation } from '../../../../components/TabNotation';
 import { MetronomeControl } from '../../../../components/MetronomeControl';
 import { useBreakdown } from '../../../../api/breakdown';
 import { useSubmitDrillRating, type RatingLiteral } from '../../../../api/sessions';
+import {
+  getDrillLadderState,
+  setDrillLadderState,
+  clearDrillLadderState,
+} from '../../../../api/mmkv';
 
 // ---------------------------------------------------------------------------
 // Pure-fn helpers — exported for B2 test coverage in drill.test.tsx
@@ -153,8 +160,11 @@ function DrillScreenInner({ songId, drillIndex }: { songId: number; drillIndex: 
   const breakdown = useBreakdown(songId);
   const submitDrillRating = useSubmitDrillRating(songId);
 
-  // ladder is null until the drill is loaded (initialized on first render with drill data)
-  const [ladderState, setLadderState] = useState<TempoLadderState | null>(null);
+  // ladder is null until the drill is loaded (initialized on first render with drill data),
+  // OR restored from MMKV (FLE-73) if a prior session for this exact song+drill left one.
+  const [ladderState, setLadderState] = useState<TempoLadderState | null>(() =>
+    getDrillLadderState(songId, drillIndex),
+  );
   const [submittedRating, setSubmittedRating] = useState<RatingLiteral | null>(null);
   const [ratingUnlocked, setRatingUnlocked] = useState(false);
 
@@ -200,6 +210,8 @@ function DrillScreenInner({ songId, drillIndex }: { songId: number; drillIndex: 
       setRatingUnlocked(true);
     } else {
       setLadderState(next);
+      // FLE-73: mirror to MMKV so a backgrounded/killed app resumes this rung on remount.
+      setDrillLadderState(songId, drillIndex, next);
     }
   };
 
@@ -213,6 +225,9 @@ function DrillScreenInner({ songId, drillIndex }: { songId: number; drillIndex: 
           setSubmittedRating(null);
         },
         onSuccess: () => {
+          // FLE-73: rating submitted — clear the persisted ladder so a future attempt
+          // at this drill starts a fresh ladder instead of resuming the rated one.
+          clearDrillLadderState(songId, drillIndex);
           // Navigate back after a short delay so the AlreadyRatedCard overlay is visible.
           // envelope.drill_rated_today_indices refetch on the parent screen will disable
           // the whole-song RatingPills (B1 fix — server-derived drill-primary UI state).

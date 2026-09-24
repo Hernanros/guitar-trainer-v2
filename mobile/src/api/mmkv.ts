@@ -192,3 +192,60 @@ export function setReRunPending(pending: boolean): void {
 export function getReRunPending(): boolean {
   return userMmkv.getString(RE_RUN_PENDING_KEY) === 'true';
 }
+
+// ---------------------------------------------------------------------------
+// Drill tempo-ladder persistence (FLE-73)
+//
+// The focused drill screen (breakdown/[songId]/drill/[drillIndex].tsx) tracks
+// tempo-ladder position (current rung's BPM + rep count within that rung)
+// here, keyed per song+drill, so backgrounding or killing the app mid-ladder
+// doesn't strand the user before RatingPills unlock — which only appears
+// once the ladder completes at target_bpm, the one signal the feedback loop
+// needs (FLE-56).
+// ---------------------------------------------------------------------------
+
+export type DrillLadderState = { currentBpm: number; repCount: number };
+
+const DRILL_LADDER_PREFIX = 'drill_ladder.';
+
+function drillLadderKey(songId: number, drillIndex: number): string {
+  return `${DRILL_LADDER_PREFIX}${songId}.${drillIndex}`;
+}
+
+/**
+ * Persists the tempo-ladder rung and rep count for one drill.
+ * Called on every rep/tempo advance so a killed app resumes mid-ladder.
+ */
+export function setDrillLadderState(
+  songId: number,
+  drillIndex: number,
+  state: DrillLadderState,
+): void {
+  userMmkv.set(drillLadderKey(songId, drillIndex), JSON.stringify(state));
+}
+
+/**
+ * Returns the persisted ladder state for a drill, or null if none was saved
+ * (fresh drill, or state already cleared after rating).
+ */
+export function getDrillLadderState(
+  songId: number,
+  drillIndex: number,
+): DrillLadderState | null {
+  const raw = userMmkv.getString(drillLadderKey(songId, drillIndex));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clears the persisted ladder state for a drill.
+ * Called after a successful rating submission so a future attempt at this
+ * drill starts a fresh ladder rather than resuming the just-rated one.
+ */
+export function clearDrillLadderState(songId: number, drillIndex: number): void {
+  userMmkv.remove(drillLadderKey(songId, drillIndex));
+}
