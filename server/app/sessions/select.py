@@ -160,6 +160,11 @@ class DrillCandidate:
     consecutive_clears: int = 0
     attempts: int = 0
     last_practiced_on: Optional[date] = None
+    # Lifetime CLEAR count from drill_attempts. Read ONLY by §5.4's consolidation
+    # fallback ("the drill with the highest historical clear rate"); no selection
+    # rule scores on it, so it stays 0 for every candidate the loader doesn't need
+    # it for.
+    lifetime_clears: int = 0
 
     @property
     def planned_bpm(self) -> int:
@@ -187,6 +192,18 @@ class DrillCandidate:
     @property
     def never_practised(self) -> bool:
         return self.attempts <= 0 or self.last_practiced_on is None
+
+    @property
+    def clear_rate(self) -> float:
+        """§5.4 — lifetime clears / attempts. Zero attempts is 0.0, not undefined.
+
+        A drill with no history has no evidence of being owned, and §5.4 is looking
+        for the drill the player owns MOST. Returning 0.0 keeps it sortable and puts
+        untouched drills last, which is the right answer for an end-on-a-win item.
+        """
+        if self.attempts <= 0:
+            return 0.0
+        return min(self.lifetime_clears / self.attempts, 1.0)
 
 
 @dataclass(frozen=True)
