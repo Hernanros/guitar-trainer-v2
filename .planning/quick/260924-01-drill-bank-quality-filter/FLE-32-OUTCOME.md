@@ -45,8 +45,19 @@ The only cell thinned is R3/D2, 7 -> 3, still over `MIN_CELL_STOCK`. So banking 
 
 Measuring that table required chaining `backfill_drills` and `backfill_drill_taxonomy` in one transaction. `backfill_drill_taxonomy.backfill()` committed internally despite documenting the opposite contract, so my rolled-back preview **wrote 16 drills to production**. I deleted them within about a minute; nothing had referenced them, and prod is back to 0 rows. Root cause fixed in `9b12f47` with three tests pinning the contract. Full account on FLE-48.
 
-### Disposition
+### Disposition — CLOSED 2026-09-24
 
-Everything in this issue's "Scope once unblocked" is done except the write itself: the cached drills are read and resolved, routed through `drill_dedupe.classify`, provenance recorded, collapse rate reported, and no LLM sits in the write path. The remaining step — running `--apply` against production — is FLE-48's, and it is behind a pending confirmation card with Hernan.
+The write landed under FLE-48, so the one thing this issue was holding for is done. Verified live against production read-only rather than inferred from FLE-48's report:
 
-Marking this **blocked on FLE-48** rather than done: "Done when" requires drills actually in the bank, and asserting that while the table is empty would be exactly the kind of unverified claim FLE-48 was filed to correct. **Unblock owner: Hernan. Unblock action: the "Apply the drill backfill to production? (0 -> 12 drills, quality-filtered)" card on FLE-48.**
+| "Done when" clause | Evidence from prod |
+|---|---|
+| Existing drills are in the bank | `drills` = **12** rows |
+| Duplicates collapsed on write | 12 canonical, 0 merged, 12 distinct `name_normalized`, `drill_dedupe_queue` = 0 |
+| Collapse rate reported | **0%** — 16 seen, 16 inserted, 0 reused (see above for why it is not yet due) |
+| Drills are ones we'd hand a user | the 4 song-playback drills are absent: song 71 kept D1/D3 of 4, song 76 kept D1 of 3 |
+
+Provenance is complete — every row carries a non-null `origin_song_id` and `origin_drill_index`, and every row resolved a `skill_node_id`. Taxonomy classified 12/12 with no nulls: `L4/D2 x7, R3/D2 x3, L3/D1 x1, C1/D2 x1`.
+
+**Nothing was left unread.** 42 songs hold a `breakdown` object but only 5 carry a `drills` key; the other 37 are 34 `{"placeholder": "Phase 3 will populate breakdown"}` seeds and 3 real breakdowns that predate the drills field. So the 16-drill read was the whole available corpus, not a partial sweep — worth recording because "42 breakdowns, 12 drills" reads like an under-read and is not one.
+
+Two things this issue does **not** close, both already owned elsewhere: the bank is per-user and splits 9/3 (FLE-61), and §10.3 pilot-band coverage stays at 2/45 for structural reasons (FLE-82). The 0% collapse rate is worth re-measuring once the corpus grows past 5 breakdowns — FLE-8's ~180-row estimate assumed 60 songs and is not disproven, just not yet due.
