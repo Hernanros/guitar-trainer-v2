@@ -55,6 +55,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.sessions import ladder
+
 logger = logging.getLogger(__name__)
 
 OPEN_STATES = ("planned", "in_progress")
@@ -105,6 +107,10 @@ class SessionRow:
     song_id: Optional[int]
     target_minutes: int
     mode: str
+    # FLE-4 §7.4. Read by the §5.2 fan-out, and read from the SESSION rather than
+    # recomputed per drill: "the entire session consolidates" is the rule, and a
+    # per-item re-derivation would be a second place for it to disagree with itself.
+    allow_push: bool
     state: str
     terminal_reason: Optional[str]
     generated_at: datetime
@@ -122,6 +128,34 @@ class SessionRow:
 
 
 @dataclass(frozen=True)
+class FanOut:
+    """What a rated `/complete` did beyond the item row — FLE-21 §5.2 steps 2-4.
+
+    Every field is None/false on the paths that fan out to nothing: an unrated
+    complete, a skip, and — importantly — a DUPLICATE rated complete. The fan-out is
+    once-per-attempt (see `_terminal_item`), so a retried flush answers 200 with an
+    empty FanOut rather than moving the ladder a second time.
+    """
+
+    attempt_id: Optional[UUID] = None
+    outcome: Optional[str] = None
+    rung_before: Optional[int] = None
+    rung_after: Optional[int] = None
+    progress_state: Optional[str] = None
+    pushed: bool = False
+    dropped: bool = False
+    push_withheld: bool = False
+    daily_verdict_written: bool = False
+    daily_verdict_conflict: bool = False
+
+    @property
+    def is_empty(self) -> bool:
+        return self.attempt_id is None and not (
+            self.daily_verdict_written or self.daily_verdict_conflict
+        )
+
+
+@dataclass(frozen=True)
 class ItemOutcome:
     """The result of one item transition, including whether it changed anything.
 
@@ -136,11 +170,12 @@ class ItemOutcome:
     applied: bool
     active_seconds: int
     clamped: bool
+    fanout: FanOut = FanOut()
 
 
 _SESSION_COLUMNS = """
     id, user_id, local_calendar_day, tz_offset_minutes, song_id, target_minutes,
-    mode::text AS mode, state::text AS state,
+    mode::text AS mode, allow_push, state::text AS state,
     terminal_reason::text AS terminal_reason,
     generated_at, started_at, last_activity_at, ended_at,
     completion_ratio, elapsed_active_seconds, item_count, last_item_index_reached
@@ -187,6 +222,7 @@ def _row_to_session(row: Any) -> SessionRow:
         song_id=row.song_id,
         target_minutes=row.target_minutes,
         mode=row.mode,
+        allow_push=row.allow_push,
         state=row.state,
         terminal_reason=row.terminal_reason,
         generated_at=row.generated_at,
@@ -307,7 +343,8 @@ _TERMINAL_ITEM_SQL = text(
            rating = COALESCE(CAST(:rating AS rating_level), rating),
            advance_mode = COALESCE(CAST(:advance_mode AS advance_mode), advance_mode)
      WHERE session_id = :sid AND item_index = :idx
-    RETURNING item_index, state::text AS state, active_seconds, planned_seconds
+    RETURNING item_index, state::text AS state, active_seconds, planned_seconds,
+              completed_reps
     """
 )
 
@@ -316,6 +353,31 @@ _ITEM_FLAGS_SQL = text(
     SELECT state::text AS state, rated, planned_seconds
       FROM practice_session_items
      WHERE session_id = :sid AND item_index = :idx
+    """
+)
+
+# The terminal path's read, and it is a DIFFERENT statement from the one above for
+# exactly one reason: FOR UPDATE.
+#
+# FLE-21 §5.2's fan-out must be applied ONCE per attempt (FLE-4 §7.2 says so in the
+# section heading), and the once-guard is "this item had no rating before now".
+# Unlocked, two duplicate flushes of the same rated complete both read rating = NULL,
+# both pass the guard, and the ladder moves twice for one attempt — a silent double
+# push that looks exactly like a player improving faster than they are. The row lock
+# makes the second flush wait, re-read its own rating, and fan out to nothing.
+#
+# Held only for the remainder of the caller's transaction, and contention is per
+# (session, item): two writers for one item is precisely the duplicate this serialises.
+_ITEM_PLAN_FOR_UPDATE_SQL = text(
+    """
+    SELECT id, state::text AS state, rated, planned_seconds,
+           kind::text AS kind, block::text AS block,
+           drill_id, song_id, target_skill_node_id,
+           planned_bpm, planned_reps, re_entry,
+           rating::text AS rating
+      FROM practice_session_items
+     WHERE session_id = :sid AND item_index = :idx
+     FOR UPDATE
     """
 )
 
@@ -359,6 +421,17 @@ async def _bump_session(db: AsyncSession, session_id: UUID, item_index: int) -> 
 async def _item_flags(db: AsyncSession, session_id: UUID, item_index: int) -> Any:
     row = (
         await db.execute(_ITEM_FLAGS_SQL, {"sid": session_id, "idx": item_index})
+    ).first()
+    if row is None:
+        raise ItemNotFound(f"no item at index {item_index} in session {session_id}")
+    return row
+
+
+async def _item_plan_locked(db: AsyncSession, session_id: UUID, item_index: int) -> Any:
+    row = (
+        await db.execute(
+            _ITEM_PLAN_FOR_UPDATE_SQL, {"sid": session_id, "idx": item_index}
+        )
     ).first()
     if row is None:
         raise ItemNotFound(f"no item at index {item_index} in session {session_id}")
@@ -414,8 +487,8 @@ async def _terminal_item(
     rating: Optional[str],
     advance_mode: Optional[str],
 ) -> tuple[ItemOutcome, SessionRow]:
-    await load_session(db, user_id, session_id)
-    flags = await _item_flags(db, session_id, item_index)
+    session_before = await load_session(db, user_id, session_id)
+    flags = await _item_plan_locked(db, session_id, item_index)
 
     # FLE-21 §5.1. Checked against the SERVER's `rated` flag, never the client's idea
     # of it — FLE-10 R5 is that the client derives no flags, and this is the boundary
@@ -424,6 +497,13 @@ async def _terminal_item(
         raise RatingNotPermitted(
             f"item {item_index} of session {session_id} is not a rated item"
         )
+
+    # §5.2's fan-out fires on the FIRST rating this item ever carried, and only there.
+    # `_TERMINAL_ITEM_SQL` COALESCEs the rating precisely so a retry cannot overwrite
+    # one, so "the row had no rating a moment ago, under lock" is the same condition
+    # as "this write is the one that set it" — and it holds for the out-of-order case
+    # too, where the complete lands on a `not_reached` item.
+    fans_out = rating is not None and flags.rating is None and new_state == "completed"
 
     row = (
         await db.execute(
@@ -459,6 +539,11 @@ async def _terminal_item(
         )
 
     session = await _bump_session(db, session_id, item_index)
+    fanout = (
+        await _fan_out(db, session_before, flags, rating=rating, item_row=row)
+        if fans_out
+        else FanOut()
+    )
     return (
         ItemOutcome(
             item_index=item_index,
@@ -466,9 +551,91 @@ async def _terminal_item(
             applied=True,
             active_seconds=row.active_seconds,
             clamped=clamped,
+            fanout=fanout,
         ),
         session,
     )
+
+
+# ---------------------------------------------------------------------------
+# FLE-21 §5.2 — the fan-out (FLE-64)
+# ---------------------------------------------------------------------------
+
+
+async def _fan_out(
+    db: AsyncSession,
+    session: SessionRow,
+    item: Any,
+    *,
+    rating: str,
+    item_row: Any,
+) -> FanOut:
+    """Steps 2-4 of §5.2, in the caller's transaction.
+
+    Which steps run is decided by what the ITEM is, never by what the client sent:
+
+      * a `drill` item  → `drill_attempts` + the §7.2 ladder (steps 2 and 3).
+      * a song item     → the `user_sessions` daily verdict (step 4).
+
+    Those are the only two shapes a rated item can have. FLE-4 §5.3 makes exactly one
+    repertoire item rated (`song_section`), §5.1/§5.4 make warm-up and consolidation
+    unrated, and §6 drops the lowest technique slots past MAX_RATING_TAPS — so this
+    branch is total over `rated = true`, and an unrated item never reaches here.
+    """
+    if item.drill_id is not None:
+        record = await ladder.record_attempt(
+            db,
+            user_id=session.user_id,
+            drill_id=item.drill_id,
+            session_item_id=item.id,
+            local_calendar_day=session.local_calendar_day,
+            planned_bpm=item.planned_bpm,
+            planned_reps=item.planned_reps,
+            # From the row we just wrote, not from the request: `_TERMINAL_ITEM_SQL`
+            # COALESCEs completed_reps, so a rating arriving in a second flush that
+            # omits the reps still classifies against the reps the first one stored.
+            completed_reps=item_row.completed_reps,
+            rating=rating,
+            re_entry=bool(item.re_entry),
+            allow_push=bool(session.allow_push),
+            duration_s=item_row.active_seconds,
+            target_skill_node_id=item.target_skill_node_id,
+        )
+        return FanOut(
+            attempt_id=record.attempt_id,
+            outcome=record.outcome,
+            rung_before=record.rung_before,
+            rung_after=record.rung_after,
+            progress_state=record.progress_state,
+            pushed=record.pushed,
+            dropped=record.dropped,
+            push_withheld=record.push_withheld,
+        )
+
+    if item.song_id is not None:
+        verdict = await ladder.record_daily_verdict(
+            db,
+            user_id=session.user_id,
+            song_id=item.song_id,
+            rating=rating,
+            local_calendar_day=session.local_calendar_day,
+            tz_offset_minutes=session.tz_offset_minutes,
+        )
+        return FanOut(
+            daily_verdict_written=verdict.verdict_id is not None,
+            daily_verdict_conflict=verdict.conflicted,
+        )
+
+    # A rated item with neither a drill nor a song. The generator cannot produce one
+    # (every PlannedItem carries one or the other), so this is a corrupted row rather
+    # than a case — and the rating is already safely on the item either way.
+    logger.warning(
+        "rated item %s of session %s has neither drill_id nor song_id — "
+        "§5.2 fan-out skipped",
+        item.id,
+        session.id,
+    )
+    return FanOut()
 
 
 async def complete_item(

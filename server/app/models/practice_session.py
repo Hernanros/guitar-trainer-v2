@@ -172,6 +172,29 @@ class ItemSkipRequest(BaseModel):
     completed_reps: Optional[int] = Field(default=None, ge=0)
 
 
+class LadderMoveResponse(BaseModel):
+    """What the rating did to the drill's tempo ladder (FLE-4 §7.2, FLE-64).
+
+    Present only on a rated `/complete` for a drill item, and only on the FIRST one —
+    a duplicate flush of the same rating answers 200 with `ladder: null`, because the
+    §7.2 transition is applied once per attempt and a second `rung_after` would be
+    reporting a move that did not happen.
+
+    Server-decided, like every other number the player renders (FLE-10 R5): the
+    client is TOLD the outcome, it never classifies one. `push_withheld` is the
+    honest name for §7.4's veto — the clears banked, the rung did not move, and the
+    push will land in the next session.
+    """
+
+    outcome: Literal["CLEAR", "HOLD", "MISS", "SKIP"]
+    rung_before: int
+    rung_after: int
+    progress_state: Literal["active", "maintenance", "mastered", "retired"]
+    pushed: bool = False
+    dropped: bool = False
+    push_withheld: bool = False
+
+
 class ItemEventResponse(BaseModel):
     """What an item transition returns: the item's new state and the session header.
 
@@ -190,6 +213,21 @@ class ItemEventResponse(BaseModel):
         description=(
             "True when active_seconds was clamped to 4x planned_seconds (FLE-21 §6). "
             "Clamped items are excluded from the readout's duration comparison."
+        ),
+    )
+    ladder: Optional[LadderMoveResponse] = Field(
+        default=None,
+        description=(
+            "FLE-21 §5.2 steps 2-3. Set when this call was the first rating on a "
+            "drill item; null on every other path, including a duplicate flush."
+        ),
+    )
+    daily_verdict_recorded: bool = Field(
+        default=False,
+        description=(
+            "FLE-21 §5.2 step 4 — the rated repertoire item wrote its user_sessions "
+            "daily verdict. A duplicate verdict answers 409 instead, and the item's "
+            "own rating is still committed."
         ),
     )
     session: PracticeSessionResponse

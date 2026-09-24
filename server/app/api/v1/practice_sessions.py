@@ -37,6 +37,8 @@ from typing import Mapping, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +50,7 @@ from app.models.practice_session import (
     ItemCompleteRequest,
     ItemEventResponse,
     ItemSkipRequest,
+    LadderMoveResponse,
     PracticeSessionItemResponse,
     PracticeSessionResponse,
     SessionCompleteResponse,
@@ -55,6 +58,7 @@ from app.models.practice_session import (
 from app.sessions import lifecycle
 from app.sessions.assemble import NoMaterialError
 from app.sessions.content import load_item_content
+from app.sessions.ladder import DrillNotFound
 from app.sessions.lifecycle import (
     ItemNotFound,
     RatingNotPermitted,
@@ -380,7 +384,20 @@ async def enter_item(
 
 
 @router.post(
-    "/{session_id}/items/{item_index}/complete", response_model=ItemEventResponse
+    "/{session_id}/items/{item_index}/complete",
+    response_model=ItemEventResponse,
+    responses={
+        200: {"description": "Recorded. `ladder` is set on a drill item's first rating."},
+        404: {"description": "No such session, item, or drill."},
+        409: {
+            "description": (
+                "The rated repertoire item's daily verdict already existed. A "
+                "state-sync signal, NOT a failure — every other write committed."
+            ),
+            "model": ItemEventResponse,
+        },
+        422: {"description": "rating_not_permitted_for_item — the item is unrated."},
+    },
 )
 async def complete_item(
     body: ItemCompleteRequest,
@@ -395,9 +412,23 @@ async def complete_item(
     consolidation and any slot dropped by MAX_RATING_TAPS are unrated BY DESIGN, and
     in a 15-minute session that is most of the items.
 
+    **A non-null rating fans out (§5.2, FLE-64).** One transaction writes the item
+    row, then — for a drill item — a `drill_attempts` row with a server-classified
+    §7.1 outcome and the §7.2 ladder transition, or — for the rated repertoire item —
+    the `user_sessions` daily verdict. This is the player's ONLY rating call; it does
+    not also POST /api/v1/sessions. The fan-out is once per attempt: a duplicate
+    flush answers 200 with `ladder: null` rather than moving the rung twice.
+
     422 `rating_not_permitted_for_item` when a rating arrives for an item whose
     server-side `rated` flag is false. That can only come from a client bug, and the
     player's outbox must treat it as terminal — drop it, do not retry.
+
+    409 when the repertoire item's daily verdict was already recorded — e.g. the user
+    also rated the song on the Today card. Per FLE-21 §5.2 that keeps UI-SPEC §10's
+    meaning: invalidate and let the rated state repopulate, no error toast. Note what
+    it does NOT mean here — the item's rating is COMMITTED before the status is
+    chosen. Rolling the write back to report a row that was already there would throw
+    away telemetry the player will never send again.
     """
     try:
         async with db.begin():
@@ -415,18 +446,40 @@ async def complete_item(
         raise _not_found(exc) from exc
     except ItemNotFound as exc:
         raise _not_found(exc) from exc
+    except DrillNotFound as exc:
+        raise _not_found(exc) from exc
     except RatingNotPermitted as exc:
         raise HTTPException(
             status_code=422, detail=f"rating_not_permitted_for_item: {exc}"
         ) from exc
-    return ItemEventResponse(
+
+    fan = outcome.fanout
+    payload = ItemEventResponse(
         item_index=outcome.item_index,
         state=outcome.state,
         applied=outcome.applied,
         active_seconds=outcome.active_seconds,
         clamped=outcome.clamped,
+        ladder=(
+            None
+            if fan.outcome is None
+            else LadderMoveResponse(
+                outcome=fan.outcome,
+                rung_before=fan.rung_before,
+                rung_after=fan.rung_after,
+                progress_state=fan.progress_state,
+                pushed=fan.pushed,
+                dropped=fan.dropped,
+                push_withheld=fan.push_withheld,
+            )
+        ),
+        daily_verdict_recorded=fan.daily_verdict_written,
         session=await _payload(db, session),
     )
+    if fan.daily_verdict_conflict:
+        # Same body, different status. Everything above is already committed.
+        return JSONResponse(status_code=409, content=jsonable_encoder(payload))
+    return payload
 
 
 @router.post("/{session_id}/items/{item_index}/skip", response_model=ItemEventResponse)
