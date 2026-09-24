@@ -28,6 +28,22 @@
 # It is closed as 'abandoned' with terminal_reason 'day_rolled', which is the split
 # FLE-21 R4 asked for: distinguishing a user who walked away from a day that simply
 # ended. This is the only state this module changes on a session it did not create.
+#
+# ONE SESSION PER LOCAL DAY, IN ANY STATE (FLE-76). The partial unique only arbitrates
+# OPEN sessions, and for a while this module read no further: a completed day matched
+# nothing, fell through to build_plan, and minted a second session. On device that read
+# as "finishing today's session makes it unreachable" — the Today card handed back the
+# walker at item 0 instead of the summary the user had just earned. Worse, it was an
+# unlimited supply: every re-tap after a completion bought another 45-minute plan, and
+# every one of them landed in FLE-21's completion-rate denominator.
+#
+# So resolution is deliberately WIDER than the index. `_find_today` matches the day's
+# session whatever state it is in, and only a day with NO session at all reaches
+# build_plan. The client decides what a terminal session means — the player routes it
+# to the summary — because that is a presentation question and this module has no
+# business answering it. The index still does its job underneath: it stops two OPEN
+# plans racing into existence. This rule stops a finished day being re-planned. They
+# are different failures and both need their own guard.
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -111,13 +127,22 @@ _INSERT_ITEM_SQL = text(
     """
 )
 
-_FIND_OPEN_SQL = text(
+# Today's session in ANY state — see the FLE-76 note in the header for why this is
+# wider than the index it backs up.
+#
+# The ORDER BY is not decoration. A day can hold more than one row: historically from
+# the FLE-76 bug, and legitimately from the partial unique, which permits an open
+# session alongside a terminal one. Open wins because a session the user is halfway
+# through is the one they mean; `generated_at DESC` breaks the remaining tie toward the
+# most recent, and `id` makes the answer stable rather than merely usually-stable, so
+# two requests a millisecond apart cannot disagree about which session today is.
+_FIND_TODAY_SQL = text(
     """
     SELECT id, state::text AS state
       FROM practice_sessions
      WHERE user_id = :user_id
        AND local_calendar_day = :day
-       AND state = ANY(:open_states)
+     ORDER BY (state = ANY(:open_states)) DESC, generated_at DESC, id DESC
      LIMIT 1
     """
 )
@@ -150,8 +175,8 @@ def _is_open_session_conflict(exc: IntegrityError) -> bool:
     return OPEN_SESSION_INDEX in str(getattr(exc, "orig", exc))
 
 
-async def _find_open(db: AsyncSession, user_id: UUID, day: date):
-    """The open session for this user and day, or None.
+async def _find_today(db: AsyncSession, user_id: UUID, day: date):
+    """This user's session for this day, in any state, or None.
 
     A named function rather than two inline copies of the same SELECT because the
     two callers mean different things — one is the pre-check, the other is the
@@ -161,7 +186,7 @@ async def _find_open(db: AsyncSession, user_id: UUID, day: date):
     """
     return (
         await db.execute(
-            _FIND_OPEN_SQL,
+            _FIND_TODAY_SQL,
             {"user_id": user_id, "day": day, "open_states": list(OPEN_STATES)},
         )
     ).first()
@@ -225,17 +250,22 @@ async def resolve_or_generate(
     target_minutes: Optional[int] = None,
     local_calendar_day: Optional[date] = None,
 ) -> StoredSession:
-    """Today's session: the existing open one, or a new one written now.
+    """Today's session: the existing one in any state, or a new one written now.
 
-    Idempotent by construction. Calling this twice for the same user and day returns
-    the same session both times — the second call either finds the first's row or
-    loses the unique and then finds it.
+    Idempotent by construction, and idempotent ACROSS COMPLETION (FLE-76). Calling
+    this twice for the same user and day returns the same session both times — the
+    second call either finds the first's row or loses the unique and then finds it —
+    and finishing the session in between changes nothing about that. A day gets one
+    plan; once it exists, this only ever hands it back.
+
+    The caller decides what a terminal session means. The player routes one to the
+    summary rather than the walker; nothing here needs to know that.
 
     Args:
         song_id: today's song, ALREADY CHOSEN upstream (snapshot.py rule 2). Ignored
-            when an open session is resolved: §5.3 says a session never re-rolls its
-            song, and honouring a new one here would let a mid-day re-pick rewrite a
-            plan the user is halfway through.
+            when an existing session is resolved: §5.3 says a session never re-rolls
+            its song, and honouring a new one here would let a mid-day re-pick rewrite
+            a plan the user is halfway through.
 
     Raises:
         SnapshotError: no such user.
@@ -245,7 +275,10 @@ async def resolve_or_generate(
 
     await close_rolled_over_sessions(db, user_id, today=day)
 
-    existing = await _find_open(db, user_id, day)
+    # The generate gate. Everything below it — the snapshot read, build_plan, the
+    # INSERT — is reachable only on a day with no session at all. A completed day
+    # stops here.
+    existing = await _find_today(db, user_id, day)
     if existing is not None:
         return StoredSession(
             session_id=existing.id,
@@ -274,12 +307,13 @@ async def resolve_or_generate(
     except IntegrityError as exc:
         if not _is_open_session_conflict(exc):
             raise
-        winner = await _find_open(db, user_id, day)
+        winner = await _find_today(db, user_id, day)
         if winner is None:
-            # The conflicting session went terminal between the INSERT and this read.
-            # Vanishingly rare and not worth a second retry loop: the honest response
-            # is the conflict itself rather than a third plan for one day.
-            raise SessionExists(f"open session for {user_id} on {day} vanished") from exc
+            # The winner was DELETED between the INSERT and this read — it cannot
+            # merely have gone terminal, because `_find_today` resolves terminal rows
+            # too (FLE-76). Nothing sane produces that state, so the honest response is
+            # the conflict itself rather than a retry loop or a third plan for one day.
+            raise SessionExists(f"session for {user_id} on {day} vanished") from exc
         return StoredSession(
             session_id=winner.id,
             local_calendar_day=day,

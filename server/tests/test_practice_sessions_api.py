@@ -371,6 +371,50 @@ async def test_today_generates_then_resolves_one_session():
 
 
 @pytest.mark.asyncio
+async def test_today_after_completion_resolves_the_same_session():
+    """FLE-76 — the walk failure, end to end over HTTP.
+
+    Hernan finished the day's session, got the summary, went back, tapped the card
+    once more and landed in the walker at item 0. Not a routing bug: `/today` handed
+    the client a BRAND NEW session, because resolution only matched open states and a
+    completed day fell through to the generator. The summary became unreachable and
+    the day quietly acquired a second 45-minute plan for FLE-21 to count.
+
+    Asserting the id is the whole point — a 200 alone would pass while still returning
+    someone else's plan.
+    """
+    uid = uuid.uuid4()
+    async with _make_session() as db:
+        await _seed(db, uid)
+    try:
+        async with _client() as c:
+            h = _headers(uid)
+            first = await c.post("/api/v1/practice-sessions/today", headers=h)
+            sid = first.json()["id"]
+            done = await c.post(f"/api/v1/practice-sessions/{sid}/complete", headers=h)
+            again = await c.post("/api/v1/practice-sessions/today", headers=h)
+
+        assert first.status_code == 201, first.text
+        assert done.status_code == 200, done.text
+        assert done.json()["session"]["state"] == "completed"
+
+        assert again.status_code == 200, "201 means it re-planned a finished day"
+        assert again.json()["id"] == sid, "a second session for one day (FLE-76)"
+        assert again.json()["state"] == "completed", (
+            "the player routes terminal → summary; flatten this and the walker reopens"
+        )
+
+        async with _make_session() as db:
+            count = await db.scalar(
+                text("SELECT count(*) FROM practice_sessions WHERE user_id = :u"),
+                {"u": uid},
+            )
+        assert count == 1
+    finally:
+        await _cleanup(uid)
+
+
+@pytest.mark.asyncio
 async def test_today_embeds_drill_content_inline():
     """FLE-63 decision 1, ruled EMBED on 2026-09-24.
 

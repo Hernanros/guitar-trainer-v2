@@ -150,7 +150,11 @@ function SessionStartCard({
   const subline = isResume
     ? "You left off partway. Pick it back up."
     : session
-      ? `${session.target_minutes} minutes. ${session.item_count} things.`
+      ? // "1 things." shipped to device and Hernan flagged it (FLE-76). A one-item
+        // session is the common case on a light day, not an edge case.
+        `${session.target_minutes} minutes. ${session.item_count} ${
+          session.item_count === 1 ? 'thing' : 'things'
+        }.`
       : null;
 
   return (

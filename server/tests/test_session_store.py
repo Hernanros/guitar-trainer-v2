@@ -14,6 +14,10 @@ The scenarios that earn their place here:
   session — the pilot then reads as "the user quit", which is the opposite of true.
 - Idempotence. Calling twice returns the same session, with `created` true exactly
   once, because a caller that emits telemetry on every call would double-count.
+- Idempotence ACROSS COMPLETION (FLE-76). The interesting half, and the one that was
+  missing: a finished day must resolve to the session that finished, not re-plan. The
+  partial unique cannot catch this — it covers open sessions only — so a completed day
+  used to fall through to the generator and hand the user a second plan.
 - Day rolling. Yesterday's open session is closed 'day_rolled', not resumed: its plan
   was built from a snapshot whose recency window has since moved.
 - Song inheritance. A resolved session keeps its own song even when a different
@@ -226,28 +230,98 @@ async def test_a_resolved_session_keeps_its_own_song(db):
     ) == original
 
 
-async def test_a_completed_session_does_not_block_a_second_one(db):
-    """The partial unique covers OPEN sessions only.
+async def _complete(db, session_id) -> None:
+    """Take a session terminal the way `POST /{id}/complete` does."""
+    await db.execute(
+        text(
+            "UPDATE practice_sessions "
+            "   SET state = 'completed'::session_state, started_at = now(), "
+            "       ended_at = now(), completion_ratio = 1.0, "
+            "       terminal_reason = 'user_completed'::session_terminal_reason "
+            " WHERE id = :id"
+        ),
+        {"id": session_id},
+    )
 
-    Two sessions in a day is legitimate — the constraint exists to stop two OPEN
-    plans, not to ration practice.
+
+async def test_a_completed_session_is_resolved_not_replaced(db):
+    """FLE-76 — the bug Hernan hit on device, at its source.
+
+    Finishing the day's session and tapping the Today card again must hand back the
+    SAME session, terminal and all, so the player can route it to the summary. The
+    partial unique does not stop this one: it covers open sessions only, so a completed
+    day used to fall straight through to build_plan and mint a second plan. That is not
+    cosmetic — the user gets an unlimited supply of fresh 45-minute sessions for one
+    day, and every one of them lands in FLE-21's completion-rate denominator.
+    """
+    uid = await _stocked_user(db)
+    first = await _generate(db, uid)
+    await _complete(db, first.session_id)
+
+    second = await _generate(db, uid)
+    assert second.session_id == first.session_id
+    assert second.created is False and second.resolved is True
+    assert second.state == "completed", "the caller needs the state to route to summary"
+    assert await _count_sessions(db, uid) == 1, "a second plan was written"
+
+
+async def test_re_entry_after_completion_is_stable_however_often_it_is_asked(db):
+    """The card is tappable forever; the day still has one session.
+
+    Guards the shape of the fix rather than one call of it — a `_find_today` whose
+    ORDER BY was non-deterministic, or a gate that re-planned on the third try, would
+    pass the test above and fail here.
+    """
+    uid = await _stocked_user(db)
+    first = await _generate(db, uid)
+    await _complete(db, first.session_id)
+
+    for _ in range(4):
+        again = await _generate(db, uid)
+        assert again.session_id == first.session_id and again.created is False
+    assert await _count_sessions(db, uid) == 1
+
+
+async def test_an_abandoned_day_is_resolved_too_not_re_planned(db):
+    """The other terminal state. Only the clock produces it, and it ends the day.
+
+    `complete_session` outranks the clock (FLE-21 §3.1), so a user swept mid-session
+    can still finish. Re-planning instead would hand them a new session and strand the
+    one they were in.
     """
     uid = await _stocked_user(db)
     first = await _generate(db, uid)
     await db.execute(
         text(
             "UPDATE practice_sessions "
-            "   SET state = 'completed'::session_state, started_at = now(), "
+            "   SET state = 'abandoned'::session_state, started_at = now(), "
             "       ended_at = now(), "
-            "       terminal_reason = 'user_completed'::session_terminal_reason "
+            "       terminal_reason = 'timeout'::session_terminal_reason "
             " WHERE id = :id"
         ),
         {"id": first.session_id},
     )
 
     second = await _generate(db, uid)
-    assert second.created is True and second.session_id != first.session_id
-    assert await _count_sessions(db, uid) == 2
+    assert second.session_id == first.session_id and second.created is False
+    assert second.state == "abandoned"
+
+
+async def test_an_open_session_outranks_a_completed_one_on_the_same_day(db):
+    """Legacy days carry both. The resumable one is the one the user means.
+
+    Rows like this exist in production because the FLE-76 bug wrote them; the partial
+    unique permits the pair, so the ORDER BY has to choose, and choosing the open one
+    keeps it from being stranded open forever.
+    """
+    uid = await _stocked_user(db)
+    done = await _generate(db, uid)
+    await _complete(db, done.session_id)
+    open_one = await _make_session(db, uid, day=DAY, state="planned")
+
+    resolved = await _generate(db, uid)
+    assert resolved.session_id == open_one
+    assert resolved.state == "planned" and resolved.created is False
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +344,7 @@ def blind_precheck(monkeypatch):
     """
     from app.sessions import store
 
-    real = store._find_open
+    real = store._find_today
     calls = {"n": 0}
 
     async def blinded(db, user_id, day):
@@ -279,7 +353,7 @@ def blind_precheck(monkeypatch):
             return None
         return await real(db, user_id, day)
 
-    monkeypatch.setattr(store, "_find_open", blinded)
+    monkeypatch.setattr(store, "_find_today", blinded)
     return calls
 
 
