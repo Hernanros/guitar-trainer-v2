@@ -522,6 +522,27 @@ async def test_player_level_is_floored_for_a_new_user(db):
     assert (await _snapshot(db, uid)).player_level > 0.0
 
 
+async def test_player_mastery_raw_is_none_for_a_new_user(db):
+    """FLE-59 — no leaves means choose_mode's rule 5 must not fire, so the raw
+    field stays None rather than inheriting the catalog floor or falling back to
+    UNKNOWN_PLAYER_LEVEL (0.5), either of which would fabricate a comparable value
+    for a player who has never been observed."""
+    uid = await _make_user(db)
+    assert (await _snapshot(db, uid)).player_mastery_raw is None
+
+
+async def test_player_mastery_raw_is_unfloored_below_the_catalog_floor(db):
+    """FLE-59 — a true average under PLAYER_LEVEL_FLOOR (0.20) must reach
+    choose_mode unfloored, or rule 5 compares a floored player_level against a raw
+    weakest_root_mastery and manufactures a gap that isn't real."""
+    uid = await _make_user(db)
+    await _make_root_chain(db, uid, "Rhythm", 0.05, 0.05)
+
+    snap = await _snapshot(db, uid)
+    assert snap.player_level == pytest.approx(0.20)  # floored for catalog use
+    assert snap.player_mastery_raw == pytest.approx(0.05)  # raw, for rule 5
+
+
 # ---------------------------------------------------------------------------
 # The bank
 # ---------------------------------------------------------------------------

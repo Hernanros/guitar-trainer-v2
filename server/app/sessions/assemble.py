@@ -152,6 +152,13 @@ class GeneratorInputs:
     days_since_last: Optional[int] = None
     completion_3: Optional[float] = None
     player_level: float = 0.0
+    # Raw (unfloored) mean mastery over ALL leaf skill_nodes — the same scale as
+    # `root_mastery`'s values. This is DELIBERATELY separate from `player_level`,
+    # which is floored for catalog selection (FLE-49) and would manufacture a fake
+    # root_deficit if reused for rule 5's self-relative comparison (FLE-59). None
+    # only when the player has no leaf skill_nodes at all, the same condition under
+    # which `weakest_root_mastery` is also None.
+    player_mastery_raw: Optional[float] = None
     # root value -> mean mastery over its leaves. Roots with no leaves are ABSENT,
     # not zero: an untouched root is unknown, not weak (§4).
     root_mastery: Mapping[str, float] = field(default_factory=dict)
@@ -375,7 +382,16 @@ def build_plan(inputs: GeneratorInputs) -> SessionPlan:
         sessions_count=inputs.sessions_count,
         days_since_last=inputs.days_since_last,
         completion_3=inputs.completion_3,
-        player_level=inputs.player_level,
+        # Raw, not the floored `inputs.player_level` — rule 5 compares two leaf-
+        # mastery averages on the same scale (FLE-59). Falls back to the floored
+        # value only in the unreachable case where it's None but
+        # weakest_root_mastery isn't (no leaves => no root rows either), so the
+        # subtraction is never actually evaluated against it.
+        player_level=(
+            inputs.player_mastery_raw
+            if inputs.player_mastery_raw is not None
+            else inputs.player_level
+        ),
         weakest_root_mastery=inputs.weakest_root_mastery,
         song_readiness=inputs.song.readiness if inputs.song else None,
     )

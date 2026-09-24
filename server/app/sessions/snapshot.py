@@ -423,9 +423,13 @@ async def load_snapshot(
         if key is not None:
             root_mastery[key] = _as_float(r.mastery) or 0.0
 
-    player_level = float(
-        floor_player_level(await db.scalar(_PLAYER_LEVEL_SQL, {"user_id": user_id}))
-    )
+    # Raw AVG(mastery), pre-floor. `player_level` below applies the FLE-49 catalog
+    # floor to this same scalar; `player_mastery_raw` keeps the unfloored value for
+    # rule 5's self-relative comparison in choose_mode (FLE-59) — floor and raw
+    # answer different questions and must not collapse into one field.
+    raw_avg_mastery = await db.scalar(_PLAYER_LEVEL_SQL, {"user_id": user_id})
+    player_level = float(floor_player_level(raw_avg_mastery))
+    player_mastery_raw = _as_float(raw_avg_mastery)
 
     song = await _load_song(db, user_id, song_id) if song_id is not None else None
     candidates = await _load_candidates(db, user_id)
@@ -455,6 +459,7 @@ async def load_snapshot(
         days_since_last=days_since_last,
         completion_3=_as_float(history.completion_3),
         player_level=player_level,
+        player_mastery_raw=player_mastery_raw,
         root_mastery=root_mastery,
         song=song,
         candidates=tuple(candidates),

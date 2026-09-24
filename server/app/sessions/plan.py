@@ -268,6 +268,14 @@ def choose_mode(
     are None when there isn't enough history to compute them (no prior sessions,
     fewer than two terminal sessions, no leaf nodes under any root, no song skills).
     A None input never fires its rule — it falls through to the next one.
+
+    `player_level` feeds rule 5's self-relative comparison, so it must be on the
+    SAME scale as `weakest_root_mastery`: the raw, unfloored mean mastery over the
+    player's leaf skill_nodes. It is NOT `selectors/player_level.floor_player_level`'s
+    output — that floor exists to keep catalog selection sane for a brand-new player
+    (FLE-49) and is a different question from "does this player have a hole
+    relative to their own average" (FLE-59). Feeding the floored value here lifts
+    only one side of the subtraction and manufactures a deficit that isn't there.
     """
     # 1 — the first session decides whether there's a third. Lead with music.
     if sessions_count < 2:
@@ -282,7 +290,8 @@ def choose_mode(
     # 4 — a song at 0.70 readiness is close; push it over the line.
     if song_readiness is not None and song_readiness >= 0.70:
         return ModeDecision(SessionMode.PERFORM, True, "song_nearly_ready")
-    # 5 — 0.25 below the player's OWN average is a real hole, not noise.
+    # 5 — 0.25 below the player's OWN average is a real hole, not noise. Both sides
+    #     must be raw (unfloored) mastery averages — see the docstring above.
     if weakest_root_mastery is not None and player_level - weakest_root_mastery >= 0.25:
         return ModeDecision(SessionMode.BUILD, True, "root_deficit")
     return ModeDecision(SessionMode.BALANCED, True, "default")

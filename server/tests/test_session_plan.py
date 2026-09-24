@@ -263,6 +263,27 @@ def test_rule_5_root_deficit_is_build():
     assert choose_mode(**base_inputs(player_level=0.5, weakest_root_mastery=0.26)).mode == SessionMode.BALANCED
 
 
+def test_rule_5_all_zeros_new_user_does_not_fire():
+    """FLE-59 — a brand-new user with every leaf at 0.0 has no hole, just no data.
+
+    Both sides of the comparison must be the raw (unfloored) mastery average: a
+    caller that floors only `player_level` (e.g. reusing selectors/player_level's
+    FLE-49 catalog floor) would manufacture a 0.20 - 0.0 = 0.20 gap here, which
+    is under the 0.25 threshold only by the accident of where the floor sits.
+    Feeding this function raw values keeps the gap at its true value, 0.0.
+    """
+    d = choose_mode(**base_inputs(player_level=0.0, weakest_root_mastery=0.0))
+    assert d.rule == "default"
+
+
+def test_rule_5_partially_seeded_new_user_fires_on_a_genuine_gap():
+    """FLE-59 — onboarding seeding some roots and leaving one root untouched is a
+    real, raw-scale gap, not a floor artifact, so root_deficit should still fire.
+    """
+    d = choose_mode(**base_inputs(player_level=0.5, weakest_root_mastery=0.0))
+    assert (d.mode, d.rule) == (SessionMode.BUILD, "root_deficit")
+
+
 def test_rule_order_layoff_beats_root_deficit():
     """First match wins: a returning player gets music even with a gaping root hole."""
     d = choose_mode(**base_inputs(days_since_last=30, weakest_root_mastery=0.0))
