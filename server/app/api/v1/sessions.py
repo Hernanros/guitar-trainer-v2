@@ -33,31 +33,28 @@
 # SKILL-03 compliance: no LLM imports in this write path.
 import logging
 import uuid
-from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Numeric, cast, func, literal, select, text, update
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_tz_offset_minutes, get_user_id
 from app.db.session import get_db
-from app.models.db import SkillNode, Song, SongSkill, UserSession
+from app.models.db import Song, UserSession
 from app.models.session import SessionCreate, SessionResponse
+
+# D-08's shift table, D-07's equal-weight fan-out and the SQL-side clamp moved to
+# app/sessions/mastery.py (FLE-65) so the session player applies the SAME table to the
+# same column. Re-exported from here, which is where 03-03-PLAN.md documents the table
+# living and where the Phase 3 verification greps for it.
+from app.sessions.mastery import RATING_SHIFTS, shift_node, shift_song_leaves
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# D-08: Fixed additive mastery shifts per rating tier.
-# D-07: Equal-weight — all attached skill_nodes shift by the same amount
-#       (applies to whole-song rating path; drill path writes to exactly one node).
-# NOTE: D-07 equal-weight — no junction-table weight column is read in this path.
-RATING_SHIFTS: dict[str, Decimal] = {
-    "not_my_tempo": Decimal("-0.05"),
-    "getting_closer": Decimal("0.05"),
-    "thats_what_im_looking_for": Decimal("0.15"),
-}
+__all__ = ["RATING_SHIFTS", "router"]
 
 
 @router.post("/sessions", response_model=SessionResponse, status_code=201)
@@ -179,35 +176,26 @@ async def submit_rating(
             db.add(session_row)
 
             # 6. UPDATE mastery — two branches per Plan 04.1-02.
-            # T-03-03-03: SQL-side clamp with typed numeric literals (RESEARCH §8 landmine 11).
-            # asyncpg does not support Postgres `::numeric` cast syntax in parameterized
-            # queries — use func.least / func.greatest / cast() instead.
-            # RESEARCH §9 Q5: explicit updated_at=func.now() (bulk UPDATE via execute()
-            # does NOT fire SQLAlchemy onupdate hook).
+            # Both go through app/sessions/mastery.py, which owns T-03-03-03's SQL-side
+            # clamp (typed numeric literals, because asyncpg rejects `::numeric` in a
+            # parameterised query — RESEARCH §8 landmine 11) and RESEARCH §9 Q5's
+            # explicit updated_at bump. The player's rating path calls the same two
+            # functions (FLE-65), which is the only reason the two surfaces cannot drift.
             if body.drill_index is not None:
                 # Drill write path (Plan 04.1-02, T-04.1-08):
                 # UPDATE ONLY the specific target_skill_node_id row. The
                 # SkillNode.user_id == user_id filter (T-04.1-05) ensures a crafted
                 # target_skill_node_id UUID cannot mutate another user's mastery.
-                # rowcount==0 → 404 (target not owned by this user).
-                result = await db.execute(
-                    update(SkillNode)
-                    .where(
-                        SkillNode.id == body.target_skill_node_id,
-                        SkillNode.user_id == user_id,
-                    )
-                    .values(
-                        mastery=func.least(
-                            cast(literal(Decimal("1.0")), Numeric(4, 3)),
-                            func.greatest(
-                                cast(literal(Decimal("0.0")), Numeric(4, 3)),
-                                SkillNode.mastery + cast(literal(shift), Numeric(4, 3)),
-                            ),
-                        ),
-                        updated_at=func.now(),
-                    )
+                # rowcount==0 → 404 (target not owned by this user). Unlike the
+                # player's path, the id here came from the CLIENT, so a miss is a
+                # rejection rather than something to log and carry on past.
+                moved = await shift_node(
+                    db,
+                    user_id=user_id,
+                    node_id=body.target_skill_node_id,
+                    shift=shift,
                 )
-                if result.rowcount == 0:
+                if not moved:
                     raise HTTPException(
                         status_code=404,
                         detail="target_skill_node_id not found or not owned by user.",
@@ -217,26 +205,8 @@ async def submit_rating(
                 # from Phase 3 Slice C). UPDATE mastery on every leaf skill_node in
                 # song_skills for this song. Defense in depth: SkillNode.user_id filter
                 # ensures cross-user tampering via a crafted body.song_id is neutered.
-                await db.execute(
-                    update(SkillNode)
-                    .where(
-                        SkillNode.id.in_(
-                            select(SongSkill.skill_node_id).where(
-                                SongSkill.song_id == body.song_id
-                            )
-                        ),
-                        SkillNode.user_id == user_id,
-                    )
-                    .values(
-                        mastery=func.least(
-                            cast(literal(Decimal("1.0")), Numeric(4, 3)),
-                            func.greatest(
-                                cast(literal(Decimal("0.0")), Numeric(4, 3)),
-                                SkillNode.mastery + cast(literal(shift), Numeric(4, 3)),
-                            ),
-                        ),
-                        updated_at=func.now(),
-                    )
+                await shift_song_leaves(
+                    db, user_id=user_id, song_id=body.song_id, shift=shift
                 )
             # db.begin() context manager commits on clean exit, rolls back on exception.
             # No explicit db.commit() call needed here — it's implicit on __aexit__.

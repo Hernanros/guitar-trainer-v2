@@ -55,7 +55,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.sessions import ladder
+from app.sessions import ladder, mastery
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +147,12 @@ class FanOut:
     push_withheld: bool = False
     daily_verdict_written: bool = False
     daily_verdict_conflict: bool = False
+    # FLE-65 — step 5. Which node this rating moved, and whether it moved. Reported
+    # rather than inferred: `mastery_node_id` set with `mastery_shifted` false is the
+    # signature of a node the item pointed at but this user does not own, and that is
+    # a distinction a pilot post-mortem cannot recover from the mastery column alone.
+    mastery_node_id: Optional[UUID] = None
+    mastery_shifted: bool = False
 
     @property
     def is_empty(self) -> bool:
@@ -570,7 +576,7 @@ async def _fan_out(
     rating: str,
     item_row: Any,
 ) -> FanOut:
-    """Steps 2-4 of §5.2, in the caller's transaction.
+    """Steps 2-5 of §5.2, in the caller's transaction.
 
     Which steps run is decided by what the ITEM is, never by what the client sent:
 
@@ -581,6 +587,35 @@ async def _fan_out(
     repertoire item rated (`song_section`), §5.1/§5.4 make warm-up and consolidation
     unrated, and §6 drops the lowest technique slots past MAX_RATING_TAPS — so this
     branch is total over `rated = true`, and an unrated item never reaches here.
+
+    Step 5 — the `skill_nodes.mastery` shift (FLE-65) — is on BOTH branches, and this
+    is the one decision in the function worth reading twice.
+
+    The rule is one line: a rated item moves exactly the node in its own
+    `target_skill_node_id`, by D-08's `RATING_SHIFTS`. Migration 0009's column comment
+    already said so ("the node this attempt's rating moves mastery on"); FLE-64
+    populated the column without acting on it. Both item shapes carry one — the drill's
+    is its skill node, the repertoire item's is `section_skill_node_id` — so there is no
+    per-shape mastery branch, only a per-shape gate on whether the shift fires.
+
+    Why ONE node and not D-07's every-leaf fan-out on the repertoire branch, even
+    though the row written in step 4 is D-07's whole-song row: the player knows WHICH
+    section was worked and the Today card does not. `section_skill_node_id` is the
+    lowest-mastery leaf of that same `song_skills` set (snapshot.py `_SONG_SKILLS_SQL`),
+    so shifting it alone is what lets tomorrow hand back the NEXT-weakest section.
+    Spreading the shift equally over every leaf preserves the ordering by construction,
+    which would pin the user to one section for the length of the pilot.
+
+    Why the repertoire shift cannot double-count against `POST /api/v1/sessions`: it is
+    gated on step 4's INSERT winning the day's whole-song slot, so the partial unique
+    index `uq_user_sessions_daily_rating` is the single arbiter and it decides under a
+    row lock. Rate in the player first and the Today card's own app-level guard answers
+    409 before it reaches its shift; rate on the Today card first and step 4 here
+    conflicts, so `verdict_id is None` and this branch shifts nothing. On both surfaces
+    "owns the verdict row" and "applied the shift" are set in the same transaction, so
+    the invariant is one shift per (user, song, day) rather than one that merely tends
+    to hold. Note the blast radii still differ by writer — that is the point above, not
+    an oversight — and only ever one of them fires.
     """
     if item.drill_id is not None:
         record = await ladder.record_attempt(
@@ -601,6 +636,10 @@ async def _fan_out(
             duration_s=item_row.active_seconds,
             target_skill_node_id=item.target_skill_node_id,
         )
+        # Step 5, unconditional on this branch. A drill attempt is evidence about its
+        # own node and nothing else writes that node's daily shift, so there is no
+        # slot to contend for — unlike the repertoire branch below.
+        shifted = await _shift_mastery(db, session, item, rating=rating)
         return FanOut(
             attempt_id=record.attempt_id,
             outcome=record.outcome,
@@ -610,6 +649,8 @@ async def _fan_out(
             pushed=record.pushed,
             dropped=record.dropped,
             push_withheld=record.push_withheld,
+            mastery_node_id=item.target_skill_node_id,
+            mastery_shifted=shifted,
         )
 
     if item.song_id is not None:
@@ -621,9 +662,28 @@ async def _fan_out(
             local_calendar_day=session.local_calendar_day,
             tz_offset_minutes=session.tz_offset_minutes,
         )
+        # Step 5, gated on step 4 having won the day's whole-song slot. See the
+        # docstring: this gate, not a convention, is what makes the double-count with
+        # `POST /api/v1/sessions` impossible rather than unlikely.
+        shifted = (
+            await _shift_mastery(db, session, item, rating=rating)
+            if verdict.verdict_id is not None
+            else False
+        )
+        if verdict.conflicted:
+            logger.info(
+                "mastery shift withheld for user=%s song=%s day=%s — the day's "
+                "whole-song verdict was already written, so the shift it carried is "
+                "already applied (FLE-65)",
+                session.user_id,
+                item.song_id,
+                session.local_calendar_day,
+            )
         return FanOut(
             daily_verdict_written=verdict.verdict_id is not None,
             daily_verdict_conflict=verdict.conflicted,
+            mastery_node_id=item.target_skill_node_id,
+            mastery_shifted=shifted,
         )
 
     # A rated item with neither a drill nor a song. The generator cannot produce one
@@ -636,6 +696,67 @@ async def _fan_out(
         session.id,
     )
     return FanOut()
+
+
+async def _shift_mastery(
+    db: AsyncSession,
+    session: SessionRow,
+    item: Any,
+    *,
+    rating: str,
+) -> bool:
+    """§5.2 step 5 for one item: D-08's shift on the item's own target node.
+
+    Never raises. Three things can stop the shift — a rating D-08 has no entry for, an
+    item row with no target node, and a target node this user does not own — and all
+    three are logged and returned as `False` rather than propagated. By this point the
+    user's rating is on the item row and the §7.2 ladder has already moved in this same
+    transaction; raising would roll both back over a mastery point, and the player's
+    outbox will not send the rating again. That is FLE-64's reasoning for the daily
+    verdict's `ON CONFLICT DO NOTHING`, applied to the same transaction's last step.
+
+    The third case is the security-relevant one (T-04.1-05). `mastery.shift_node` puts
+    `user_id` in the UPDATE's WHERE clause, so a `target_skill_node_id` pointing at
+    another participant's node matches zero rows and mutates nothing — there is no
+    check-then-act window to lose. It is logged at warning because the id on this path
+    came from a server-written item row, not from the client: a mismatch means the row
+    is wrong, which is worth finding during the pilot rather than after it.
+    """
+    shift = mastery.shift_for(rating)
+    if shift is None:
+        logger.warning(
+            "no D-08 mastery shift defined for rating %r (item %s) — mastery held",
+            rating,
+            item.id,
+        )
+        return False
+
+    node_id = item.target_skill_node_id
+    if node_id is None:
+        # §11.2's `deficit` reads mastery, so an item with no target node is a rating
+        # that can never influence selection. The generator sets one on every rated
+        # item it produces, so this is a stale or hand-built row.
+        logger.warning(
+            "rated item %s of session %s has no target_skill_node_id — "
+            "§5.2 step 5 skipped, this rating moves no mastery",
+            item.id,
+            session.id,
+        )
+        return False
+
+    moved = await mastery.shift_node(
+        db, user_id=session.user_id, node_id=node_id, shift=shift
+    )
+    if not moved:
+        logger.warning(
+            "item %s of session %s targets skill node %s, which user %s does not own "
+            "— mastery unchanged (T-04.1-05)",
+            item.id,
+            session.id,
+            node_id,
+            session.user_id,
+        )
+    return moved
 
 
 async def complete_item(

@@ -474,6 +474,7 @@ async def complete_item(
             )
         ),
         daily_verdict_recorded=fan.daily_verdict_written,
+        mastery_shifted=fan.mastery_shifted,
         session=await _payload(db, session),
     )
     if fan.daily_verdict_conflict:

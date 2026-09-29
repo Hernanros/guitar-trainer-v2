@@ -230,6 +230,17 @@ class ItemEventResponse(BaseModel):
             "own rating is still committed."
         ),
     )
+    mastery_shifted: bool = Field(
+        default=False,
+        description=(
+            "FLE-21 §5.2 step 5 (FLE-65) — this rating moved skill_nodes.mastery on "
+            "the item's own target node by D-08's shift, so FLE-4 §11.2's `deficit` "
+            "term sees it when tomorrow's session is selected. False on a duplicate "
+            "flush, on a repertoire item whose day already carried a whole-song "
+            "verdict (the shift it would apply is already applied), and on an item "
+            "whose target node is missing or not this user's."
+        ),
+    )
     session: PracticeSessionResponse
 
 
