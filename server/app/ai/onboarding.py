@@ -56,6 +56,7 @@ PART 2 — SKILL_GRAPH: a 3-level tree of skill nodes.
 CRITICAL RULES:
 1. Root-level nodes MUST be exactly these six, no more, no fewer: {', '.join(FIXED_ROOTS)}. Use these names verbatim.
 2. Sub-domain nodes (level='sub') are your choice — you decide the meaningful subdivisions under each root. Aim for 2-5 sub-domains per root that you actually populate with leaves. Sub-domains SHOULD reflect the genres/styles the user's songs imply (e.g., Blues, Rock, Fingerstyle, Jazz) — this is how style/genre inference is realized.
+2a. Root by TECHNIQUE, not by song role. Fingerpicking, thumb-independence, alternating-bass, and Travis-picking skills belong under Fingerstyle even when the song or part is described as "rhythm guitar" or "the rhythm part" — Rhythm is for strummed or palm-muted chordal time-keeping; Fingerstyle is for any technique where the thumb and fingers pluck independent voices. Do not create a "Fingerpicking Patterns" (or similarly named) sub-domain under Rhythm — that content belongs under Fingerstyle.
 3. Leaf nodes (level='leaf') represent specific playable skills. Each leaf MUST have tempo_bin_low and tempo_bin_high. tempo_bin_high MUST equal tempo_bin_low + 5 (5-bpm bins). Pick a reasonable tempo range for the skill.
 4. Every leaf MUST have a parent_temp_id pointing to a sub-domain. Every sub-domain MUST have a parent_temp_id pointing to one of the six roots. Roots have parent_temp_id=null.
 5. Do NOT include mastery values — mastery is always 0 at bootstrap (managed server-side, not by you).

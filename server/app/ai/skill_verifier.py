@@ -65,7 +65,12 @@ SYSTEM_PROMPT = (
     "  (c) might be valid but is genuinely ambiguous (could fit under multiple roots, or you "
     "are unsure whether it is distinct enough) → verdict='uncertain'\n\n"
     "For verdict='yes' or 'uncertain', assign the single best root from the fixed taxonomy.\n"
-    "For verdict='no', set root=null.\n"
+    "For verdict='no', set root=null.\n\n"
+    "Root by TECHNIQUE, not by song role: fingerpicking, thumb-independence, alternating-bass, "
+    "and Travis-picking skills belong under Fingerstyle even when the proposal is phrased as "
+    "\"rhythm guitar\" or \"the rhythm part\" — Rhythm is for strummed or palm-muted chordal "
+    "time-keeping; Fingerstyle is for any technique where the thumb and fingers pluck independent "
+    "voices.\n\n"
     "Always provide a concise one-sentence reason.\n\n"
     "CRITICAL: output via the emit_skill_verify tool only. Do not emit free text."
 )
