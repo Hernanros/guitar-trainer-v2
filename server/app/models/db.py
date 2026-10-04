@@ -547,8 +547,24 @@ class Drill(Base):
 
     canonical_drill_id NULL means THIS row is canonical. The partial-unique index
     uq_drills_canonical_identity (user_id, skill_node_id, name_normalized)
-    WHERE canonical_drill_id IS NULL is the DB-level backstop for
+    NULLS NOT DISTINCT WHERE canonical_drill_id IS NULL is the DB-level backstop for
     exact-after-normalization collisions; rapidfuzz covers the fuzzy band above it.
+    NULLS NOT DISTINCT (migration 0012) is what keeps that index meaningful for the
+    GLOBAL rows below, whose two leading key columns are both NULL — without it
+    Postgres would treat every global row's key as distinct and the index would be
+    inert for exactly the rows nothing else dedups.
+
+    GLOBAL ROWS — §12.1's seed warm-up drills (migration 0012).
+    `user_id IS NULL` means the drill belongs to no user and `skill_node_id IS NULL`
+    with it, enforced both ways by ck_drills_global_has_no_skill_node. The NULL is
+    SEMANTIC: skill_node_id says whose weakness a drill serves, and a seed warm-up
+    serves nobody's in particular. ck_drills_global_is_seed_shaped pins the rest of
+    §12.1 — a global row is never song_specific, never dedup-suppressed, has no song
+    provenance, and MUST carry family + tier (DrillCandidate.family_key has no root
+    or node to degrade to for a global, so a family-less one would key on
+    "node:None"). Global rows are deliberately invisible to the per-user candidate
+    query in app/sessions/snapshot.py and to §10 coverage grading; they reach a
+    session only through select_warmup's `seed_drills` argument.
 
     origin_song_id / origin_drill_index are ADVISORY PROVENANCE, not identity.
     origin_song_id is ON DELETE SET NULL so the drill outlives its song. There is
@@ -561,8 +577,11 @@ class Drill(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        doc="NULL = global §12.1 seed drill, owned by no user. See the class docstring.",
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     name_normalized: Mapped[str] = mapped_column(
@@ -570,11 +589,12 @@ class Drill(Base):
         nullable=False,
         doc="app.ai.skill_dedupe.normalize(name). Dedup key component and DB collision backstop.",
     )
-    skill_node_id: Mapped[uuid.UUID] = mapped_column(
+    skill_node_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("skill_nodes.id", ondelete="CASCADE"),
-        nullable=False,
-        doc="The single skill this drill exercises. Dedup scope.",
+        nullable=True,
+        doc="The single skill this drill exercises. Dedup scope. NULL only on a "
+        "global row, paired with user_id by ck_drills_global_has_no_skill_node.",
     )
     canonical_drill_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PGUUID(as_uuid=True),

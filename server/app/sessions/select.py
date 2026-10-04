@@ -35,8 +35,9 @@
 #   tier IS NULL -> `_tier_of()` recomputes it with compute_tier(). Same function
 #              that produced the stored value, so the two cannot disagree.
 #
-# `drills.user_id` is still NOT NULL, so §12.1's global seed drills remain
-# impossible; that one is unchanged. See SPEC_GAPS at the bottom of this file.
+# FLE-61 (migration 0012) made `drills.user_id` nullable and shipped §12.1's three
+# global seed warm-up drills, so rule (d) below is live code and `fallback_slot1` is
+# now the genuinely-last resort it was always named as rather than the everyday path.
 
 from __future__ import annotations
 
@@ -141,7 +142,11 @@ class DrillCandidate:
     """
 
     drill_id: str
-    skill_node_id: str
+    # None ONLY for a §12.1 global seed drill, which belongs to no user and so targets
+    # no per-user skill node (migration 0012). Every candidate that reaches §5.2 has
+    # one — snapshot.py's per-user query INNER JOINs skill_nodes — so a None arrives
+    # exclusively through select_warmup's `seed_drills`, where no rule reads it.
+    skill_node_id: Optional[str]
     tab_snippet: Mapping[str, Any]
     start_bpm: int
     target_bpm: int
@@ -184,6 +189,11 @@ class DrillCandidate:
         Never returns a constant: falling all the way through to the skill node
         means the penalty simply never fires for that drill, rather than firing
         against every other family-less drill in the bank.
+
+        A §12.1 seed drill has no skill node to fall through TO, which is why
+        ck_drills_global_is_seed_shaped makes family NOT NULL on a global row: the
+        first branch always fires for one, and the `node:` branch can never be
+        reached with a None id.
         """
         if self.family is not None:
             return f"family:{self.family.value}"
@@ -601,6 +611,7 @@ def select_warmup(
     *,
     seconds: int,
     slot_one: Optional[TechniquePick] = None,
+    technique_picks: Sequence[TechniquePick] = (),
     seed_drills: Sequence[DrillCandidate] = (),
 ) -> Optional[WarmupPick]:
     """§5.1 — exactly one item, by the first preference rule that yields a candidate.
@@ -610,22 +621,40 @@ def select_warmup(
     PRELOADS the session's main mechanic at a tempo that's already owned, which is
     what a warm-up is actually for.
 
-    Rule (d) -- the three hand-authored seed drills of §12.1 -- cannot fire yet:
-    seed drills are global rows (`user_id IS NULL`) and `drills.user_id` is NOT NULL
-    today. `seed_drills` is the seam for them. Until they ship, rule `fallback_slot1`
-    stands in: slot 1's own drill, replanned at warm-up tempo and reps. That is a
-    real warm-up rather than an empty block, which §12 forbids outright -- but it is
-    a deviation from the written ladder and is flagged in SPEC_GAPS.
+    Rule (d) -- the three hand-authored seed drills of §12.1, loaded by
+    snapshot.py::_load_seed_drills -- is what makes this function total for any user
+    with at least one technique pick. It is NOT a formality: it is the only rule that
+    can serve a warm-up the player is not about to be TESTED on. (a), (b) and (c) all
+    draw from the player's own bank, and for a first session, or a bank whose only
+    drill sits at the top of its band, all three come up empty.
+
+    `fallback_slot1` below -- slot 1's own drill, replanned at warm-up tempo and reps
+    -- is the last resort when even the seed rows are absent (a database that has not
+    run migration 0012). It honours §12's outright ban on an empty block, but it is
+    the shape Hernan hit on device on 2026-10-04: items 0 and 1 the same drill, which
+    reads as the app handing you the same thing twice. Keep it, keep it last.
+
+    `technique_picks` is the SECOND source of that same duplicate, and it is the one
+    that outlives the seed rows. This function used to exclude only slot 1, so rules
+    (a), (b) and (c) could hand back a drill sitting in technique slot 2 or 3 — for a
+    bank whose drills share a family that is not an edge case, it is the common case,
+    and rule (a) is the PREFERRED rule once the player has any attempts logged. The
+    exclusion is the same intent that already excluded slot 1, applied to the whole
+    block. It is only safe to widen now: before rule (d) could resolve, excluding more
+    drills would have pushed the session into `fallback_slot1`, i.e. straight back
+    into the duplicate it was avoiding.
     """
     family_key = slot_one.candidate.family_key if slot_one else None
     tier_ceiling = slot_one.tier if slot_one else None
-    picked_id = slot_one.candidate.drill_id if slot_one else None
+    picked_ids = {p.candidate.drill_id for p in technique_picks}
+    if slot_one is not None:
+        picked_ids.add(slot_one.candidate.drill_id)
 
     def usable(c: DrillCandidate) -> bool:
         return (
             c.is_canonical
             and c.progress_state in SELECTABLE_PROGRESS_STATES
-            and c.drill_id != picked_id
+            and c.drill_id not in picked_ids
         )
 
     def most_practised(pool: Sequence[DrillCandidate]) -> DrillCandidate:
@@ -662,7 +691,12 @@ def select_warmup(
             chosen = sorted(pool, key=lambda c: (_tier_of(c).ordinal, c.drill_id))[0]
             return _build_warmup(chosen, seconds, "c")
 
-    # (d) a seed warm-up drill. Always resolves once §12.1's rows exist.
+    # (d) a seed warm-up drill. Always resolves — §12.1's rows ship with the app.
+    #
+    # Lowest drill_id, which migration 0012 fixes deliberately rather than leaving to
+    # uuid4: `5eed0001...` is the Chromatic spider, the most universal of the three.
+    # A family-aware tie-break here would preload slot 1's mechanic better and is
+    # worth asking Miagi about, but it would be a change to §5.1's written ladder.
     if seed_drills:
         chosen = sorted(seed_drills, key=lambda c: c.drill_id)[0]
         return _build_warmup(chosen, seconds, "d")
@@ -692,6 +726,8 @@ SPEC_GAPS = (
     "classify (scripts/backfill_drill_taxonomy.py). Such a row selects normally but "
     "its family_repeat penalty degrades to the skill-node root, and it stocks no §10 "
     "coverage cell — app/sessions/coverage.py counts it as unclassified, not absent.",
-    "drills.user_id is NOT NULL, so §12.1's three global seed warm-up drills cannot "
-    "exist. §5.1 rule (d) is unreachable; `fallback_slot1` stands in for it.",
+    "§12.1's three seed rows store tier D2, not the D1 its table names. tier is "
+    "DEFINED as compute_tier()'s output (§9), and §8 gives L1 a D2 floor while a "
+    "six-string open chord cannot score below D2 on §9.1's simultaneity feature — so "
+    "two of the three cannot be D1 at all. Migration 0012's header has the arithmetic.",
 )

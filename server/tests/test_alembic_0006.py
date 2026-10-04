@@ -215,8 +215,20 @@ async def test_0006_drills_has_expected_columns(db: AsyncSession) -> None:
     cols = {r.column_name: r.is_nullable for r in rows}
 
     # Identity + dedup key must be NOT NULL — they carry the uniqueness guarantee.
-    for required in ("id", "user_id", "name", "name_normalized", "skill_node_id"):
+    for required in ("id", "name", "name_normalized"):
         assert cols.get(required) == "NO", f"drills.{required} should be NOT NULL"
+
+    # user_id and skill_node_id were NOT NULL in 0006 and were relaxed by 0012 so
+    # §12.1's global seed warm-up drills can exist. The uniqueness guarantee did not
+    # weaken with them: 0012 recreated uq_drills_canonical_identity NULLS NOT
+    # DISTINCT, and ck_drills_global_has_no_skill_node pins the two columns together
+    # so the NULL can only ever mean "global". Both are asserted in
+    # test_alembic_0012.py; this test now only records that the relaxation is
+    # expected and bounded to this pair.
+    for relaxed_by_0012 in ("user_id", "skill_node_id"):
+        assert cols.get(relaxed_by_0012) == "YES", (
+            f"drills.{relaxed_by_0012} should be nullable since migration 0012"
+        )
 
     # Provenance MUST be nullable — the drill outlives the song (FLE-8 headline).
     assert cols.get("origin_song_id") == "YES", (

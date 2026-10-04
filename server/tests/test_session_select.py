@@ -494,10 +494,30 @@ def test_warmup_prefers_the_most_practised_drill():
     assert select_warmup(cands, ctx(), seconds=180).candidate.drill_id == "familiar"
 
 
-def test_warmup_falls_back_to_slot_one_rather_than_emitting_an_empty_block():
-    """§12.1's seed drills cannot exist yet — `drills.user_id` is NOT NULL — so rule
-    (d) is unreachable. §12 forbids an empty block outright, so slot 1's own drill
-    below tempo stands in. Delete this test when the seed rows ship."""
+def test_warmup_uses_a_seed_drill_rather_than_repeating_slot_one():
+    """FLE-61 — the bug Hernan hit on device, as a unit test.
+
+    A first-session player: one drill in the bank, zero attempts on it, so rules (a),
+    (b) and (c) all come up empty ((c) excludes slot 1's own drill). Before migration
+    0012 shipped §12.1's seed rows, rule (d) had nothing to draw on and the warm-up
+    fell through to `fallback_slot1` — items 0 and 1 the same drill, which is what the
+    device walk rendered. With the seeds present, (d) fires and the two differ.
+    """
+    slot1_drill = drill("slot1", family=TechniqueFamily.L1, attempts=0, last_practiced_on=None)
+    fill = fill_technique_block([slot1_drill], ctx(), technique_seconds=900)
+    seed = drill("5eed0001", skill_node_id=None, family=TechniqueFamily.L1,
+                 attempts=0, last_practiced_on=None)
+    pick = select_warmup(
+        [slot1_drill], ctx(), seconds=180, slot_one=fill.picks[0], seed_drills=[seed]
+    )
+    assert pick.rule == "d"
+    assert pick.candidate.drill_id != fill.picks[0].candidate.drill_id
+
+
+def test_warmup_falls_back_to_slot_one_only_when_even_the_seeds_are_absent():
+    """`fallback_slot1` stays as the named last resort — a database that has not run
+    migration 0012 must still produce a session, because §12 forbids an empty block
+    outright. It is no longer the everyday path, which is the whole of FLE-61."""
     slot1_drill = drill("slot1", family=TechniqueFamily.L1, attempts=0, last_practiced_on=None)
     fill = fill_technique_block([slot1_drill], ctx(), technique_seconds=900)
     pick = select_warmup([], ctx(), seconds=180, slot_one=fill.picks[0])
@@ -510,6 +530,63 @@ def test_warmup_uses_a_seed_drill_once_one_exists():
     pick = select_warmup([], ctx(), seconds=180, seed_drills=[seed])
     assert pick.rule == "d"
     assert pick.candidate.drill_id == "seed-chromatic"
+
+
+def test_the_warmup_never_reuses_any_technique_pick_not_just_slot_one():
+    """FLE-61, the second duplication path — and the one that outlives the seed rows.
+
+    §5.1 rules (a) and (c) match on slot 1's FAMILY, so in a bank whose drills share
+    one they would hand back technique slot 2 or 3. `usable()` used to exclude only
+    slot 1. Rule (a) is the preferred rule the moment the player has any attempts
+    logged, so this was the common case, not an edge one.
+    """
+    bank = [drill(f"d{i}", family=TechniqueFamily.L4, attempts=10) for i in range(6)]
+    fill = fill_technique_block(bank, ctx(), technique_seconds=1080)
+    assert len(fill.picks) >= 2, "needs more than slot 1 for this test to mean anything"
+
+    pick = select_warmup(
+        bank, ctx(), seconds=180, slot_one=fill.picks[0], technique_picks=fill.picks
+    )
+    assert pick is not None
+    assert pick.candidate.drill_id not in {p.candidate.drill_id for p in fill.picks}
+
+
+def test_excluding_the_block_falls_through_to_a_seed_rather_than_to_slot_one():
+    """The exclusion above is only safe because rule (d) exists. When the technique
+    block consumes every drill the player owns, the warm-up has to come from
+    somewhere — and a seed drill is a real warm-up where `fallback_slot1` is the
+    duplicate this issue exists to remove."""
+    bank = [drill("only-one", family=TechniqueFamily.L4, attempts=10)]
+    fill = fill_technique_block(bank, ctx(), technique_seconds=900)
+    seed = drill("5eed0001", skill_node_id=None, family=TechniqueFamily.L1)
+    pick = select_warmup(
+        bank, ctx(), seconds=180, slot_one=fill.picks[0],
+        technique_picks=fill.picks, seed_drills=[seed],
+    )
+    assert pick.rule == "d"
+    assert pick.candidate.drill_id == "5eed0001"
+
+
+def test_seed_drill_with_no_skill_node_still_keys_on_its_family():
+    """A global row has no skill node to fall through to, so `family_key` must resolve
+    on the family branch. If it ever reached the `node:` branch, every family-less
+    global would collapse to the single key "node:None" — which is why
+    ck_drills_global_is_seed_shaped makes family NOT NULL on a global row."""
+    seed = drill("5eed0002", skill_node_id=None, family=TechniqueFamily.C1)
+    assert seed.family_key == "family:C1"
+
+
+def test_rule_d_picks_the_lowest_drill_id_so_the_default_warmup_is_fixed():
+    """Migration 0012 chooses the three ids to make this order intentional:
+    `5eed0001` (Chromatic spider) is the default warm-up for a player whose own bank
+    cannot supply one. Pinned here so reordering the seeds is a deliberate act."""
+    seeds = [
+        drill("5eed0003", skill_node_id=None, family=TechniqueFamily.M1),
+        drill("5eed0001", skill_node_id=None, family=TechniqueFamily.L1),
+        drill("5eed0002", skill_node_id=None, family=TechniqueFamily.C1),
+    ]
+    pick = select_warmup([], ctx(), seconds=180, seed_drills=seeds)
+    assert pick.candidate.drill_id == "5eed0001"
 
 
 def test_warmup_is_none_only_when_there_is_nothing_at_all():

@@ -41,7 +41,7 @@ from app.sessions.plan import (
     repertoire_split,
 )
 from app.sessions.select import Degradation, DrillCandidate, TechniquePick
-from app.sessions.taxonomy import SkillRoot, Tier
+from app.sessions.taxonomy import SkillRoot, TechniqueFamily, Tier
 
 TODAY = date(2026, 9, 23)
 USER = "11111111-1111-1111-1111-111111111111"
@@ -497,6 +497,69 @@ def test_nothing_to_practise_raises_rather_than_emitting_a_placeholder():
     onboarding', not a 500 and not a session of three empty cards."""
     with pytest.raises(NoMaterialError):
         build_plan(inputs(candidates=[], song=None, can_play_songs=[]))
+
+
+def test_a_seed_warmup_alone_is_not_a_session():
+    """FLE-61 — §12.1's seed rows are GLOBAL, so they are present for a user who has
+    not onboarded too. The 409 "nothing to practise" state has to survive that, or
+    every empty account gets the same three-minute chromatic exercise called a
+    practice session. Rule (d) firing is not evidence that the user has material."""
+    seed = drill("5eed0001", skill_node_id=None, attempts=0, last_practiced_on=None)
+    with pytest.raises(NoMaterialError):
+        build_plan(
+            inputs(candidates=[], song=None, can_play_songs=[], seed_drills=[seed])
+        )
+
+
+@pytest.mark.parametrize(
+    "bank_shape",
+    ["hernan_first_session", "hernan_all_practised", "single_family", "one_drill"],
+)
+def test_the_warmup_is_never_a_drill_the_technique_block_also_serves(bank_shape):
+    """FLE-61's done-when, at the level the player experiences it.
+
+    `hernan_*` are the real 2026-10-04 bank shape (6 x L4, 1 x L3, 1 x F1, 1 x R3)
+    before and after any attempts are logged — the first is the session that shipped
+    the bug to a device, the second is the one rule (a) would have broken next.
+    `single_family` is the worst case for the family-matching rules.
+    """
+    fresh = dict(attempts=0, last_practiced_on=None)
+    hernan = [(f"l4-{i}", TechniqueFamily.L4) for i in range(6)] + [
+        ("l3-0", TechniqueFamily.L3),
+        ("f1-0", TechniqueFamily.F1),
+        ("r3-0", TechniqueFamily.R3),
+    ]
+    banks = {
+        "hernan_first_session": [drill(n, family=f, **fresh) for n, f in hernan],
+        "hernan_all_practised": [drill(n, family=f, attempts=10) for n, f in hernan],
+        "single_family": [
+            drill(n, family=f, attempts=10)
+            for n, f in hernan
+            if f is TechniqueFamily.L4
+        ],
+        "one_drill": [drill("l3-0", family=TechniqueFamily.L3, **fresh)],
+    }
+    seed = drill("5eed0001", skill_node_id=None, family=TechniqueFamily.L1, **fresh)
+    plan = build_plan(
+        inputs(candidates=banks[bank_shape], song=None, can_play_songs=[], seed_drills=[seed])
+    )
+
+    warmup = [i for i in plan.items if i.block is Block.WARMUP]
+    assert len(warmup) == 1, "§5.1 — exactly one warm-up item, never zero"
+    technique = {i.drill_id for i in plan.items if i.block is Block.TECHNIQUE}
+    assert warmup[0].drill_id not in technique, (
+        "the warm-up and a real drill are the same item — the device observation on "
+        "FLE-10 that reopened FLE-61"
+    )
+
+
+def test_one_drill_of_the_users_own_still_generates_a_session():
+    """The complement, and the line the check above must not cross. A single-item plan
+    built from the player's OWN bank is a thin session, not an absent one — §12's
+    whole point is that every rung still produces a real session."""
+    plan = build_plan(inputs(candidates=[drill("mine", attempts=4)], song=None, can_play_songs=[]))
+    assert plan.items
+    assert {i.drill_id for i in plan.items} == {"mine"}
 
 
 def test_a_degradation_rung_is_recorded_on_the_plan():

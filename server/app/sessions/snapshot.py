@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional
 from uuid import UUID
 
 from sqlalchemy import text
@@ -45,12 +45,6 @@ from app.selectors.player_level import floor_player_level
 from app.sessions.assemble import ConsolidationSong, GeneratorInputs, SongMaterial
 from app.sessions.select import DrillCandidate
 from app.sessions.taxonomy import SkillRoot, TechniqueFamily, Tier
-
-# §12.1's hand-authored warm-up drills are GLOBAL rows (`user_id IS NULL`) and
-# `drills.user_id` is NOT NULL today, so no query can return them. The seam stays
-# wired and empty rather than absent: when the rows ship, this is the one line that
-# changes, and select_warmup's rule (d) starts firing without touching selection.
-SEED_DRILLS: Sequence[DrillCandidate] = ()
 
 # D-12. The value onboarding captured and — until this module — nothing read.
 VALID_TARGET_MINUTES = (15, 30, 45, 60)
@@ -224,6 +218,41 @@ _CANDIDATES_SQL = text(
     """
 )
 
+# §12.1's three hand-authored seed warm-up drills — global rows, `user_id IS NULL`
+# (migration 0012). A SEPARATE query rather than an OR into _CANDIDATES_SQL above,
+# for two reasons that are both correctness, not tidiness:
+#
+#   1. A seed drill must never fill a TECHNIQUE slot. §5.2 bands candidates by the
+#      user's mastery of the skill the drill targets, and a global drill targets no
+#      skill node — there is nothing to band it by. Keeping it out of `candidates`
+#      means §5.1 rule (d) is the only door it can come through, which is what §12.1
+#      says it is for.
+#   2. _CANDIDATES_SQL INNER JOINs skill_nodes, so a NULL skill_node_id row could not
+#      survive it anyway. Relaxing that join to a LEFT JOIN to accommodate three rows
+#      would silently widen the technique pool for every per-user row whose node was
+#      deleted — a strictly worse trade.
+#
+# No drill_progress join and no mastery: §5.1 says the warm-up never touches the
+# ladder (§6.2), so no progress row is ever written for a seed drill and rule (d)
+# reads neither attempts nor rung_bpm. `root` comes from the family rather than from
+# a skill tree, which is the only place a global row could get one.
+_SEED_DRILLS_SQL = text(
+    """
+    SELECT
+        d.id::text                AS drill_id,
+        d.tab_snippet             AS tab_snippet,
+        d.start_bpm               AS start_bpm,
+        d.target_bpm              AS target_bpm,
+        d.repetitions             AS repetitions,
+        d.family::text            AS family,
+        d.tier::text              AS tier
+      FROM drills d
+     WHERE d.user_id IS NULL
+       AND d.status = 'active'
+     ORDER BY d.id
+    """
+)
+
 # §5.3 — the song's skills, its readiness, and the section to work.
 #
 # readiness is the MEAN mastery over the song's leaf skills; section_skill_node_id is
@@ -362,6 +391,41 @@ async def _load_candidates(db: AsyncSession, user_id: UUID) -> list[DrillCandida
     return candidates
 
 
+async def _load_seed_drills(db: AsyncSession) -> list[DrillCandidate]:
+    """§12.1's global warm-up drills, for §5.1 rule (d). Not user-scoped — there is
+    nothing to scope: these rows belong to no user.
+
+    `skill_node_id=None` is the global row's defining property, not a missing value
+    (see the Drill model docstring). Everything selection would normally read off the
+    node is either unused by rule (d) or derived from the family instead:
+
+      root         -> family.root, which is the same axis §8 defines it on
+      node_mastery -> left at the dataclass default; rule (d) does not band or score
+      progress     -> no row can exist, because the warm-up never touches the ladder
+
+    `family`/`tier` are NOT NULL on a global row (ck_drills_global_is_seed_shaped),
+    so `family_key` always resolves to a real `family:` key here and can never fall
+    through to the `node:` branch with a None node id.
+    """
+    rows = (await db.execute(_SEED_DRILLS_SQL)).all()
+    return [
+        DrillCandidate(
+            drill_id=r.drill_id,
+            skill_node_id=None,
+            tab_snippet=r.tab_snippet or {},
+            start_bpm=int(r.start_bpm),
+            target_bpm=int(r.target_bpm),
+            repetitions=int(r.repetitions),
+            song_specific=False,  # ck_drills_global_is_seed_shaped guarantees it
+            is_canonical=True,
+            family=TechniqueFamily(r.family) if r.family else None,
+            tier=Tier(r.tier) if r.tier else None,
+            root=TechniqueFamily(r.family).root if r.family else None,
+        )
+        for r in rows
+    ]
+
+
 async def load_snapshot(
     db: AsyncSession,
     user_id: UUID,
@@ -438,6 +502,7 @@ async def load_snapshot(
 
     song = await _load_song(db, user_id, song_id) if song_id is not None else None
     candidates = await _load_candidates(db, user_id)
+    seed_drills = await _load_seed_drills(db)
 
     can_play_rows = (await db.execute(_CAN_PLAY_SQL, {"user_id": user_id})).all()
     can_play = tuple(
@@ -468,7 +533,7 @@ async def load_snapshot(
         root_mastery=root_mastery,
         song=song,
         candidates=tuple(candidates),
-        seed_drills=SEED_DRILLS,
+        seed_drills=tuple(seed_drills),
         can_play_songs=can_play,
         recent_drill_ids=frozenset(r.drill_id for r in recent_rows),
     )

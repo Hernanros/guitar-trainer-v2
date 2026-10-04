@@ -94,12 +94,19 @@ class ItemKind(str, enum.Enum):
 
 
 class NoMaterialError(Exception):
-    """Raised when the snapshot yields ZERO items — no drills, no song, no can_play.
+    """Raised when THIS USER has nothing to practise — no drills, no song, no can_play.
 
     §12 forbids emitting a placeholder item or an empty block, so the generator's
     only honest answer here is "there is nothing to practise yet". A one-item
     session is a session; a session of three 'coming soon' cards is not. The API
     layer turns this into a "finish onboarding" response, not a 500.
+
+    FLE-61 note: this used to be "the plan has zero items", which was the same
+    question until §12.1's global seed warm-up drills shipped. Those rows exist for
+    every user, INCLUDING one who has not onboarded, so a non-empty plan no longer
+    proves the user has material of their own. The raise site below tests that
+    directly. Getting this wrong would replace UI-SPEC §10's "finish onboarding"
+    screen with a three-minute chromatic exercise and call it a practice session.
     """
 
 
@@ -413,6 +420,10 @@ def build_plan(inputs: GeneratorInputs) -> SessionPlan:
         context,
         seconds=budget.warmup,
         slot_one=slot_one,
+        # The WHOLE technique block, not just slot 1 — §5.1's family-matching rules
+        # would otherwise serve a drill the player is about to be tested on two items
+        # later. See select_warmup's docstring (FLE-61).
+        technique_picks=fill.picks,
         seed_drills=inputs.seed_drills,
     )
 
@@ -598,7 +609,13 @@ def build_plan(inputs: GeneratorInputs) -> SessionPlan:
             )
         )
 
-    if not items:
+    # A plan whose ONLY item is a §12.1 seed warm-up (rule `d`) is not a session: the
+    # seed rows are global, so that plan is what an un-onboarded user with an empty
+    # bank and no song produces, and it would be identical for every such user. Rules
+    # (a), (b) and (c) all draw from the user's OWN bank, so a single-item plan from
+    # one of those IS their session — thin, but theirs — and still generates.
+    only_a_seed_warmup = len(items) == 1 and warmup is not None and warmup.rule == "d"
+    if not items or only_a_seed_warmup:
         raise NoMaterialError(
             "No drills, no song and no can_play songs — nothing to plan. "
             "§12 forbids a placeholder item, so there is no session to generate."

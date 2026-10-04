@@ -159,6 +159,19 @@ class CoverageReport:
 # to name its own type.
 _USER_SCOPE = "(CAST(:user_id AS uuid) IS NULL OR user_id = CAST(:user_id AS uuid))"
 
+# §12.1, explicitly: the three global seed warm-up drills are "excluded from coverage
+# counts". `_USER_SCOPE` alone does not exclude them — a NULL :user_id bind means
+# "every user" and matches a NULL user_id row too — so the exclusion is its own
+# predicate (migration 0012). It is on BOTH queries, not only the stock one, because
+# `total_active` is the denominator the gate's readout is interpreted against: three
+# ungradeable rows inflating it would make the bank look better stocked than it is.
+#
+# This is not only a counting question. A seed drill cannot be SELECTED into a
+# technique slot at all — snapshot.py's candidate query is per-user and a global row
+# never appears in it — so counting one as cell stock would claim coverage the
+# selector can never serve, which is the exact failure the module header rules out.
+_NOT_GLOBAL = "user_id IS NOT NULL"
+
 _STOCK_SQL = text(
     f"""
     SELECT family::text AS family, tier::text AS tier, count(*) AS stock
@@ -166,6 +179,7 @@ _STOCK_SQL = text(
      WHERE status = 'active'
        AND family IS NOT NULL
        AND tier IS NOT NULL
+       AND {_NOT_GLOBAL}
        AND {_USER_SCOPE}
      GROUP BY family, tier
     """
@@ -179,6 +193,7 @@ _TOTALS_SQL = text(
         count(*) FILTER (WHERE tier IS NULL)            AS no_tier
       FROM drills
      WHERE status = 'active'
+       AND {_NOT_GLOBAL}
        AND {_USER_SCOPE}
     """
 )
