@@ -130,9 +130,16 @@ async def run_onboarding_parse(
         # D-03 pre-dispatch: estimate token count + record in governor_calls row.
         if call_id is not None:
             try:
+                # Must mirror every prompt-shaping argument of the create()
+                # call below — system prompt and tool schema are billable
+                # input, and omitting them under-reported this prompt by ~53x
+                # in prod (55 estimated vs 2926 actual, FLE-96).
                 estimate = await client.messages.count_tokens(
                     model=SONNET_MODEL,
+                    system=SYSTEM_PROMPT,
                     messages=messages,
+                    tools=[_TOOL_DEF],
+                    tool_choice={"type": "tool", "name": _TOOL_NAME},
                 )
                 await record_estimate(
                     call_id, estimate.input_tokens, _MAX_OUTPUT_TOKENS

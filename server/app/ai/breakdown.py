@@ -470,9 +470,17 @@ async def run_technique_breakdown(
         # even if the create() call fails (SC-1 requirement).
         if call_id is not None:
             try:
+                # Every prompt-shaping argument the create() call below passes
+                # must also be passed here, or the estimate prices a payload we
+                # never send. System prompt + tool schema dominate this prompt:
+                # counting the user turn alone under-reported input by ~118x in
+                # prod (56 estimated vs 6642 actual, FLE-96).
                 estimate = await client.messages.count_tokens(
                     model=SONNET_MODEL,
+                    system=SYSTEM_PROMPT,
                     messages=messages,
+                    tools=[_TOOL_DEF],
+                    tool_choice={"type": "tool", "name": _TOOL_NAME},
                 )
                 # Passing the create() call's own max_tokens makes
                 # governor_calls.dollars_estimated this call's worst-case cost
