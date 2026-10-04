@@ -596,7 +596,13 @@ async def test_get_user_still_404s_for_your_own_unbootstrapped_id():
 def test_pool_ceiling_covers_the_pilot_worst_minute():
     """5 concurrent onboardings (7 connections each) + 10 concurrent breakdowns
     (1 each, held for the full ~76s Sonnet call) = 45. The default ceiling must
-    clear that, and must stay under Railway's max_connections of 100."""
+    clear that.
+
+    The upper bound is deliberately 100 rather than prod's measured
+    max_connections of 500: it is the conservative figure a smaller Postgres
+    would give us, so this test keeps failing if someone sizes the pool for one
+    specific server rather than for the floor.
+    """
     from app.db.session import MAX_OVERFLOW, POOL_SIZE
 
     ceiling = POOL_SIZE + MAX_OVERFLOW

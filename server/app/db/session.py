@@ -70,9 +70,11 @@ DATABASE_URL = _get_database_url()
 # Two invariants worth keeping in mind if you change these numbers:
 #   - Ceiling must exceed _VERIFIER_SEMAPHORE_LIMIT-driven fan-out. Raising the
 #     semaphore in api/v1/users.py multiplies onboarding's 7-connection cost.
-#   - Ceiling must stay under the Postgres server's max_connections (Railway's
-#     default is 100) minus whatever else connects — the APScheduler jobs and
-#     the startup seed each take one.
+#   - Ceiling must stay under the Postgres server's max_connections minus
+#     whatever else connects — the APScheduler jobs and the startup seed each
+#     take one. Prod's Postgres 18 reports max_connections = 500 (measured, not
+#     assumed — Railway's template default is lower, so do not infer it from the
+#     docs), which leaves this ceiling an order of magnitude of headroom.
 #
 # All three are env-overridable so Railway can retune without a deploy of code.
 _DEFAULT_POOL_SIZE = 15
