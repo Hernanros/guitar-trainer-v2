@@ -309,7 +309,7 @@ async def test_bootstrap_seeds_leaf_mastery_from_onboarding_categories():
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
 
         assert resp.status_code == 201, f"Bootstrap failed {resp.status_code}: {resp.text}"
         assert resp.json()["mode"] == "full", (
@@ -389,7 +389,7 @@ async def test_seeded_player_level_opens_the_catalog_window():
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
         assert resp.status_code == 201, f"Bootstrap failed: {resp.text}"
 
         async with _make_session() as db:

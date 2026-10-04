@@ -253,7 +253,7 @@ async def test_full_bootstrap_persists_correctly(mock_sonnet_success, seeded_can
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
-        resp = await client.post("/api/v1/users", json=body)
+        resp = await client.post("/api/v1/users", json=body, headers={"X-User-ID": body["user_id"]})
 
     assert resp.status_code == 201, resp.text
     data = resp.json()
@@ -345,7 +345,7 @@ async def test_fail_open_savepoint_preserves_user_row(mock_sonnet_fail):
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
-        resp = await client.post("/api/v1/users", json=body)
+        resp = await client.post("/api/v1/users", json=body, headers={"X-User-ID": body["user_id"]})
 
     assert resp.status_code == 201, resp.text
     data = resp.json()
@@ -403,14 +403,14 @@ async def test_idempotent_re_post_returns_existing(mock_sonnet_success, seeded_c
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         # First POST — full bootstrap
-        resp1 = await client.post("/api/v1/users", json=body)
+        resp1 = await client.post("/api/v1/users", json=body, headers={"X-User-ID": body["user_id"]})
         assert resp1.status_code == 201, resp1.text
         data1 = resp1.json()
         assert data1["mode"] == "full"
         first_node_ids = {n["id"] for n in data1["nodes"]}
 
         # Second POST — idempotency guard should fire
-        resp2 = await client.post("/api/v1/users", json=body)
+        resp2 = await client.post("/api/v1/users", json=body, headers={"X-User-ID": body["user_id"]})
         assert resp2.status_code == 201, resp2.text
         data2 = resp2.json()
         assert data2["mode"] == "existing", \

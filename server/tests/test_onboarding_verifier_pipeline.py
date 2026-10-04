@@ -237,7 +237,7 @@ async def test_high_score_reuses_canonical():
         with patch("app.api.v1.users.run_onboarding_parse", AsyncMock(return_value=onboarding_output)):
             with patch("app.ai.skill_verifier.get_client", return_value=_build_mock_verifier_client("yes")):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
         assert resp.status_code == 201, resp.text
 
         # Check DB: the inserted "Blues Shuffle Rhythm" node has canonical_node_id = existing canonical
@@ -276,7 +276,7 @@ async def test_mid_score_queues_and_inserts_local():
         with patch("app.api.v1.users.run_onboarding_parse", AsyncMock(return_value=onboarding_output)):
             with patch("app.ai.skill_verifier.get_client", return_value=_build_mock_verifier_client("yes")):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
         assert resp.status_code == 201, resp.text
 
         async with _make_session() as db:
@@ -326,7 +326,7 @@ async def test_low_score_calls_verifier():
         with patch("app.api.v1.users.run_onboarding_parse", AsyncMock(return_value=onboarding_output)):
             with patch("app.ai.skill_verifier.get_client", return_value=mock_client):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
         assert resp.status_code == 201, resp.text
 
         async with _make_session() as db:
@@ -365,7 +365,7 @@ async def test_verifier_no_verdict_drops_and_records_rejection():
         with patch("app.api.v1.users.run_onboarding_parse", AsyncMock(return_value=onboarding_output)):
             with patch("app.ai.skill_verifier.get_client", return_value=mock_client):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
         assert resp.status_code == 201, resp.text
 
         async with _make_session() as db:
@@ -417,7 +417,7 @@ async def test_verifier_uncertain_queues_and_inserts_local():
         with patch("app.api.v1.users.run_onboarding_parse", AsyncMock(return_value=onboarding_output)):
             with patch("app.ai.skill_verifier.get_client", return_value=mock_client):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
         assert resp.status_code == 201, resp.text
 
         async with _make_session() as db:
@@ -475,7 +475,7 @@ async def test_root_nodes_bypass_pipeline():
         with patch("app.api.v1.users.run_onboarding_parse", AsyncMock(return_value=onboarding_output)):
             with patch("app.ai.skill_verifier.get_client", return_value=mock_client):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
         assert resp.status_code == 201, resp.text
 
         # All 6 roots should be inserted
@@ -515,7 +515,7 @@ async def test_verifier_call_failure_queues_gracefully():
                 AsyncMock(side_effect=AISkillVerifierError("simulated verifier failure")),
             ):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
 
         # D-14: onboarding still succeeds despite verifier failure
         assert resp.status_code == 201, f"Expected 201 (fail-graceful), got {resp.status_code}: {resp.text}"
@@ -559,7 +559,7 @@ async def test_pipeline_governor_row_per_verifier_invocation():
         with patch("app.api.v1.users.run_onboarding_parse", AsyncMock(return_value=onboarding_output)):
             with patch("app.ai.skill_verifier.get_client", return_value=mock_client):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
         assert resp.status_code == 201, resp.text
 
         async with _make_session() as db:
@@ -593,7 +593,7 @@ async def test_pipeline_caps_verifier_fanout_at_ten():
         with patch("app.api.v1.users.run_onboarding_parse", AsyncMock(return_value=onboarding_output)):
             with patch("app.ai.skill_verifier.get_client", return_value=mock_client):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
         assert resp.status_code == 201, resp.text
 
         async with _make_session() as db:
@@ -648,7 +648,7 @@ async def test_pipeline_semaphore_bounds_concurrent_verifier_calls():
         with patch("app.api.v1.users.run_onboarding_parse", AsyncMock(return_value=onboarding_output)):
             with patch("app.api.v1.users.run_skill_node_verify", side_effect=_mock_verifier):
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
         assert resp.status_code == 201, resp.text
 
         assert peak_concurrent[0] <= 5, (

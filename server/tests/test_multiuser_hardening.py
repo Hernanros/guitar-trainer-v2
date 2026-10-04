@@ -590,6 +590,180 @@ async def test_get_user_still_404s_for_your_own_unbootstrapped_id():
 
 
 # ---------------------------------------------------------------------------
+# §5b — identity enforcement on POST /users, the body-only endpoint
+# ---------------------------------------------------------------------------
+# The §5 fix above swept the three endpoints that took user_id from the PATH.
+# POST /users took it from the BODY, so it did not match that pattern and was
+# left behind — it was the only user-scoped route in the codebase with no
+# Depends(get_user_id) at all. Two reachable consequences, both tested here.
+
+@pytest.mark.asyncio
+async def test_bootstrap_requires_matching_user_id():
+    """A caller may only bootstrap their own device UUID.
+
+    The body is a fully valid UserBootstrapRequest on purpose: a 422 from a
+    malformed body would pass this assertion for the wrong reason.
+    """
+    victim = str(uuid.uuid4())
+    attacker = str(uuid.uuid4())
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            "/api/v1/users",
+            headers={"X-User-ID": attacker},
+            json={
+                "user_id": victim,
+                "songs": {"can_play": [], "working_on": [], "aspirational": []},
+                "preferences": {"session_length_min": 30, "retention_format": "streak"},
+                "raw_input": {"can_play": "", "working_on": "", "aspirational": ""},
+            },
+        )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_does_not_leak_an_existing_users_graph():
+    """The read half, and the sharper of the two.
+
+    The idempotency guard short-circuits when skill_nodes already exist and
+    returns them with mode='existing'. Reached with someone else's user_id in
+    the body, that made POST /users an unauthenticated read of any bootstrapped
+    user's full skill graph — no header required at all, since the endpoint took
+    none. The 403 must land BEFORE the guard runs, so the victim's node names
+    never reach the response.
+    """
+    victim = str(uuid.uuid4())
+    attacker = str(uuid.uuid4())
+    db = _make_session()
+    try:
+        await _seed_user(db, victim)
+        await db.execute(
+            text(
+                "INSERT INTO skill_nodes (id, user_id, name, level) "
+                "VALUES (:nid, :uid, 'Victim Private Skill', 'root')"
+            ),
+            {"nid": str(uuid.uuid4()), "uid": victim},
+        )
+        await db.commit()
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                "/api/v1/users",
+                headers={"X-User-ID": attacker},
+                json={
+                    "user_id": victim,
+                    "songs": {"can_play": [], "working_on": [], "aspirational": []},
+                    "preferences": {
+                        "session_length_min": 30,
+                        "retention_format": "streak",
+                    },
+                    "raw_input": {
+                        "can_play": "",
+                        "working_on": "",
+                        "aspirational": "",
+                    },
+                },
+            )
+        assert resp.status_code == 403
+        assert "Victim Private Skill" not in resp.text
+    finally:
+        await db.execute(
+            text("DELETE FROM skill_nodes WHERE user_id = :uid"), {"uid": victim}
+        )
+        await db.commit()
+        await _cleanup_user(db, victim)
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_does_not_overwrite_an_existing_users_preferences():
+    """The mutate half.
+
+    When the victim has a users row but NO skill_nodes — a real state, since
+    bootstrap commits the users row in Step 2 before the graph writes in Step 3,
+    and fail-open leaves it that way if Sonnet dies — the idempotency guard does
+    not fire and the ON CONFLICT DO UPDATE upsert runs. That overwrote the
+    victim's `preferences` and `raw_onboarding_text` with the attacker's, then
+    wrote a graph derived from the attacker's wizard text under the victim's id.
+    """
+    victim = str(uuid.uuid4())
+    attacker = str(uuid.uuid4())
+    db = _make_session()
+    try:
+        await db.execute(
+            text(
+                "INSERT INTO users (id, preferences, raw_onboarding_text) VALUES "
+                "(:uid, '{\"session_length_min\": 45}'::jsonb, "
+                "'{\"can_play\": \"victim text\"}'::jsonb)"
+            ),
+            {"uid": victim},
+        )
+        await db.commit()
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                "/api/v1/users",
+                headers={"X-User-ID": attacker},
+                json={
+                    "user_id": victim,
+                    "songs": {"can_play": [], "working_on": [], "aspirational": []},
+                    "preferences": {
+                        "session_length_min": 15,
+                        "retention_format": "streak",
+                    },
+                    "raw_input": {
+                        "can_play": "attacker text",
+                        "working_on": "",
+                        "aspirational": "",
+                    },
+                },
+            )
+        assert resp.status_code == 403
+
+        row = (await db.execute(
+            text(
+                "SELECT preferences, raw_onboarding_text FROM users WHERE id = :uid"
+            ),
+            {"uid": victim},
+        )).one()
+        assert row.preferences["session_length_min"] == 45
+        assert row.raw_onboarding_text["can_play"] == "victim text"
+    finally:
+        await db.execute(
+            text("DELETE FROM skill_nodes WHERE user_id = :uid"), {"uid": victim}
+        )
+        await db.commit()
+        await _cleanup_user(db, victim)
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_rejects_a_missing_identity_header():
+    """POST /users was the one user-scoped route reachable with no X-User-ID at
+    all. It must now behave like every other one: 422 from FastAPI's required
+    header coercion, before any handler logic.
+    """
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.post(
+            "/api/v1/users",
+            json={
+                "user_id": str(uuid.uuid4()),
+                "songs": {"can_play": [], "working_on": [], "aspirational": []},
+                "preferences": {"session_length_min": 30, "retention_format": "streak"},
+                "raw_input": {"can_play": "", "working_on": "", "aspirational": ""},
+            },
+        )
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # §1/§2 — pool sizing
 # ---------------------------------------------------------------------------
 

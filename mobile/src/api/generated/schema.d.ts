@@ -448,6 +448,11 @@ export interface paths {
          * Bootstrap User
          * @description Bootstrap the user (D-04 + D-05 + D-06 + D-07):
          *
+         *     0. Identity (FLE-23 §5b): 403 unless body.user_id is the caller's own device
+         *        UUID. This runs before step 1 on purpose — the idempotency guard's
+         *        short-circuit RETURNS the existing skill graph, so a check placed after it
+         *        would refuse the write and still have leaked the read.
+         *
          *     1. Idempotency guard (Revision D): if skill_nodes already exist for this user_id,
          *        short-circuit with mode='existing' — no Sonnet call, no writes.
          *     2. Upsert users row + preferences + raw_onboarding_text AND COMMIT — this must be
@@ -646,10 +651,18 @@ export interface components {
          * BreakdownQuota
          * @description Phase 4 quota snapshot embedded in TodaySongResponse (D-06).
          *
-         *     remaining: calls left in the current 7-day rolling window (0..cap).
-         *     cap: per-user cap — 3 for the breakdown feature per D-01, unless
+         *     remaining: calls left today (0..cap).
+         *     cap: per-user cap — 5 for the breakdown feature per FLE-92, unless
          *          FLETCHER_CAP_BREAKDOWN overrides it for this deploy.
-         *     resets_at: ISO datetime string — oldest_call_in_window + 7 days, server-authoritative.
+         *     resets_at: ISO datetime string — the user's NEXT LOCAL MIDNIGHT in UTC,
+         *          server-authoritative.
+         *
+         *     FLE-92 changed what resets_at means without changing its type, so a client
+         *     older than the server still parses it. It used to be oldest_call_in_window + 7
+         *     days, which moved as calls aged out; it is now a fixed daily boundary. An old
+         *     client rendering it as "come back in N days" reads a few hours and rounds to 1 —
+         *     wrong in wording, not in substance — which is why the mobile copy moved to
+         *     naming midnight in the same change.
          */
         BreakdownQuota: {
             /** Remaining */
@@ -2041,7 +2054,9 @@ export interface operations {
     bootstrap_user_api_v1_users_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-User-ID": string;
+            };
             path?: never;
             cookie?: never;
         };

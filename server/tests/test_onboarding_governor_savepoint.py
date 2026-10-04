@@ -231,7 +231,7 @@ async def test_bootstrap_survives_real_governor_commit_inside_savepoint():
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
 
         assert resp.status_code == 201, (
             f"Bootstrap must return 201 with a live governor round-trip. "
@@ -272,7 +272,7 @@ async def test_bootstrap_records_onboarding_governor_row():
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
 
         assert resp.status_code == 201, resp.text
 
@@ -337,7 +337,7 @@ async def test_rerun_survives_real_governor_commit_inside_savepoint():
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
                     assert resp.status_code == 201, resp.text
 
                     # Now the re-run — same governor path, different endpoint + SAVEPOINT.

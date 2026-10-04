@@ -802,8 +802,12 @@ async def _persist_bootstrap(
 # Identity enforcement (FLE-23 §5)
 # ---------------------------------------------------------------------------
 
-def _require_own_user(path_user_id: UUID, caller_id: UUID) -> None:
-    """Refuse 403 when the path user_id is not the caller's device UUID.
+def _require_own_user(claimed_user_id: UUID, caller_id: UUID) -> None:
+    """Refuse 403 when the request's claimed user_id is not the caller's device UUID.
+
+    `claimed_user_id` is whatever the request asked to act as — the path segment
+    on the three /users/{user_id} routes, or `body.user_id` on POST /users. Both
+    are caller-supplied, so both need the same check against X-User-ID.
 
     Before this, GET /users/{id}, GET /users/{id}/skill-graph and
     POST /users/{id}/re-run took user_id straight from the path and never
@@ -812,12 +816,21 @@ def _require_own_user(path_user_id: UUID, caller_id: UUID) -> None:
     path segment. re-run is both destructive and a spend trigger, which is what
     made this the sharpest of the three.
 
+    POST /users was added to this check later (FLE-23 §5b) and had the same shape
+    with the identity in the BODY instead of the path, which is exactly why the
+    first sweep missed it: it was pattern-matched on `/users/{user_id}` routes,
+    and POST /users has no path parameter. It was the only user-scoped route in
+    the codebase with no Depends(get_user_id) at all, and both halves were
+    reachable — the idempotency guard returned any bootstrapped user's full skill
+    graph, and the ON CONFLICT DO UPDATE upsert overwrote the preferences and
+    raw_onboarding_text of any user who had a row but no graph yet.
+
     Every other user-scoped route in the codebase (song_of_day, breakdowns,
     sessions, practice_sessions) already derives user_id from
     Depends(get_user_id) and never from the request path or body — see
-    song_of_day.py's T-03-04-01 note. These three were the outliers; this brings
-    them onto the same contract while keeping the path parameter in the URL, so
-    no client route strings change.
+    song_of_day.py's T-03-04-01 note. This brings the /users family onto that
+    same contract while keeping the path parameter in the URL and user_id in the
+    bootstrap body, so no client route strings or payloads change.
 
     POC identity is an unverified device UUID (D-04), so this is not
     authentication — a caller who knows another device's UUID can still spoof the
@@ -825,10 +838,10 @@ def _require_own_user(path_user_id: UUID, caller_id: UUID) -> None:
     the level of protection the rest of the surface already has; real auth is a
     post-POC concern tracked separately.
     """
-    if path_user_id != caller_id:
+    if claimed_user_id != caller_id:
         raise HTTPException(
             status_code=403,
-            detail="Path user_id does not match the X-User-ID device identity.",
+            detail="Requested user_id does not match the X-User-ID device identity.",
         )
 
 
@@ -839,9 +852,15 @@ def _require_own_user(path_user_id: UUID, caller_id: UUID) -> None:
 @router.post("/users", response_model=SkillGraphResponse, status_code=201)
 async def bootstrap_user(
     body: UserBootstrapRequest,
+    caller_id: UUID = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> SkillGraphResponse:
     """Bootstrap the user (D-04 + D-05 + D-06 + D-07):
+
+    0. Identity (FLE-23 §5b): 403 unless body.user_id is the caller's own device
+       UUID. This runs before step 1 on purpose — the idempotency guard's
+       short-circuit RETURNS the existing skill graph, so a check placed after it
+       would refuse the write and still have leaked the read.
 
     1. Idempotency guard (Revision D): if skill_nodes already exist for this user_id,
        short-circuit with mode='existing' — no Sonnet call, no writes.
@@ -858,6 +877,11 @@ async def bootstrap_user(
     5. Set onboarded_at on the user row.
     6. Single await db.commit() at end for graph writes.
     """
+    # ---- Step 0: identity (FLE-23 §5b) ----
+    # Ahead of _check_raw_input_size too, so an oversized body from the wrong
+    # caller reports the identity failure rather than the size one.
+    _require_own_user(body.user_id, caller_id)
+
     _check_raw_input_size(body.raw_input)
 
     # ---- Idempotency guard (Revision D) ----

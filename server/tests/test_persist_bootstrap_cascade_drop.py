@@ -422,7 +422,7 @@ async def test_cascade_drop_sub_verdict_no_drops_leaf_children():
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
                     resp = await client.post(
-                        "/api/v1/users", json=_bootstrap_body(user_id)
+                        "/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id}
                     )
 
         assert resp.status_code == 201, (
@@ -494,7 +494,7 @@ async def test_cascade_drop_deferred_overflow_drops_leaf_children():
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
                     resp = await client.post(
-                        "/api/v1/users", json=_bootstrap_body(user_id)
+                        "/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id}
                     )
 
         assert resp.status_code == 201, (
@@ -601,7 +601,7 @@ async def test_no_cascade_when_sub_kept():
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
                     resp = await client.post(
-                        "/api/v1/users", json=_bootstrap_body(user_id)
+                        "/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id}
                     )
 
         assert resp.status_code == 201, resp.text
@@ -657,7 +657,7 @@ async def test_multi_drop_cascade_catches_all_orphans_across_subtrees():
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
                     resp = await client.post(
-                        "/api/v1/users", json=_bootstrap_body(user_id)
+                        "/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id}
                     )
 
         assert resp.status_code == 201, (
@@ -725,7 +725,7 @@ async def test_song_skills_skipped_for_cascade_dropped_leaves():
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
                     resp = await client.post(
-                        "/api/v1/users", json=_bootstrap_body(user_id)
+                        "/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id}
                     )
 
         assert resp.status_code == 201, resp.text

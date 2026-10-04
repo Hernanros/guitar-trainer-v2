@@ -346,7 +346,7 @@ async def test_bootstrap_coalesces_duplicate_song_across_categories():
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
-                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id))
+                    resp = await client.post("/api/v1/users", json=_bootstrap_body(user_id), headers={"X-User-ID": user_id})
 
         assert resp.status_code == 201, (
             f"Bootstrap must return 201 when a song appears in multiple wizard "
@@ -429,7 +429,9 @@ async def test_bootstrap_coalesces_case_insensitive_and_across_all_three_categor
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
                     resp = await client.post(
-                        "/api/v1/users", json=_bootstrap_body_case_insensitive(user_id)
+                        "/api/v1/users",
+                        json=_bootstrap_body_case_insensitive(user_id),
+                        headers={"X-User-ID": user_id},
                     )
 
         assert resp.status_code == 201, (
@@ -539,6 +541,7 @@ async def test_bootstrap_non_duplicate_songs_unaffected():
                                 "aspirational": "Free Bird",
                             },
                         },
+                        headers={"X-User-ID": user_id},
                     )
 
         assert resp.status_code == 201, resp.text
