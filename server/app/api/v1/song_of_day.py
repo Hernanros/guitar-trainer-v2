@@ -293,12 +293,29 @@ async def reroll_today_song(
     if existing is not None:
         raise HTTPException(status_code=409, detail="Already used today's reroll.")
 
+    # FLE-98: read the current daily pick to exclude it so the reroll always changes song.
+    # If no daily pick marker exists (user rerolls before ever calling GET), exclude nothing.
+    daily_pick = (
+        await db.execute(
+            text(
+                "SELECT song_id FROM user_sessions "
+                "WHERE user_id = :user_id AND local_calendar_day = :day "
+                "  AND is_daily_pick_marker = true "
+                "LIMIT 1"
+            ),
+            {"user_id": str(user_id), "day": local_day},
+        )
+    ).mappings().one_or_none()
+    current_song_id: int = int(daily_pick["song_id"]) if daily_pick else -1
+
     # Compute new pick with force_reroll=True (different seed suffix per RESEARCH §8 landmine 3)
     song_id, _from_bank, bank_source = await select_today_song(
-        db, user_id, tz_offset_minutes, force_reroll=True
+        db, user_id, tz_offset_minutes, force_reroll=True,
+        exclude_song_id=current_song_id,
     )
     if song_id is None:
-        raise HTTPException(status_code=404, detail="No alternative song available.")
+        # No alternative candidate after exclusion — do not spend the reroll.
+        raise HTTPException(status_code=409, detail="No alternative song available; reroll not spent.")
 
     # Insert reroll marker row (T-03-04-01: user_id from dep; T-03-04-05: bank_source from selector)
     try:

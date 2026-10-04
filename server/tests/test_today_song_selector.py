@@ -622,3 +622,142 @@ async def test_daily_pick_stable_after_indexed_column_mutation(db: AsyncSession)
         await db.execute(text("DELETE FROM songs WHERE user_id = :uid"), {"uid": str(user_id)})
         await db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": str(user_id)})
         await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# FLE-98: reroll must exclude the current pick so the song always changes
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_reroll_excludes_current_pick_returns_different_song(db: AsyncSession):
+    """FLE-98 deterministic arm: POST /reroll always returns a song different from today's pick.
+
+    Setup: user with exactly 2 working_on songs. GET establishes the daily pick marker
+    (song A, the argmin-mastery winner). POST /reroll must return song B — the only
+    remaining candidate after exclusion. With one song excluded and the other deterministic,
+    this proves the exclusion logic rather than relying on a lucky reroll seed.
+    """
+    user_id = uuid.uuid4()
+    await db.execute(
+        text("INSERT INTO users (id, preferences) VALUES (:uid, '{}'::jsonb)"),
+        {"uid": str(user_id)},
+    )
+
+    # skill_node needed for player_level; mastery values differ so argmin is deterministic.
+    skill_a = uuid.uuid4()
+    skill_b = uuid.uuid4()
+    await db.execute(
+        text(
+            "INSERT INTO skill_nodes (id, user_id, name, level, mastery) VALUES "
+            "(:sa, :uid, 'Skill A', 'leaf', 0.1), "
+            "(:sb, :uid, 'Skill B', 'leaf', 0.5)"
+        ),
+        {"sa": str(skill_a), "sb": str(skill_b), "uid": str(user_id)},
+    )
+
+    # Song A: lower mastery → argmin winner → will be the daily pick.
+    await db.execute(
+        text(
+            "INSERT INTO songs (title, artist, genre, difficulty, breakdown, user_id, category) "
+            "VALUES ('FLE98 Song A', 'Test Artist', 'Blues', 'intermediate', "
+            "'{\"tab\":{\"measures\":[],\"tuning\":[\"E\",\"A\",\"D\",\"G\",\"B\",\"e\"]},"
+            "\"chords\":[],\"technique_notes\":[]}'::jsonb, :uid, 'working_on')"
+        ),
+        {"uid": str(user_id)},
+    )
+    song_a_id = (await db.execute(
+        text("SELECT id FROM songs WHERE user_id = :uid AND title = 'FLE98 Song A'"),
+        {"uid": str(user_id)},
+    )).scalar_one()
+
+    # Song B: higher mastery → only option after Song A is excluded.
+    await db.execute(
+        text(
+            "INSERT INTO songs (title, artist, genre, difficulty, breakdown, user_id, category) "
+            "VALUES ('FLE98 Song B', 'Test Artist', 'Blues', 'intermediate', "
+            "'{\"tab\":{\"measures\":[],\"tuning\":[\"E\",\"A\",\"D\",\"G\",\"B\",\"e\"]},"
+            "\"chords\":[],\"technique_notes\":[]}'::jsonb, :uid, 'working_on')"
+        ),
+        {"uid": str(user_id)},
+    )
+    song_b_id = (await db.execute(
+        text("SELECT id FROM songs WHERE user_id = :uid AND title = 'FLE98 Song B'"),
+        {"uid": str(user_id)},
+    )).scalar_one()
+
+    await db.execute(
+        text("INSERT INTO song_skills (song_id, skill_node_id) VALUES (:sa, :sk)"),
+        {"sa": song_a_id, "sk": str(skill_a)},
+    )
+    await db.execute(
+        text("INSERT INTO song_skills (song_id, skill_node_id) VALUES (:sb, :sk)"),
+        {"sb": song_b_id, "sk": str(skill_b)},
+    )
+    await db.commit()
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            headers = {"X-User-ID": str(user_id), "X-Timezone-Offset": "0"}
+
+            # GET establishes the daily pick (Song A, the argmin winner).
+            r_get = await client.get("/api/v1/song-of-day", headers=headers)
+            assert r_get.status_code == 200, r_get.text
+            daily_song_id = r_get.json()["song"]["id"]
+
+            # POST /reroll — exclusion must prevent returning the same song.
+            r_reroll = await client.post("/api/v1/today-song/reroll", headers=headers)
+            assert r_reroll.status_code == 200, r_reroll.text
+            reroll_song_id = r_reroll.json()["song"]["id"]
+
+        assert reroll_song_id != daily_song_id, (
+            f"Reroll returned the same song ({reroll_song_id}) as the daily pick "
+            "— FLE-98 exclude_song_id exclusion is not working."
+        )
+    finally:
+        await db.execute(text("DELETE FROM user_sessions WHERE user_id = :uid"), {"uid": str(user_id)})
+        await db.execute(text("DELETE FROM song_skills WHERE song_id IN (SELECT id FROM songs WHERE user_id = :uid)"), {"uid": str(user_id)})
+        await db.execute(text("DELETE FROM songs WHERE user_id = :uid"), {"uid": str(user_id)})
+        await db.execute(text("DELETE FROM skill_nodes WHERE user_id = :uid"), {"uid": str(user_id)})
+        await db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": str(user_id)})
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_reroll_no_candidate_returns_409_unspent(seed_user, db: AsyncSession, monkeypatch):
+    """FLE-98 single-song fallback: when the selector returns None after exclusion,
+    the endpoint returns 409 without writing a reroll marker row.
+
+    The reroll must not be consumed when there is no alternative to offer — spending
+    a scarce once-per-day action for a non-change is the original FLE-98 bug in a
+    new form.
+    """
+    user_id = seed_user
+
+    async def _no_candidate(*_args, **_kwargs):
+        return None, False, None
+
+    monkeypatch.setattr("app.api.v1.song_of_day.select_today_song", _no_candidate)
+
+    today_row = await db.scalar(
+        text("SELECT DATE((now() AT TIME ZONE 'UTC') + (0 * INTERVAL '1 minute'))")
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/today-song/reroll",
+            headers={"X-User-ID": str(user_id), "X-Timezone-Offset": "0"},
+        )
+    assert resp.status_code == 409, f"Expected 409 but got {resp.status_code}: {resp.text}"
+    assert "reroll not spent" in resp.json()["detail"].lower()
+
+    # Confirm no reroll marker was written.
+    marker = (
+        await db.execute(
+            text(
+                "SELECT 1 FROM user_sessions "
+                "WHERE user_id = :uid AND local_calendar_day = :day AND is_reroll_marker = true"
+            ),
+            {"uid": str(user_id), "day": today_row},
+        )
+    ).one_or_none()
+    assert marker is None, "Reroll marker was written despite no-candidate 409 response"

@@ -88,6 +88,8 @@ def difficulty_label(value: Optional[Union[Decimal, float, int, str]]) -> Option
 #   :local_calendar_day — DATE string for today (server-computed from tz offset)
 #   :player_level     — NUMERIC(4,3) — mean mastery over leaf skill_nodes (fallback 0.5)
 #   :reroll_suffix    — '' for normal fetch; ':reroll' for reroll call (landmine 3 delimiter)
+#   :exclude_song_id  — songs.id integer to exclude from all branches; -1 = no exclusion
+#                       (FLE-98: prevents reroll returning the song already on screen)
 #
 # Returns one row: (today_song_id, from_bank, bank_source)
 # today_song_id is NULL if BOTH working_on AND bank are empty.
@@ -118,6 +120,7 @@ WITH
   ),
   -- 3. Deterministic pick: argmin(mastery) over working_on songs for this user.
   --    song_id cast to text for CASE expression compatibility with bank_pick (also text).
+  --    FLE-98: exclude_song_id filters the current pick so reroll always changes the song.
   working_on_pick AS (
     SELECT s.id::text AS song_id
     FROM songs s
@@ -125,25 +128,35 @@ WITH
     JOIN skill_nodes sn ON sn.id = ss.skill_node_id
     WHERE s.user_id = CAST(:user_id AS uuid)
       AND s.category = 'working_on'
+      AND s.id != :exclude_song_id
     ORDER BY sn.mastery ASC, sn.updated_at ASC
     LIMIT 1
   ),
   -- 4. Bank branch A: user's own songs (all three categories), drawn randomly.
   --    song_id cast to text so the UNION with catalog_pick (uuid) is type-compatible.
   --    The Python caller detects uuid-shaped strings to identify catalog IDs.
+  --    FLE-98: exclude_song_id filters the current pick.
   user_bench_pick AS (
     SELECT s.id::text AS song_id, 'user_bench'::text AS src
     FROM songs s
     WHERE s.user_id = CAST(:user_id AS uuid)
+      AND s.id != :exclude_song_id
     ORDER BY random()
     LIMIT 1
   ),
   -- 5. Bank branch B: seed catalog filtered by player_level ±0.15.
   --    song_id cast to text for UNION compatibility with user_bench_pick.
+  --    FLE-98: exclude the catalog entry whose title+artist match the excluded songs row.
   catalog_pick AS (
     SELECT sc.id::text AS song_id, 'seed_catalog'::text AS src
     FROM song_catalog sc, player_level_cte pl
     WHERE ABS(sc.difficulty - pl.player_level) <= 0.15
+      AND NOT EXISTS (
+        SELECT 1 FROM songs sx
+        WHERE sx.id = :exclude_song_id
+          AND lower(sx.title) = lower(sc.title)
+          AND lower(sx.artist) = lower(sc.artist)
+      )
     ORDER BY random()
     LIMIT 1
   ),
@@ -292,6 +305,7 @@ async def select_today_song(
     tz_offset_minutes: int,
     *,
     force_reroll: bool = False,
+    exclude_song_id: int = -1,
 ) -> tuple[int | None, bool, BankSource | None]:
     """Execute the 75/25 CTE and return the selected song.
 
@@ -304,6 +318,10 @@ async def select_today_song(
 
     When force_reroll=True, a different seed suffix is used so the reroll produces
     a different sequence of random() calls (RESEARCH §4 landmine 3 anti-collision).
+
+    When exclude_song_id is set (FLE-98), that songs.id is removed from all three
+    candidate branches so a reroll cannot return the song already on screen.
+    -1 is the no-exclusion sentinel (never a valid songs.id).
 
     When the selected song comes from song_catalog, _ensure_catalog_song_as_user_song
     UPSERTs it into songs (aspirational category) and returns the resulting integer songs.id.
@@ -325,6 +343,7 @@ async def select_today_song(
             "local_calendar_day": str(today),
             "player_level": 0.5,  # will be overridden by inline AVG in CTE
             "reroll_suffix": reroll_suffix,
+            "exclude_song_id": exclude_song_id,
         },
     )
     row = result.mappings().one()
