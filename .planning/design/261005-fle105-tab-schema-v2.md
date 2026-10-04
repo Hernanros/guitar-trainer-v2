@@ -584,7 +584,7 @@ Not a suggestion list — these are the places that break or silently mislead if
 | 2 | `mobile/src/components/TabNotation.tsx` | §9 | **yes** — 100% bar corruption |
 | 3 | `mobile/src/api/generated/schema.d.ts` | regenerate from OpenAPI | **yes** — TS won't compile against new fields |
 | 4 | `server/scripts/fle103_verify_pilot_tabs.py` | capo in pitch derivation (§7.1); `Fraction` meter; skip bent notes in V1–V3 (§5); V6 rewritten against §9.1 | **yes** — fails correct capo tab |
-| 5 | `server/app/ai/breakdown.py` SYSTEM_PROMPT | teach the new vocabulary | no, but the schema buys nothing until it happens |
+| 5 | `server/app/ai/breakdown.py` SYSTEM_PROMPT | teach the new vocabulary — **FLE-118**, not FLE-106 (which closed 2026-10-04 having shipped C1–C7) | no, but the schema buys nothing until it happens |
 | 6 | `server/scripts/fle102_tab_audit.py` | drop its private `DUR` for the §2.2 table | no — drifts |
 | 7 | `server/scripts/grade_eval.py`, `grade_cached_drills.py` | their own measure parsers | no — ignore new fields |
 | 8 | `server/data/verified_tabs/pilot_verified_set.json` | parses unchanged — all 1612 notes are `quarter`, verified; **five** songs re-notated under FLE-107 once the schema lands (§2.5.1) | no |
@@ -649,9 +649,10 @@ Nothing in the contract is now waiting on a musical answer.
 
 ## 12. Implementation split
 
-Sign-off is in, so the three issues below are cut. Each is implementable against this document alone.
-Ordering: 1 and 2 are independent and can run in parallel; 3 reads the §2.2 table from 1, so it
-follows 1.
+Sign-off is in, so the issues below are cut: **FLE-115** (server), **FLE-116** (mobile renderer),
+**FLE-117** (verifier), **FLE-118** (generator prompt). Each is implementable against this document
+alone. Ordering: 1 and 2 are independent and run in parallel; 3 and 4 both depend on 1 — 3 imports
+the §2.2 table, and 4 must not teach a vocabulary the model cannot be validated against.
 
 **1. Server — schema, coercer, canonical duration table.** `server/app/models/song.py`.
 The §1 table, §2.1 enum, §2.2 `Fraction` table (exported, so the audit scripts import it instead of
@@ -680,10 +681,15 @@ in the V1–V3 chord-spelling checks (§5 — scoring the fingered pitch flags e
 foreign note); V6 rewritten against §9.1; import the §2.2 table rather than its own. Also drop
 `conventions.max_beats_per_measure: 4` from `fle103_build_pilot_set.py` (§10 row 9).
 
-**Two consumers that are not in this split and must not be forgotten.** FLE-106 owns the generator
-prompt — including the two vocabulary rules this review created: **do not teach `0.25`** (§5.1) and
-**flag `feel != straight` against all-triplet bars** as double-applied swing (§2.5). It also inherits
-the eval problem flagged in §10: `breakdown.py:162` states that editing `SYSTEM_PROMPT` invalidates
-the 04.1-07 eval, and teaching the new vocabulary necessarily edits it — the FLE-17 §3 baseline needs
-a planned re-run, not a discovered one. FLE-107 owns re-notating the five songs in §2.5.1 and must
-not start before deliverable 1 lands.
+**4. Generator prompt — FLE-118.** Earlier drafts of this section said the prompt work was "tracked
+elsewhere" under FLE-106. **That was wrong, and the error was load-bearing:** FLE-106 shipped the
+C1–C7 recording-free audit checks and closed on 2026-10-04, so the prompt half had no owner at all.
+Without it the schema buys nothing (§10 row 5) — the model keeps emitting `{string, fret, duration}`
+because nothing taught it otherwise. FLE-118 carries: teaching the §2.1–§7 vocabulary; the two
+deliberate narrowings this review created (**do not teach `0.25`**, §5.1; **no `bossa` feel**, §2.5);
+the **double-applied-swing check** (§2.5, which Fret rated above the field itself); and the eval
+problem from §10 — `breakdown.py:162` states that editing `SYSTEM_PROMPT` invalidates the 04.1-07
+eval, so the FLE-17 §3 baseline needs a *planned* re-run. Blocked on deliverable 1.
+
+**One consumer outside this split.** FLE-107 owns re-notating the five songs in §2.5.1; its blocker
+is now deliverable 1, not this spec — the schema is what it waits on, not the contract.
