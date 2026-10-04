@@ -10,77 +10,30 @@
 // Layout constants preserved from Phase 1 (must not change — ChordDiagram calibrates to these):
 //   STRING_SPACING = 20, BEAT_WIDTH = 48, LEFT_MARGIN = 30, TOP_PADDING = 20, STRINGS = 6
 //
-// FLE-105 §9 / FLE-116: width is now derived from each beat's duration rather than a fixed
-// 4-beat measure (§9.1), and the v2 articulation/effect fields are drawn (§9.2). The server
-// schema for these fields (FLE-115) has not landed yet, so the v2 fields below are declared
-// locally as optional additions on top of the generated v1 types rather than imported from
-// `schema.d.ts` — safe because every v2 field is optional-with-default, and this keeps today's
-// API responses (which have none of them) and tomorrow's (which will) both assignable.
-// Regenerating `schema.d.ts` against the real server model is tracked separately (blocked on
-// FLE-115) and is not required for this to compile or render correctly either way.
+// FLE-105 §9 / FLE-116: width is derived from each beat's duration rather than a fixed 4-beat
+// measure (§9.1), and the v2 articulation/effect fields are drawn (§9.2). FLE-115 landed the
+// v2 fields server-side and FLE-119 regenerated `schema.d.ts` against it, so the types below
+// are aliases onto the generated schema rather than hand-rolled duplicates of it.
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { G, Line, Path, Rect, Svg, Text as SvgText } from 'react-native-svg';
 import type { components } from '../api/generated/schema';
 
 // ---------------------------------------------------------------------------
-// v2 schema additions (FLE-105 §1, §2, §4, §5, §6, §7) — see file header.
+// v2 schema aliases (FLE-105 §1, §2, §4, §5, §6, §7) — see file header.
 // ---------------------------------------------------------------------------
 
-type Duration =
-  | 'whole'
-  | 'half'
-  | 'quarter'
-  | 'eighth'
-  | 'sixteenth'
-  | 'thirty-second'
-  | 'dotted-half'
-  | 'dotted-quarter'
-  | 'dotted-eighth'
-  | 'dotted-sixteenth'
-  | 'triplet-half'
-  | 'triplet-quarter'
-  | 'triplet-eighth'
-  | 'triplet-sixteenth';
+type Duration = NonNullable<components['schemas']['Beat']['rest']>;
+type Link = NonNullable<components['schemas']['Note']['link_to_next']>;
+type BendKind = components['schemas']['Bend']['kind'];
+type Technique = NonNullable<components['schemas']['Note']['technique']>;
+type Effect = NonNullable<components['schemas']['Note']['effects']>[number];
+type Bend = components['schemas']['Bend'];
 
-type Link = 'tie' | 'hammer_on' | 'pull_off' | 'slide';
-type BendKind = 'bend' | 'pre_bend' | 'bend_release' | 'pre_bend_release';
-type Technique =
-  | 'tap'
-  | 'slap'
-  | 'pop'
-  | 'rake'
-  | 'natural_harmonic'
-  | 'pinch_harmonic'
-  | 'artificial_harmonic';
-type Effect = 'vibrato' | 'wide_vibrato' | 'palm_mute' | 'staccato' | 'accent' | 'let_ring' | 'dead';
-
-interface Bend {
-  semitones: number;
-  kind: BendKind;
-}
-
-type Note = components['schemas']['Note'] & {
-  link_to_next?: Link | null;
-  bend?: Bend | null;
-  technique?: Technique | null;
-  effects?: Effect[] | null;
-};
-
-type Beat = Omit<components['schemas']['Beat'], 'notes'> & {
-  notes: Note[];
-  rest?: Duration | null;
-};
-
-type MeasureT = Omit<components['schemas']['Measure'], 'beats'> & {
-  beats: Beat[];
-};
-
-type Tab = Omit<components['schemas']['Tab'], 'measures'> & {
-  measures: MeasureT[];
-  capo?: number | null;
-  feel?: 'straight' | 'swing' | 'shuffle' | null;
-};
+type Note = components['schemas']['Note'];
+type Beat = components['schemas']['Beat'];
+type MeasureT = components['schemas']['Measure'];
+type Tab = components['schemas']['Tab'];
 
 // Layout constants — preserved verbatim from Phase 1 (PATTERNS.md lines 748-753)
 const STRING_SPACING = 20;

@@ -579,11 +579,50 @@ export interface components {
     schemas: {
         /**
          * Beat
-         * @description A rhythmic beat holding one or more simultaneous notes (chord within a beat).
+         * @description One rhythmic column: either a sounding voicing or a silence, never both.
+         *
+         *     §3 — `rest` lives here and not on `Note` because a rest has no string and no
+         *     fret; putting it on `Note` forces a sentinel on an object that has neither
+         *     and every consumer then has to know the sentinel. At the beat level the
+         *     meter arithmetic stays one branch (see `beat_beats`).
          */
         Beat: {
             /** Notes */
-            notes: components["schemas"]["Note"][];
+            notes?: components["schemas"]["Note"][];
+            /** Rest */
+            rest?: ("whole" | "half" | "quarter" | "eighth" | "sixteenth" | "thirty-second" | "dotted-half" | "dotted-quarter" | "dotted-eighth" | "dotted-sixteenth" | "triplet-half" | "triplet-quarter" | "triplet-eighth" | "triplet-sixteenth") | null;
+        };
+        /**
+         * Bend
+         * @description §5 — where the pitch goes from the fingered fret.
+         *
+         *     `Note.fret` stays the FINGERED fret. The four `kind` values are the four
+         *     standard forms and are complete for single-target bends.
+         *
+         *     `0.25` is in the schema on purpose (§5.1): the quarter-tone curl is a pitch,
+         *     not an ornament — in a blues in E the b3 curled toward the major 3rd is
+         *     deliberately neither, and rounding it either way is a PITCH ERROR. The
+         *     scatter risk is handled in the FLE-118 generator prompt, which must not teach
+         *     `0.25` in v1; the schema stays able to express ground truth. Render it `b¼`
+         *     and call it a "curl", never a "quarter-tone bend".
+         *
+         *     The sounding pitch of a bent note is not an integer fret: any consumer
+         *     deriving pitch (the FLE-103 verifier's V1/V2/V3 chord checks) must SKIP a
+         *     bent note rather than score the fingered pitch, or every correct bend reads
+         *     as a foreign note.
+         */
+        Bend: {
+            /**
+             * Semitones
+             * @enum {number}
+             */
+            semitones: 0.25 | 0.5 | 1 | 1.5 | 2 | 2.5 | 3;
+            /**
+             * Kind
+             * @default bend
+             * @enum {string}
+             */
+            kind: "bend" | "pre_bend" | "bend_release" | "pre_bend_release";
         };
         /** Body_curator_action_api_v1_admin_curator_action_post */
         Body_curator_action_api_v1_admin_curator_action_post: {
@@ -675,10 +714,27 @@ export interface components {
         /**
          * Chord
          * @description A chord diagram with all string positions.
+         *
+         *     §7.2 — under a capo the shape and the sound have different names, and both
+         *     are needed. `name` is THE SHAPE AS FINGERED: under a capo at 2 Wonderwall's
+         *     first chord is fingered Em7 and sounds F#m7. The shape is what the hand does,
+         *     it is what the diagram beside it depicts, and it is the transferable unit —
+         *     "Em7 shape" works on fifty songs, "F#m7 at capo 2" is knowledge about one.
+         *
+         *     `sounding_name` is set iff `capo > 0` — anyone playing along with the record
+         *     needs it, but at capo 0 it is a redundant duplicate, and a redundant
+         *     duplicate is where a contradiction lives. Both are validated against the
+         *     parent Tab's capo by `Breakdown._resolve_sounding_names`, because that is the
+         *     first object that holds the chords and the capo at once.
+         *
+         *     Song-level `key` stays ABSOLUTE: Wonderwall is in F# minor even though every
+         *     shape on screen comes from E minor.
          */
         Chord: {
             /** Name */
             name: string;
+            /** Sounding Name */
+            sounding_name?: string | null;
             /** Positions */
             positions: components["schemas"]["ChordPosition"][];
             /** Barre Fret */
@@ -692,6 +748,10 @@ export interface components {
         /**
          * ChordPosition
          * @description Finger placement for a single string in a chord diagram.
+         *
+         *     §7.1.3 — `fret` shares the tab's origin: capo-relative, capoed string = 0.
+         *     `fret: -1` keeps its v1 meaning HERE and only here — "this string is not
+         *     played" in a diagram, which is a different concept from a dead note (§6.1).
          */
         ChordPosition: {
             /** String */
@@ -755,12 +815,12 @@ export interface components {
             target_skill_temp_id: string;
             /**
              * Song Specific
-             * @description True if `what` copy names this song. False if the drill is a foundational technique any guitarist could use regardless of song context.
+             * @description True if the drill only makes sense anchored to THIS song's actual passage — it would mean nothing detached from this recording. False if it teaches a foundational mechanic any guitarist could practice regardless of song; the passage named in `what` is just the example that motivated it. Do not base this on whether `what` happens to contain the song's title — `what` always names a passage (see below), so that text is not a reliable signal either way.
              */
             song_specific: boolean;
             /**
              * What
-             * @description 1-2 sentences explaining what the user does. If song_specific=true, name the song and the moment. MUST describe the same exercise the tab_snippet actually produces: do not promise a chord, barre, voicing or strum unless the snippet sounds more than one string at once.
+             * @description 1-2 sentences explaining what the user does. MUST name the passage this drill prepares — which moment of the song earns it, e.g. 'the bridge's barre run' — on every drill, not only song_specific ones. MUST describe the same exercise the tab_snippet actually produces: do not promise a chord, barre, voicing or strum unless the snippet sounds more than one string at once.
              */
             what: string;
             /**
@@ -1008,15 +1068,31 @@ export interface components {
         };
         /**
          * Note
-         * @description A single picked note on the guitar.
+         * @description A single note on the guitar.
+         *
+         *     v1 was exactly {string, fret, duration} — FLE-102 measured all 532 notes of
+         *     the cached corpus and found that key-set with no exceptions, which is why
+         *     six of ten audited songs had no correct representation at any prompt quality.
+         *     Everything v2 adds below is optional with a default, so the common case (a
+         *     plain picked note) costs the model nothing extra to emit.
          */
         Note: {
             /** String */
             string: number;
             /** Fret */
             fret: number;
-            /** Duration */
-            duration: string;
+            /**
+             * Duration
+             * @enum {string}
+             */
+            duration: "whole" | "half" | "quarter" | "eighth" | "sixteenth" | "thirty-second" | "dotted-half" | "dotted-quarter" | "dotted-eighth" | "dotted-sixteenth" | "triplet-half" | "triplet-quarter" | "triplet-eighth" | "triplet-sixteenth";
+            /** Link To Next */
+            link_to_next?: ("tie" | "hammer_on" | "pull_off" | "slide") | null;
+            bend?: components["schemas"]["Bend"] | null;
+            /** Technique */
+            technique?: ("tap" | "slap" | "pop" | "rake" | "natural_harmonic" | "pinch_harmonic" | "artificial_harmonic") | null;
+            /** Effects */
+            effects?: ("vibrato" | "wide_vibrato" | "palm_mute" | "staccato" | "accent" | "let_ring" | "dead")[];
         };
         /**
          * PracticeSessionItemResponse
@@ -1339,6 +1415,27 @@ export interface components {
         /**
          * Tab
          * @description Full tab notation as a sequence of measures.
+         *
+         *     §7 capo. Wonderwall (catalog difficulty 0.20, tagged `standard`) is played in
+         *     standard tuning with a capo at 2. With `tuning` as the only setup field,
+         *     emitting the shapes makes every sounding pitch two semitones wrong and
+         *     emitting the pitches hands the player unidiomatic barres instead of the open
+         *     shapes the song is actually played with — `tuning: standard` is true and
+         *     actively misleading. Wagon Wheel and Street Fighting Man have it too.
+         *
+         *     FRET NUMBERS ARE RELATIVE TO THE CAPO; the capoed string is fret 0, and
+         *     `tuning` continues to mean the pitch of the open strings BEFORE the capo:
+         *
+         *         sounding_pitch(note) = open_pitch(tuning[note.string]) + capo + note.fret
+         *
+         *     Uniform — no special case for fret == 0. Absolute-frets-plus-a-label makes
+         *     every open-position shape unreadable, which defeats the point of the field.
+         *     Chord diagrams share this origin (ChordPosition.fret, Chord.base_fret) or the
+         *     diagrams contradict the tab.
+         *
+         *     `capo` means a FULL six-string capo. Partial and cut capos are not
+         *     expressible and MUST NOT be faked with a doctored `tuning` array — that puts
+         *     a lie in the one field pitch derivation trusts.
          */
         Tab: {
             /** Measures */
@@ -1355,6 +1452,17 @@ export interface components {
              *     ]
              */
             tuning: string[];
+            /**
+             * Capo
+             * @default 0
+             */
+            capo: number;
+            /**
+             * Feel
+             * @default straight
+             * @enum {string}
+             */
+            feel: "straight" | "swing" | "shuffle";
         };
         /**
          * TechniqueNote

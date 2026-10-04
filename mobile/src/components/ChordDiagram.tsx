@@ -7,10 +7,9 @@ import { View, StyleSheet } from 'react-native';
 import { Svg, G, Line, Circle, Text, Rect } from 'react-native-svg';
 import type { components } from '../api/generated/schema';
 
-// FLE-105 §7.2 / FLE-116: `sounding_name` is declared locally, same as TabNotation.tsx's v2
-// additions — schema.d.ts regeneration is blocked on FLE-115 landing, and the field is
-// optional-with-default so this stays assignable against both today's and tomorrow's API shape.
-type Chord = components['schemas']['Chord'] & { sounding_name?: string | null };
+// FLE-105 §7.2 / FLE-116: `sounding_name` is now a first-class field on the generated schema
+// (FLE-115 landed it server-side, FLE-119 regenerated schema.d.ts against it).
+type Chord = components['schemas']['Chord'];
 type ChordPosition = components['schemas']['ChordPosition'];
 
 // Layout constants — from RESEARCH.md Pattern 9
