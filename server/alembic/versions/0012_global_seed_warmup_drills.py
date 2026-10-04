@@ -62,9 +62,17 @@ invariant the code relies on — `select.py::_tier_of()` recomputes an absent ti
 the same function, so a hand-overridden label would be a silent disagreement waiting
 for the first backfill. What compute_tier() actually returns here:
 
-    Chromatic spider   L1  raw  3  -> D1 unclamped, D2 after the L1 range clamp
-    Open-chord cycle   C1  raw 10  -> D3 unclamped, D2 after the C1 range clamp
-    Four subdivisions  M1  raw  5  -> D2, no clamp needed
+    Chromatic spider   L1  raw  5  -> D2 unclamped, no clamp needed
+    Open-chord cycle   C1  raw 12  -> D4 unclamped, D2 after the C1 range clamp
+    Four subdivisions  M1  raw  7  -> D2, no clamp needed
+
+(Raw scores above are post-FLE-75: that issue rescaled the §9.1 ladder_stretch
+bucket after the FLE-72 span cap, which moved all three raw scores up — none
+crossed a tier band, so only `tier_raw_score` needed a matching edit here, not
+`tier`. Editing this file does not reach rows a prior `alembic upgrade head`
+already inserted; FLE-75 shipped an explicit UPDATE for those alongside the
+backfill run over the per-user bank, since `backfill_drill_taxonomy.py` INNER
+JOINs `skill_nodes` and skips these global rows by design — see point 4 above.)
 
 Two of the three are not reachable at D1 at all. §8 gives L1 ("Alternate picking &
 speed") a D2 FLOOR, so (L1, D1) is not a viable cell — `coverage.viable_cells()` does
@@ -185,7 +193,7 @@ SEED_DRILLS = (
         "name_normalized": "chromatic spider one string",
         "family": "L1",
         "tier": "D2",
-        "tier_raw_score": 3,
+        "tier_raw_score": 5,
         "start_bpm": 50,
         "target_bpm": 80,
         "repetitions": 8,
@@ -211,7 +219,7 @@ SEED_DRILLS = (
         "name_normalized": "openchord cycle clean ring",
         "family": "C1",
         "tier": "D2",
-        "tier_raw_score": 10,
+        "tier_raw_score": 12,
         "start_bpm": 50,
         "target_bpm": 75,
         "repetitions": 8,
@@ -235,7 +243,7 @@ SEED_DRILLS = (
         "name_normalized": "one string four subdivisions",
         "family": "M1",
         "tier": "D2",
-        "tier_raw_score": 5,
+        "tier_raw_score": 7,
         "start_bpm": 60,
         "target_bpm": 90,
         "repetitions": 8,
