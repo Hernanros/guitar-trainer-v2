@@ -77,9 +77,21 @@ router = APIRouter()
 #
 # Both strings below are deliberately plain about the fact that there IS a limit and
 # why. A rationed feature that says so keeps its credibility; one that just refuses
-# loses it. Mirrored verbatim in mobile/src/components/BreakdownErrorCard.tsx — the
-# server copy is what ships when the client is older than the server, so they have
-# to agree.
+# loses it.
+#
+# Both are paired with copy in mobile/src/components/BreakdownErrorCard.tsx, which is
+# what a current client renders; these are what ships when the client is older than
+# the server, so the two have to agree in SUBSTANCE. Only one of them is byte-for-byte
+# identical (FLE-97, Nadia):
+#
+#   - PILOT_BUDGET_SPENT_MESSAGE is verbatim the client's body string.
+#   - CAPPED_MESSAGE_TEMPLATE is NOT. The client splits it into a heading ("That's your
+#     breakdowns for today.") plus a body that opens with the count as its own beat
+#     ("All {cap} of them. The counter resets at midnight — …"). Concatenated the two
+#     say the same thing; the client's rhythm is the better one, which is why it stays.
+#
+# So: do not assume editing one file syncs the other, and do not "repair" the cap
+# strings into byte equality — the split is deliberate.
 CAPPED_MESSAGE_TEMPLATE = (
     "That's your {cap} breakdowns for today. The counter resets at midnight — "
     "go put the ones you've got into your hands."
