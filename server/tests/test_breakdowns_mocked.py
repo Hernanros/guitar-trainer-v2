@@ -495,8 +495,22 @@ def test_system_prompt_contains_drills_block():
     assert "DRILLS (produce 2-4)" in SYSTEM_PROMPT, (
         "SYSTEM_PROMPT must contain the DRILLS block header verbatim"
     )
-    assert "MUST NOT be a slice of the main song tab" in SYSTEM_PROMPT, (
-        "SYSTEM_PROMPT must forbid slicing the main tab (Landmine #1 negative constraint)"
+    # FLE-99: the anti-slice rule is retired — FLE-89's measurement found it
+    # wasn't binding (8/16 cached drills already quoted the song) and it was
+    # forbidding-by-incentive the very thing that fixes blandness: naming the
+    # song's own passage. tab_snippet is now a simplification of the real
+    # passage, not a shape that must avoid it.
+    assert "MUST NOT be a slice of the main song tab" not in SYSTEM_PROMPT, (
+        "the FLE-99 rewrite retires the anti-slice rule — quoting the song is "
+        "now the point, not a violation"
+    )
+    assert "SIMPLIFY" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must tell the model to simplify the real passage into "
+        "tab_snippet, replacing the retired anti-slice rule"
+    )
+    assert "NAME THE PASSAGE" in SYSTEM_PROMPT, (
+        "SYSTEM_PROMPT must require every drill's `what` to name the passage it "
+        "prepares — FLE-99's fix for drills reading as generic exercises"
     )
     # Asserted on INTENT, not on one literal sentence. This read
     # `"song_specific: true if" in SYSTEM_PROMPT` and had been failing since the
@@ -509,13 +523,12 @@ def test_system_prompt_contains_drills_block():
         "only a hint now — FLE-44 enforces the flag in code — but it steers the "
         "`what` copy, so losing it silently would degrade the drills"
     )
-    # One BAD/GOOD example pair (Anthropic prompt-engineering best-practice per RESEARCH §Q1).
-    # Same staleness as the assertion above: the prompt's positive examples are
-    # labelled "GOOD (single-note mechanic):" / "GOOD (chord or barre mechanic):",
-    # so the literal "GOOD:" has never matched since those labels were introduced.
-    # Match the label prefix so the examples can keep their parentheticals.
-    assert "BAD:" in SYSTEM_PROMPT and "GOOD (" in SYSTEM_PROMPT, (
-        "SYSTEM_PROMPT must contain a BAD/GOOD tab_snippet example pair"
+    # FLE-99: the flag is no longer a substring scan for the title/artist —
+    # every drill names a passage now, so that scan would fire on nearly
+    # everything. The prompt keys it off whether the mechanic is foundational.
+    assert "song_specific off whether it appears there" in SYSTEM_PROMPT, (
+        "SONG_SPECIFIC must disclaim the retired title/artist substring test, "
+        "or the model will key the flag off text that is no longer a signal"
     )
     # target_skill_temp_id id-constraint copy
     assert "target_skill_temp_id MUST be one of the ids" in SYSTEM_PROMPT, (
@@ -563,33 +576,29 @@ def test_system_prompt_orders_drills_by_mechanic_tier_not_dominance():
         )
 
 
-def test_system_prompt_self_check_compares_beats_not_flattened_pairs():
-    """FLE-45 part 2: L1's wording contradicted the neck-region rule.
+def test_system_prompt_retires_the_slice_self_check():
+    """FLE-99: the anti-slice self-check (FLE-45 part 2) is gone, not reworded.
 
-    "3 or more consecutive (string, fret) pairs" over a flattened note list makes
-    a single three-note chord voicing a violation — so any drill reusing one of
-    the song's chords broke L1, while the neck-region rule (524352e) required
-    exactly that. The two rules could not both be satisfied. The unit is the BEAT.
+    FLE-89's measurement showed the self-check wasn't even binding (8/16 cached
+    drills already shared 3+ consecutive beats with the song), while the
+    forbidding-by-incentive it created was the actual cause of bland copy: Sonnet
+    wrote around naming the song's own passage to avoid tripping it. Retiring the
+    rule outright — not restating it a third time — is the fix, same lesson as
+    FLE-44 just above in the prompt.
     """
     from app.ai.breakdown import SYSTEM_PROMPT
 
-    assert "The comparison unit is the BEAT" in SYSTEM_PROMPT
-    assert "consecutive beats appear in the same order" in SYSTEM_PROMPT
-    # The self-contradicting phrasing is gone, including from the neck-region
-    # cross-reference further down the block.
-    assert "consecutive (string, fret) pairs appear" not in SYSTEM_PROMPT, (
-        "the flattened-pair reading of the self-check is back, and it makes the "
-        "neck-region rule unsatisfiable again"
-    )
-    assert "3-consecutive-(string, fret)-pair" not in SYSTEM_PROMPT, (
-        "the NECK REGION block still cross-references the old pair-based wording"
-    )
-    # The carve-out the Kashmir failure implies.
-    assert "CARVE-OUT" in SYSTEM_PROMPT, (
-        "a passage that IS one shape struck repeatedly has no isolation drill that "
-        "avoids reproducing it — the prompt must say so instead of demanding the "
-        "impossible"
-    )
+    for dead in (
+        "The comparison unit is the BEAT",
+        "consecutive beats appear in the same order",
+        "SELF-CHECK, run this",
+        "CARVE-OUT",
+        "is a slice wearing a disguise",
+    ):
+        assert dead not in SYSTEM_PROMPT, (
+            f"the retired anti-slice self-check is still in the prompt ({dead!r}) "
+            "— FLE-99 requires it gone, not reworded"
+        )
 
 
 def test_system_prompt_requires_prose_tab_agreement():

@@ -286,3 +286,34 @@ def test_breakdown_model_json_schema_includes_drills():
     assert "Drill" in schema.get("$defs", {}), (
         "Breakdown schema must include Drill under $defs (nested Pydantic model)"
     )
+
+
+def test_drill_what_description_requires_naming_the_passage():
+    """FLE-99: the tool schema itself — not just SYSTEM_PROMPT — must require every
+    drill to name its passage. model_json_schema() is what Sonnet actually reads in
+    the tool_use definition (breakdown.py's _TOOL_DEF), independently of the system
+    prompt's DRILLS block, so the requirement needs to live in both places.
+    """
+    what_description = Drill.model_fields["what"].description.lower()
+    assert "name the passage" in what_description, (
+        "Drill.what's description must require naming the passage it prepares"
+    )
+    assert "every drill" in what_description, (
+        "the passage-naming requirement must apply to every drill, not only "
+        "song_specific ones — that conditional wording is what FLE-99 retires"
+    )
+
+
+def test_drill_song_specific_description_disclaims_the_title_scan():
+    """FLE-99: song_specific's description must explicitly disclaim keying the
+    flag off whether `what` contains the song title — every drill names a
+    passage now (previous test), so that old substring signal would fire on
+    nearly every drill regardless of whether the mechanic is actually
+    foundational or song-anchored.
+    """
+    song_specific_description = Drill.model_fields["song_specific"].description.lower()
+    assert "title" in song_specific_description and "do not" in song_specific_description, (
+        "song_specific's description must tell Sonnet NOT to key the flag off "
+        "whether `what` contains the song's title — that signal is no longer "
+        "reliable now that every drill names a passage"
+    )

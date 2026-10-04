@@ -128,10 +128,22 @@ class BreakdownTruncatedError(AIBreakdownError):
 # System prompt (verbatim from RESEARCH.md §1)
 # ---------------------------------------------------------------------------
 # FLE-44: the DRILLS block's SONG_SPECIFIC paragraph is a HINT, not the guarantee.
-# Sonnet ignored it on Kashmir even in this maximally-mechanical wording, so
+# Sonnet ignored it on Kashmir even in a maximally-mechanical wording, so
 # enforce_song_specific() corrects the flag in code after parsing (see _call
 # below). Keep the paragraph — it steers the `what` copy and costs nothing — but
-# do not add a third restatement; that approach is spent.
+# do not add a third restatement of the OLD wording; that approach is spent.
+#
+# FLE-89's measurement overturned the premise of that old wording: 8 of 16
+# cached drills already quoted the song for 3+ consecutive beats, so the
+# anti-slice self-check was not binding. It was, however, forbidding-by-
+# incentive — the model was writing around naming the song in `what` to avoid
+# the song_specific trip-wire, which is what made the drills read as bland
+# generic exercises even when the notes WERE the song. FLE-99 drops the
+# anti-slice rule and its self-check, requires every drill to name its passage,
+# and rewords SONG_SPECIFIC to key off whether the mechanic is foundational —
+# not off whether the prose happens to contain the title. enforce_song_specific()
+# stays as the code-level backstop for the false→true direction; it still fires
+# correctly since passage-naming does not require restating the song's title.
 #
 # FLE-45 replaced the DRILL ORDER five-dimension dominance rule with MECHANIC
 # TIERS. The dominance rule ("no dimension may decrease, at least one must
@@ -222,57 +234,32 @@ After the main tab/chords/technique_notes, emit 2-4 short practice drills.
 Each drill isolates ONE skill from the target_skills list and must be
 playable in under 60 seconds per rep.
 
-SONG_SPECIFIC — this is a mechanical test, not a judgement call:
-If the drill's `what` text contains the song title or the artist name
-anywhere, then `song_specific` MUST be true. There is no exception, and it
-does not matter how incidental the mention is. If you intend a foundational
-drill that any guitarist could use regardless of song, then do not mention
-the song title or the artist in `what` at all — rewrite the copy to describe
-the mechanic only. Scan `what` for both strings before you emit.
+SONG_SPECIFIC — judge the MECHANIC, not the prose:
+Every drill's `what` names the passage it prepares (see NAME THE PASSAGE
+below), so the song's title or artist may legitimately show up in `what`
+regardless of this flag. Do not scan `what` for that text, and do not key
+song_specific off whether it appears there. `song_specific` is true when the
+drill only makes sense anchored to THIS song's actual passage — the
+tab_snippet IS that passage, simplified (see SIMPLIFY below) — and would
+mean nothing detached from this recording. It is false only when the drill
+teaches a foundational mechanic any guitarist could practice on any song in
+this position; the passage you named is the example that motivated the
+drill, not the thing being drilled.
 
-For `tab_snippet`: compose a CANONICAL EXERCISE SHAPE that isolates the
-technique. It MUST NOT be a slice of the main song tab. The snippet should
-be 1-2 measures maximum and exercise ONE mechanic per drill.
+For `tab_snippet`: SIMPLIFY the actual passage this drill prepares — the
+same notes the main tab plays at that moment — until it isolates ONE
+mechanic. Simplify by removing, never by substituting: drop strings, drop
+beats, slow the subdivision, hold a shape longer, cut the passage down to
+its hardest moment. Quoting the song here is the point, not something to
+dodge — a drill that doesn't sound like the passage it claims to prepare
+teaches the user the wrong thing. 1-2 measures maximum, one mechanic per
+drill.
 
-SELF-CHECK, run this on every drill before emitting it:
-Compare the snippet against every measure of the main tab you just wrote.
-The comparison unit is the BEAT, not the individual note: one beat is
-everything struck together at one moment, so a three-note chord voicing is
-ONE beat, not three. Compare the ordered sequence of beats — ignore the time
-signature, ignore note durations, and ignore beats added or removed at
-either end. If 3 or more consecutive beats appear in the same order in any
-main-tab measure, the snippet is a slice: rewrite it.
-Relabelling the time signature, appending a beat, or shifting by an octave
-does NOT stop it being a slice.
-
-Reusing ONE of the song's chord voicings is NOT a violation — it is one
-beat, and the NECK REGION rule below positively requires the drill to live
-where the song lives. Three of the song's beats in a row is the violation.
-
-CARVE-OUT: if the passage a drill prepares is a single shape struck
-repeatedly — one chord held and hit on every beat, and nothing else — then
-no isolation drill for it can avoid reproducing it, because the passage has
-no internal variety to isolate. In that one case, drill the ATTACK on a
-rhythm you invented: same shape, different number of strikes, different
-subdivision, or fewer strings of the shape. Say so in `what`. Do not
-manufacture notes the song never plays just to dodge this self-check.
-
-BAD: `tab_snippet` is measures 3-4 from the main song tab.
-BAD: main tab measure is [6/7] [5/9] [4/9] [3/8] [2/8] in 12/8, and the
-     snippet is [6/7] [5/9] [4/9] [3/8] [2/8] [3/8] relabelled 4/4. Five
-     beats match in order. This is a slice wearing a disguise.
-OK:  the song plays a Bm barre at fret 7 and the drill holds that same
-     voicing to drill the attack. One shared beat, in the song's region.
-     That is the neck-region rule working, not a slice.
-GOOD (single-note mechanic): `tab_snippet` is just the two-note slide on
-     one string, played alone, no bass, no chord — isolated so the user
-     drills the mechanic not the song.
-GOOD (chord or barre mechanic): reduce the shape, never quote the song.
-     Play only the two or three strings that carry the mechanic, or hold
-     the full shape and drill the attack alone on a rhythm you invented.
-     For an E-shape barre at position VII: [6/7] [5/9], then
-     [6/7] [5/9] [4/9], then the full shape struck on each beat. Do not
-     reproduce the song measure that contains that chord.
+NAME THE PASSAGE: `what` MUST say which moment of the song this drill
+prepares — "the turnaround before the second verse", "the bridge's barre
+run", "the intro's hammer-on lick" — never just the mechanic in the
+abstract. A user reading `what` should know exactly where in the song this
+drill pays off, every time, whether or not `song_specific` is true for it.
 
 NECK REGION — drill the mechanic where the song actually plays it:
 Every drill prepares one specific passage of the main tab. Before writing
@@ -288,10 +275,10 @@ strings, slower tempo, no shift — rather than relocating it down the neck.
 The one exception is a passage that genuinely uses open strings for the
 mechanic being drilled; then fret 0 is where the song lives.
 
-This does NOT license quoting the song. Same region, different notes: the
-3-consecutive-BEAT self-check above still applies in full.
-If moving a snippet into the song's region makes it match the main tab,
-change the notes, not the region.
+Quoting the song here is expected — SIMPLIFY above already has you starting
+from the song's own notes. If a simplification pass that drops notes also
+drifts the snippet out of this fret span, put it back in the span rather
+than keeping the drop.
 
 MECHANIC TIERS — the ONE scale the drill order is checked on:
 Every drill sits in exactly one tier. Read your own tab_snippet, find the

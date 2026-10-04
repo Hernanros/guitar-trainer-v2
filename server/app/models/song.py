@@ -135,17 +135,24 @@ class Drill(BaseModel):
     song_specific: bool = Field(
         ...,
         description=(
-            "True if `what` copy names this song. False if the drill is a foundational "
-            "technique any guitarist could use regardless of song context."
+            "True if the drill only makes sense anchored to THIS song's actual "
+            "passage — it would mean nothing detached from this recording. False if "
+            "it teaches a foundational mechanic any guitarist could practice "
+            "regardless of song; the passage named in `what` is just the example "
+            "that motivated it. Do not base this on whether `what` happens to "
+            "contain the song's title — `what` always names a passage (see below), "
+            "so that text is not a reliable signal either way."
         ),
     )
     what: str = Field(
         ...,
         description=(
-            "1-2 sentences explaining what the user does. If song_specific=true, name "
-            "the song and the moment. MUST describe the same exercise the tab_snippet "
-            "actually produces: do not promise a chord, barre, voicing or strum unless "
-            "the snippet sounds more than one string at once."
+            "1-2 sentences explaining what the user does. MUST name the passage "
+            "this drill prepares — which moment of the song earns it, e.g. 'the "
+            "bridge's barre run' — on every drill, not only song_specific ones. "
+            "MUST describe the same exercise the tab_snippet actually produces: do "
+            "not promise a chord, barre, voicing or strum unless the snippet sounds "
+            "more than one string at once."
         ),
     )
     # FLE-45: the ONE ordinal the drill order is graded on.
@@ -339,6 +346,13 @@ def is_renderable_breakdown(v: object) -> bool:
 # So the guarantee lives here instead: a deterministic pass over the parsed
 # drills. The SYSTEM_PROMPT wording stays as a hint (it costs nothing and it
 # steers the `what` copy), but nothing downstream depends on Sonnet obeying it.
+#
+# FLE-99 reworded the live prompt's SONG_SPECIFIC paragraph away from the
+# "if `what` contains the title" test quoted above — every drill now names its
+# passage, so that substring would otherwise fire on nearly everything. This
+# function's test below is unaffected: naming a passage ("the bridge's barre
+# run") does not require restating the song title or artist, so the false→true
+# backstop still only fires on drills that actually spell one of those out.
 #
 # This is NOT a validator on Drill: Drill does not carry the song title/artist,
 # and Breakdown does not either. Threading them into the model purely to satisfy
