@@ -16,6 +16,14 @@ export type UserBootstrapRequest = components['schemas']['UserBootstrapRequest']
 export type UserPreferences = components['schemas']['UserPreferences'];
 export type SkillNodeResponse = components['schemas']['SkillNodeResponse'];
 
+// FLE-91: the one Sonnet call in onboarding retries once at a widened 60s server-side
+// timeout (onboarding.py's 30s-then-60s D-07 retry) on top of a verifier batch — 68-70s
+// observed end to end on a cold account. Left on the platform default, iOS's ~60s ceiling
+// (apiClient.ts's documented default) would abort mid-retry, on the very first network call
+// a new user ever makes, before they have seen anything from the app. Mirrors breakdown.ts's
+// BREAKDOWN_TIMEOUT_MS pattern: sit comfortably above the worst case, not at it.
+const ONBOARDING_TIMEOUT_MS = 150_000;
+
 /**
  * Fetches the current user's preferences and onboarded_at timestamp.
  * Returns 404 until the user has been bootstrapped via useUserBootstrap.
@@ -45,6 +53,7 @@ export function useUserBootstrap() {
       apiFetch<SkillGraphResponse>('/api/v1/users', {
         method: 'POST',
         body: JSON.stringify(body),
+        timeoutMs: ONBOARDING_TIMEOUT_MS,
       }),
     onSuccess: (graph, variables) => {
       setOnboardedAt(new Date().toISOString());
@@ -92,6 +101,7 @@ export function useUserReonboard() {
       apiFetch<SkillGraphResponse>(`/api/v1/users/${userId}/re-run`, {
         method: 'POST',
         body: JSON.stringify(body),
+        timeoutMs: ONBOARDING_TIMEOUT_MS,
       }),
     onSuccess: (graph) => {
       setOnboardedAt(new Date().toISOString());
