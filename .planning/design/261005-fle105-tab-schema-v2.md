@@ -2,12 +2,13 @@
 type: spec
 task: FLE-105
 created: 2026-10-05
-status: draft — awaiting Fret sign-off on §11 (Q1–Q5)
+status: accepted — Fret signed off all five questions 2026-10-05; implementation issues cut
 author: Ripley (engineering)
 parent: FLE-102 (tab error taxonomy), FLE-89 (trainer-quality bar)
 inputs:
   - .planning/investigations/261005-fle102-tab-error-taxonomy.md  (T9, T10, root cause)
   - .planning/investigations/261005-fle103-pilot-verified-set.md  (§1b renderer, §4 capo)
+  - .planning/design/261005-fle105-musical-decisions.md  (Fret, commit bea87fc — answers to §11)
 ---
 
 # Tab schema v2 — articulation, rhythm, capo
@@ -34,10 +35,17 @@ not the verified-tab serving path (FLE-103 §6). Those consume this contract; th
 | `Note` | `effects` | — | `list[Effect] = []` — stackable sustain/dynamics |
 | `Beat` | `rest` | — | `Optional[Duration]`, valid only when `notes == []` |
 | `Tab` | `capo` | — | `int = 0`, frets are capo-relative |
+| `Tab` | `feel` | — | `Literal["straight","swing","shuffle"] = "straight"` (§2.5) |
+| `Chord` | `sounding_name` | — | `Optional[str]`, set iff `capo > 0` (§7.2) |
 
-Seven additions. Every one is optional with a default, so a plain picked note stays exactly
+Nine additions. Every one is optional with a default, so a plain picked note stays exactly
 `{string, fret, duration}` — the common case does not get more expensive for the model to emit, and
 every cached JSONB breakdown reads back unchanged (§7).
+
+The last two came out of Fret's sign-off (`261005-fle105-musical-decisions.md`), and one sentence in
+that document governs every capo-adjacent decision below, so it is quoted here rather than
+paraphrased: **anything the hand does is capo-relative; anything about sound is absolute.** Frets,
+shapes and diagrams are capo-relative; key, sounding pitch and `sounding_name` are absolute.
 
 ---
 
@@ -105,11 +113,90 @@ redesign.
 model validator on `Beat`.
 
 The consequence must be stated plainly rather than discovered later: **independent polyphonic voices
-remain inexpressible.** A held half-note bass under an eighth-note melody — *Big Love*, *Blackbird*,
-the *Hotel California* 12-string arrangement — cannot be written in v2. Expressing it requires a
-`voices: list[Voice]` layer above `Beat`, which is a larger change to both schema and renderer than
-this spec, and it is not what makes six of FLE-102's ten songs unrepresentable. Open question Q3 in
-§11 asks Fret to confirm that split.
+remain inexpressible.** Expressing them requires a `voices: list[Voice]` layer above `Beat`, which is
+a larger change to both schema and renderer than this spec, and it is not what makes six of
+FLE-102's ten songs unrepresentable. **Confirmed out of scope by Fret (Q3).**
+
+### 2.4.1 The sustain convention — `let_ring` at nominal duration
+
+My first draft said a held bass under a moving melody "cannot be written in v2". Fret's answer is
+that this overstates the loss, and the difference decides the whole fingerstyle end of the catalog,
+so the convention is written down here rather than left to whoever notates *Blackbird*:
+
+**A sustained note under motion is written as `effects: ["let_ring"]` on the note, at the nominal
+duration of its own beat.** The bass note is placed where it is struck and marked; the melody
+continues in later beats. Pitch is right, placement is right, and the meter arithmetic in §2.2 keeps
+its single branch. What is lost is the exact *release point*: a `let_ring` note's printed duration is
+the beat it occupies, **not how long it sounds**.
+
+Two conditions, both of which are failure modes if skipped:
+
+1. **§9.2's `let_ring` dashed bracket is load-bearing, not decoration.** Undrawn, the sustain exists
+   only in the JSON and the workaround delivers nothing to the player — the capo failure a fourth
+   time. It outranks most of the glyphs below it in that table.
+2. **The nominal-duration rule binds two consumers, and both get it wrong by default.** No meter
+   check may try to reconcile printed duration with sounding length, and no ground truth may express
+   sustain by *lengthening* a duration — that breaks one-duration-per-beat and the bar sum at once.
+
+**What stays genuinely inexpressible, named so v2 is not oversold:** real counterpoint, where the
+release points *are* the music — *Big Love*'s independent slapped bass against the melody. v2 can
+write *sustain*, not *independent voices*. Those songs stay out of the pilot set and out of the
+regression set until a `voices` layer exists.
+
+### 2.5 Feel — swing and shuffle are marked, not notated
+
+```python
+class Tab(BaseModel):
+    feel: Literal["straight", "swing", "shuffle"] = "straight"
+```
+
+Fret's call on Q1, and the reasoning matters more than the field because it is what keeps the enum
+at three values. I had offered writing swing literally as `triplet-quarter` + `triplet-eighth` pairs
+as the "unambiguous" option. **It is not unambiguous, it is specifically wrong:** a triplet pair
+hard-codes a 2:1 ratio, and real swing varies with tempo. *Autumn Leaves* at 120 is near 2:1;
+*Giant Steps* at 240 is played almost dead even. Notating both as identical triplet pairs teaches a
+player to bounce *Giant Steps* like a shuffle. The marking is vaguer and truer, and it is how every
+fake book is read.
+
+`swing` and `shuffle` stay **distinct values**: swing is tempo-dependent jazz eighths; shuffle is a
+hard triplet subdivision where the *omitted middle triplet* is the groove (*Pride and Joy*,
+*Sweet Home Chicago*, *Folsom Prison Blues*). Different instruction to the hand.
+
+Three rules ship with the field:
+
+1. **`feel` renders at the staff head** — "Swing 8ths" / "Shuffle" beside the capo badge (§9.2). A
+   marking that lives only in the data teaches nobody; that is precisely what `tuning: standard`
+   bought Wonderwall.
+2. **Never both.** Swing applied to an already-swung triplet pair yields 4/9 + 2/9 — nonsense.
+   Triplets stay legal, but when `feel != "straight"` they mean *a real triplet against the
+   prevailing feel*. This is a free mechanical check for FLE-106: `feel != "straight"` plus a bar
+   made entirely of `triplet-quarter`/`triplet-eighth` pairs is double-applied swing. **Fret's note
+   that the check is worth more than the field is the reason it is listed as deliverable, not
+   advice.**
+3. **No `bossa` or `latin` value.** It would let the model emit one token in place of writing the
+   pattern — the same substitution of a label for musical content that produced this spec.
+
+**One authoring exception**, from Fret: when the subdivision *is* the lesson ("feel the triplet
+underneath the shuffle"), the drill is written in literal triplets with `feel: "straight"` for that
+snippet. A drill-authoring convention, not a schema change.
+
+### 2.5.1 Scope correction — five songs, two different problems
+
+My comment said Q1 decided "the four swing/bossa pilot songs". Measured against the committed ground
+truth it is five, and only three of them are a `feel` problem:
+
+| song | committed feel | fixed by `feel`? |
+|---|---|---|
+| Autumn Leaves | medium swing, 120 | yes |
+| Take the 'A' Train | medium swing, 160 | yes |
+| Giant Steps | fast swing, 240 | yes — **omitted from my list of four** |
+| Blue Bossa | bossa — *even eighths* | **no** |
+| The Girl from Ipanema | bossa — *even eighths* | **no** |
+
+Bossa is straight-eighth music; a feel marking does nothing for it. What those two lack is **notated
+syncopation** — the chord anticipated onto the "and of 2" — which the §2.1 duration enum and §3
+`Beat.rest` already deliver with no new field. So `feel` unlocks three songs and the enum unlocks
+two more for free. Re-notation of all five is FLE-107, after the schema lands.
 
 ---
 
@@ -185,8 +272,25 @@ single-target bends:
 | `bend_release` | struck, bent up, released back to the fretted pitch |
 | `pre_bend_release` | already bent at the attack, released to the fretted pitch |
 
-`0.25` is in the set for the blues curl (the quarter-tone bend that is most of *Pride and Joy*'s
-vocabulary). Q2 in §11 asks Fret whether that granularity earns its place.
+### 5.1 `0.25` — in the schema, withheld from the v1 prompt
+
+I asked (Q2) whether the quarter-tone curl earned its place or was a value the model would scatter at
+random. Fret's answer splits the two halves of my worry, and the resolution is a vocabulary split,
+not a schema change:
+
+**The value stays.** The curl is not an ornament on a note, it *is* the note: in a blues in E the b3
+(G) curled toward the major 3rd (G#) is a pitch deliberately neither. Rounding it to `0.5` writes the
+major third and rounding it to `0` writes the minor third — both are **pitch errors**, not lost
+nuance, and *Pride and Joy*'s main vocabulary has no honest representation without it. It is
+teachable on screen provided it is labelled the way players say it: render `b¼` and call it
+**"curl"**, never "quarter-tone bend".
+
+**The scatter risk is handled in the prompt, not the schema.** The FLE-106 generator vocabulary is
+allowed to be narrower than this contract and **must not teach `0.25` in v1** — so ground truth can
+be right and FLE-107 can score a curl the generator is permitted to find, while v1 model scatter risk
+is zero. Revisit only when the generator places `0.5` bends correctly on blues repertoire: an
+under-taught model emitting half-step bends on the b3 is a defensible simplification, one emitting
+random quarter-tones is not.
 
 **Out of scope, named:** a bend released to a *different* non-zero amount, unison bends as a single
 object (write them as two notes, one bent), and vibrato applied to the bent pitch specifically
@@ -276,13 +380,51 @@ Three consequences that are easy to miss and each break something:
    same origin as the tab, or Wonderwall's diagrams contradict its tab. This needs no new field —
    it needs to be written down, which it now is.
 
-### 7.2 The one thing I will not decide: what goes in `Chord.name`
+### 7.1.4 The silent one: `capo` must be inherited by `tab_snippet`, never defaulted
 
-Under a capo at 2, the Wonderwall shape is fingered as Em7 and sounds as F#m7. `Chord.name` is a
-single string. Whether the player is taught the shape name or the sounding name is a pedagogy call,
-not an engineering one. Q4 in §11. My recommendation is `name` = the shape the hand makes (`Em7`,
-because that is what the player is doing and what the diagram depicts) plus an optional
-`sounding_name` for the chart-reading case — but Fret owns this and I have not added the field.
+Fret's catch on Q5, and neither of us named it in the first draft. `Tab` is embedded in
+`Drill.tab_snippet` (§8.3) and `capo` defaults to `0`. **A drill lifted from a capo-2 song whose
+snippet takes the default is two semitones wrong with no error anywhere** — the notes are
+well-formed, the meter sums, and the verifier derives a pitch that is simply the wrong one. That is
+FLE-102's T8 with a new cause, and the *default* is what makes it invisible.
+
+Requirement, on the server side of the split:
+
+- `drill.tab_snippet.capo` and `drill.tab_snippet.tuning` are **inherited from the parent `Tab` at
+  construction**, not defaulted. `tuning` has the same defaulting shape and the same exposure today.
+- Breakdown-level validation asserts `drill.tab_snippet.capo == tab.capo` and
+  `drill.tab_snippet.tuning == tab.tuning` for every drill.
+
+**Out of scope, named so it is a decision:** `capo` means a **full six-string capo**. Partial and cut
+capos are not expressible and **must not be faked with a doctored `tuning` array** — that puts a lie
+in the one field pitch derivation trusts. Nothing in the 64 needs one; if something does, it is a new
+field, not a workaround.
+
+### 7.2 `Chord.name` is the shape; `sounding_name` carries the sound
+
+Resolved by Fret (Q4), taking the recommendation with the pedagogy pinned down so the field cannot
+drift later. Under a capo at 2 the Wonderwall shape is fingered Em7 and sounds F#m7.
+
+```python
+class Chord(BaseModel):
+    name: str                            # the shape as fingered — "Em7"
+    sounding_name: Optional[str] = None  # absolute — "F#m7"; set iff capo > 0
+```
+
+- **`name` = the shape as fingered.** Wonderwall's is `Em7`: it is what the hand does, it is what the
+  diagram beside it depicts (§7.1.3 already makes the diagram capo-relative, so any other answer
+  makes the name contradict the picture), and it is the transferable unit — "Em7 shape" works on
+  fifty songs, "F#m7 at capo 2" is knowledge about one.
+- **`sounding_name` is set only when `capo > 0`.** Not optional *to teach* — anyone playing along
+  with the record needs it — but redundant at capo 0, and a redundant duplicate is where a
+  contradiction lives.
+- **Free validation**, worth stating because it is mechanically checkable for every chord quality in
+  this catalog: if `capo == 0`, `sounding_name` must be unset; if `capo > 0` and set, it must equal
+  `name` transposed up `capo` semitones with the quality unchanged. Wonderwall checks out —
+  Em7/G/D/A7sus4 → F#m7/A/E/B7sus4.
+- **Display:** `Em7` full size, `sounds F#m7` small beneath — same treatment as the `Capo II` badge.
+- **Song-level `key` stays absolute.** Wonderwall is in F# minor even though every shape on screen
+  comes from E minor. That is the governing sentence in §1 applied.
 
 ---
 
@@ -338,9 +480,13 @@ nothing that passes today's audit fails tomorrow's parse.
 regenerated. `Note` there is currently `{string: number; fret: number; duration: string}`
 (`schema.d.ts:1013`).
 
-`Tab` is embedded in `Drill.tab_snippet` as well as `Breakdown.tab`, so drills inherit capo and
-articulation for free — which is required, not incidental: a drill that isolates a bend cannot be
+`Tab` is embedded in `Drill.tab_snippet` as well as `Breakdown.tab`, so drills get the articulation
+vocabulary for free — which is required, not incidental: a drill that isolates a bend cannot be
 written in v1 either, and FLE-102 T8 showed drill notes inheriting the tab's errors.
+
+**"For free" does not extend to `capo` and `tuning`** — those default rather than inherit, which is a
+silent two-semitone error. See §7.1.4; the inheritance and the equality assertion are part of
+deliverable 1.
 
 ---
 
@@ -393,7 +539,8 @@ derivation changes.
 | `link: pull_off` | `p`, same placement |
 | `link: slide` | `/` if the target fret is higher, `\` if lower |
 | `link: tie` | slur arc above the two columns; no letter |
-| `bend: bend` | `b` after the fret + an up-arrow above with `½` / `full` / `1½` |
+| `bend: bend` | `b` after the fret + an up-arrow above with `¼` / `½` / `full` / `1½` |
+| `bend: semitones == 0.25` | `b¼`, labelled **"curl"** in any legend or tooltip — never "quarter-tone bend" (§5.1) |
 | `bend: pre_bend` | `pb` + the amount |
 | `bend: *_release` | the above plus a `r` and a down-arrow |
 | `technique: tap` | `T` above the column |
@@ -403,16 +550,23 @@ derivation changes.
 | `technique: rake`, `slap`, `pop` | `rake` bracket, `S`, `P` |
 | `effect: vibrato` / `wide_vibrato` | `~~~` / `≈≈≈` trailing the column on that string |
 | `effect: palm_mute` | `P.M.` with a dashed bracket spanning the run |
-| `effect: let_ring` | `let ring` with a dashed bracket spanning the run |
+| `effect: let_ring` | `let ring` with a dashed bracket spanning the run — **load-bearing (§2.4.1), not decoration: it is the entire sustain story, and outranks most rows below it** |
 | `effect: accent` | `>` above |
 | `effect: staccato` | a dot above |
 | `effect: dead` | fret number replaced by `x` |
 | `Beat.rest` | a rest glyph centred vertically in the column, not on a string line |
 | `Tab.capo` | `Capo II` badge beside the tuning label + a thick vertical bar at the staff start |
+| `Tab.feel` | `Swing 8ths` / `Shuffle` at the staff head, beside the capo badge; nothing drawn for `straight` |
+| `Chord.sounding_name` | `sounds F#m7`, small, beneath the full-size shape name (§7.2) |
 
 The capo badge renders whenever `capo > 0`, **independently of the tuning label** — which currently
 renders only for non-standard tuning (`TabNotation.tsx:142`). Wonderwall is standard tuning, so
 without this it would show no setup information at all, which is the exact failure Fret described.
+
+**The same argument applies to `feel`, and Fret made it a condition of Q1 rather than a nicety:** an
+unrendered marking teaches nobody, so a `feel` that reaches the data but not the staff head is the
+`tuning: standard` defect a third time. The three staff-head items — tuning, capo, feel — are one
+piece of work: the setup line.
 
 Unknown enum values from a future server (a client older than the server) must render as the bare
 fret number rather than crash. Every glyph above is additive decoration on a fret number that is
@@ -433,12 +587,23 @@ Not a suggestion list — these are the places that break or silently mislead if
 | 5 | `server/app/ai/breakdown.py` SYSTEM_PROMPT | teach the new vocabulary | no, but the schema buys nothing until it happens |
 | 6 | `server/scripts/fle102_tab_audit.py` | drop its private `DUR` for the §2.2 table | no — drifts |
 | 7 | `server/scripts/grade_eval.py`, `grade_cached_drills.py` | their own measure parsers | no — ignore new fields |
-| 8 | `server/data/verified_tabs/pilot_verified_set.json` | parses unchanged — all 1612 notes are `quarter`, verified; the four swing/bossa songs should be re-notated once Q1 is answered | no |
+| 8 | `server/data/verified_tabs/pilot_verified_set.json` | parses unchanged — all 1612 notes are `quarter`, verified; **five** songs re-notated under FLE-107 once the schema lands (§2.5.1) | no |
+| 9 | `server/scripts/fle103_build_pilot_set.py` | drop `conventions.max_beats_per_measure: 4` when §9.1 lands | no — but ground truth stays shaped by a dead renderer limit |
 
 On #8: the pilot set is **1612 quarter notes and nothing else**. That is not a criticism of it — it
 is the measured form of FLE-103 §4's own admission that it verified pitch and not feel, and it is
-what the v1 schema permitted. It does mean the committed ground truth currently encodes zero rhythm,
-so it cannot catch a rhythm regression until Q1 is answered and the swing/bossa four are re-notated.
+what the v1 schema permitted.
+
+Fret's two additions to this point, both of which strengthen it:
+
+- **The stronger version of the finding.** As all-quarters ground truth the set does not merely fail
+  to *catch* a rhythm regression — it would **score a correctly swung generated bar as wrong**. It is
+  actively misleading as a rhythm oracle, which is why FLE-107 blocking on the schema rather than on
+  the prompt is correct. The pitch/harmony half stands and is still worth running.
+- **Row 9 is a renderer constant that leaked into ground truth.** The set's `conventions` block
+  justifies `max_beats_per_measure: 4` with `TabNotation.tsx MEASURE_WIDTH` — the music was bounded
+  to what the component could draw. §9.1 removes that limit, so the constraint has to come out of the
+  builder or the ground truth stays shaped by a limitation that no longer exists.
 
 **One flag on #5 that is not mine to wave away.** `breakdown.py:162` says of `SYSTEM_PROMPT`: *"this
 string is the prompt the 04.1-07 eval graded, so edits invalidate the eval."* Teaching the new
@@ -447,54 +612,78 @@ whoever owns FLE-106 should plan a re-run rather than discover it.
 
 ---
 
-## 11. Open questions for Fret
+## 11. The five musical calls — resolved
 
-Four musical calls I should not make alone. Everything above is settled engineering; these are not.
+All five answered by Fret on 2026-10-05 (`.planning/design/261005-fle105-musical-decisions.md`,
+commit `bea87fc`). The contract above is updated in place; this section is the index, so no reader
+has to reconstruct a decision from two documents.
 
-**Q1 — swing and shuffle: notate it, or mark it?**
-The two honest options are (a) write it literally as `triplet-quarter` + `triplet-eighth` pairs, or
-(b) add `Tab.feel: Literal["straight","swing","shuffle"] = "straight"` and keep writing eighths, the
-way a real chart writes "swing 8ths" at the top. (b) is how charts are actually read and is one
-token for the model instead of a per-note transformation it will apply inconsistently; (a) is
-unambiguous to the renderer and to any playback. This decides *Pride and Joy*, *Sweet Home Chicago*,
-*Folsom Prison Blues*, and the four swing/bossa songs you flagged as "correct as pitch, wrong as
-feel" in FLE-103 §4. **I lean (b). Your call — it is a teaching question, not a storage one.**
+| Q | question | decision | lands in |
+|---|---|---|---|
+| Q1 | swing/shuffle — notate or mark? | **mark it.** `Tab.feel`, three values, keep writing eighths. Literal triplet pairs hard-code a 2:1 ratio that real swing does not have. | §2.5, §2.5.1, §9.2 |
+| Q2 | is the `0.25` bend worth having? | **keep in schema, withhold from the v1 prompt.** The curl is a pitch, not an ornament; rounding it either way is a pitch error. Render `b¼`, call it "curl". | §5.1 |
+| Q3 | are polyphonic voices out of scope? | **confirmed out** — but sustain is expressible: `let_ring` at nominal duration. Real counterpoint stays out. | §2.4, §2.4.1 |
+| Q4 | under a capo, what is `Chord.name`? | **the shape** (`Em7`), plus `sounding_name` set iff `capo > 0`. Song `key` stays absolute. | §7.2 |
+| Q5 | confirm the capo convention | **confirmed as written**, both consequences included, plus the inheritance defect neither of us had named. | §7, §7.1.4 |
 
-**Q2 — is the 0.25-semitone bend worth having?** I put the quarter-tone curl in §5's enum for the
-blues vocabulary. If a player can't be taught the difference from a half-step on a screen, it is a
-value the model will scatter at random and I would rather drop it than ship a field that only adds
-noise.
+Four things changed in the contract because of the review rather than merely being confirmed, and
+they are the reason this review was worth blocking on:
 
-**Q3 — confirm polyphonic voices are out of scope** (§2.4). v2 cannot write a held bass under a
-moving melody: *Big Love*, *Blackbird*, the *Hotel California* 12-string reading. I believe that is
-the right line for this change and a separate, larger one later. If instead it is the thing that
-makes the fingerstyle end of the catalog teachable, say so now — it changes the shape of `Beat`, and
-that is much cheaper to decide before implementation than after.
+1. **`Tab.feel` exists at all** (Q1) — and the *double-applied-swing check* it enables is, in Fret's
+   assessment, worth more than the field. It is a named deliverable in §12, not a suggestion.
+2. **`Chord.sounding_name` exists** (Q4), with a mechanical validation that makes the pair
+   self-checking rather than a place for a contradiction to live.
+3. **§7.1.4 — `tab_snippet` inheritance.** A capo-2 drill that takes the `capo: 0` default is two
+   semitones wrong with **no error anywhere**. Neither of us saw this in the first draft; it is the
+   single highest-value catch of the review, because the default is what makes it invisible.
+4. **§2.4.1 — the sustain convention.** My draft wrote off the entire fingerstyle catalog. It was
+   overstated: *Blackbird* and the *Hotel California* chord reading are teachable under `let_ring`
+   at nominal duration. *Big Love* is genuinely out.
 
-**Q4 — under a capo, what is `Chord.name`?** (§7.2) The Wonderwall shape is fingered Em7 and sounds
-F#m7. My recommendation is `name` = the shape, plus an optional `sounding_name`. I have not added
-the field pending your answer.
+My original scope claim for Q1 was also wrong in a way worth recording: I said four swing/bossa
+songs, measured against ground truth it is five, split across two different problems (§2.5.1).
 
-**Q5 — confirm the capo convention itself.** §7 adopts your capo-relative proposal as written,
-including the two consequences you did not name: chord diagrams share the origin (§7.1.3), and the
-capo badge must render independently of the tuning label (§9.2), or Wonderwall displays no setup
-information at all.
+Nothing in the contract is now waiting on a musical answer.
 
 ---
 
 ## 12. Implementation split
 
-Three child issues, to be cut **after** §9 and §11 are signed off, not before — they would otherwise
-be implementation against an unreviewed contract, and Q1/Q3 both change what gets built.
+Sign-off is in, so the three issues below are cut. Each is implementable against this document alone.
+Ordering: 1 and 2 are independent and can run in parallel; 3 reads the §2.2 table from 1, so it
+follows 1.
 
-1. **Server — schema + coercer + the canonical duration table.** `song.py`, with the table exported
-   so the audit scripts can import rather than re-declare it. Unit tests: every cached duration
-   round-trips; aliases canonicalise; unknown coerces to `quarter` with a warning and does not
-   raise; `Fraction` meter sums exactly for a sextuplet bar; the §4 link checks; capo fret bounds.
-2. **Mobile — renderer.** §9, in two commits: width-from-content first (it is a standalone fix for
-   FLE-103 §1b and is worth shipping on its own), then glyphs.
-3. **Verifier — capo, `Fraction`, bent-note pitch.** §10 row 4. Small, and it gates the pilot set
-   staying green.
+**1. Server — schema, coercer, canonical duration table.** `server/app/models/song.py`.
+The §1 table, §2.1 enum, §2.2 `Fraction` table (exported, so the audit scripts import it instead of
+re-declaring a third disagreeing copy), §3 rests, §4 links, §5 bends, §6 technique/effects, §6.1
+`fret >= 0`, §7 capo, §7.1.4 inheritance + equality assertion, §7.2 `sounding_name` + its transpose
+validation, §8.2 coercer.
+Tests: every cached duration round-trips; the §8.2 aliases canonicalise; an unknown duration coerces
+to `quarter` with a warning and **does not raise**; a sextuplet bar sums to exactly 1 under
+`Fraction`; each §4 link check fires; `0 <= fret <= 24 - capo`; a drill snippet inherits a non-zero
+capo and the mismatch assertion fails when it does not; `sounding_name` unset at capo 0 and
+transpose-checked above it.
 
-Prompt work (FLE-106) and the serving path (FLE-103 §6) consume this contract and are already
-tracked elsewhere.
+**2. Mobile — renderer.** `mobile/src/components/TabNotation.tsx`, two commits.
+First **width-from-content** (§9.1) — a standalone fix for the 43% of cached prod bars that already
+overprint, worth shipping on its own merits. Then **glyphs** (§9.2), inside which three items are
+load-bearing rather than decorative and should land before the long tail: the **setup line**
+(tuning + `Capo II` + `Swing 8ths`, each rendering independently of the others), the **`let_ring`
+dashed bracket** (§2.4.1 — without it, sustain exists only in JSON), and **`b¼` labelled "curl"**.
+Unknown enum values from a newer server must degrade to the bare fret number, never crash.
+`mobile/src/api/generated/schema.d.ts` is regenerated from the OpenAPI schema as part of this.
+
+**3. Verifier — capo, `Fraction`, bent-note pitch.** `server/scripts/fle103_verify_pilot_tabs.py`,
+§10 row 4. Capo in the pitch derivation (§7.1 — unchanged, it scores every capo song two semitones
+flat and fails V1–V3 across correct tab); `Fraction` meter with no `1e-6` tolerance; skip bent notes
+in the V1–V3 chord-spelling checks (§5 — scoring the fingered pitch flags every correct bend as a
+foreign note); V6 rewritten against §9.1; import the §2.2 table rather than its own. Also drop
+`conventions.max_beats_per_measure: 4` from `fle103_build_pilot_set.py` (§10 row 9).
+
+**Two consumers that are not in this split and must not be forgotten.** FLE-106 owns the generator
+prompt — including the two vocabulary rules this review created: **do not teach `0.25`** (§5.1) and
+**flag `feel != straight` against all-triplet bars** as double-applied swing (§2.5). It also inherits
+the eval problem flagged in §10: `breakdown.py:162` states that editing `SYSTEM_PROMPT` invalidates
+the 04.1-07 eval, and teaching the new vocabulary necessarily edits it — the FLE-17 §3 baseline needs
+a planned re-run, not a discovered one. FLE-107 owns re-notating the five songs in §2.5.1 and must
+not start before deliverable 1 lands.
