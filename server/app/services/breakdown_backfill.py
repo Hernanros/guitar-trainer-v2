@@ -234,6 +234,7 @@ async def regenerate_one(db: AsyncSession, candidate: Candidate) -> BackfillResu
             song.artist or "",
             target_skills,
             user_level,
+            song.tuning,
             db=db,
             user_id=candidate.user_id,
         )

@@ -92,6 +92,23 @@ class AIBreakdownError(Exception):
     """
 
 
+class TuningMismatchError(AIBreakdownError):
+    """Sonnet emitted a tab.tuning that disagrees with song_catalog's verified tag.
+
+    FLE-33: when `known_tuning` is passed, the user message states the catalog's
+    ground-truth tuning instead of asking Sonnet to infer it (the inference path
+    is what produced the Lenny incident — .planning/investigations/
+    260908-sonnet-tuning-quality.md, where Sonnet silently re-voiced an Eb-tuned
+    SRV tune into standard EADGBE). If Sonnet still emits a different tuning,
+    the tab's note positions were very likely computed for the WRONG tuning —
+    overwriting just the `tuning` label would leave frets that are correct for
+    a tuning the response no longer claims. So this does not attempt to repair
+    the output; it refuses to serve it, same contract as BreakdownTruncatedError:
+    breakdown_generated_at is NOT set, and the next tap retries with a fresh
+    (non-deterministic) Sonnet call rather than replaying a certain failure.
+    """
+
+
 class BreakdownTruncatedError(AIBreakdownError):
     """Sonnet hit max_tokens mid-emit, so the tool_use input is a partial object.
 
@@ -341,6 +358,94 @@ naturally emit, skip that drill rather than mislabel it.
 """
 
 # ---------------------------------------------------------------------------
+# Known-tuning ground truth (FLE-33)
+# ---------------------------------------------------------------------------
+# song_catalog.tuning (migration 0007) carries the CANONICAL recorded tuning for
+# 64 catalog songs — ground truth, not a guess. Until this map existed, nothing
+# downstream ever read it: _ensure_catalog_song_as_user_song dropped it on the
+# floor, and Sonnet kept inferring tuning from the title alone (the path that
+# produced the Lenny incident above). When a caller passes `known_tuning` below,
+# the user message STATES this table's label/notes instead of asking Sonnet to
+# work it out, and the emitted tab.tuning is checked against `notes`.
+#
+# Keys MUST stay a superset-equal mirror of ALLOWED_TUNINGS in both
+# 0007_song_catalog_tuning_and_expansion.py and
+# 0014_songs_tuning.py — tests/test_alembic_0014.py checks all three against
+# each other. `notes` is the low-to-high string array a correct tab.tuning
+# should match (case/enharmonic-normalized by _normalize_tuning_notes before
+# comparison, so "D#" and "Eb" are treated as equal).
+TUNING_NOTE_MAP: dict[str, dict[str, Any]] = {
+    "standard": {
+        "label": "Standard",
+        "notes": ["E", "A", "D", "G", "B", "E"],
+        "retune": None,
+    },
+    "eb_standard": {
+        "label": "E♭ standard (half step down)",
+        "notes": ["Eb", "Ab", "Db", "Gb", "Bb", "Eb"],
+        "retune": (
+            "Tune every string DOWN a half step: low E→Eb, A→Ab, D→Db, G→Gb, "
+            "B→Bb, high E→Eb."
+        ),
+    },
+    "drop_d": {
+        "label": "Drop D",
+        "notes": ["D", "A", "D", "G", "B", "E"],
+        "retune": "Tune only the low E string DOWN a whole step to D; A, D, G, B, high E stay the same.",
+    },
+    "drop_c": {
+        "label": "Drop C",
+        "notes": ["C", "G", "C", "F", "A", "D"],
+        "retune": (
+            "Tune every string DOWN a whole step from standard, then drop the "
+            "low string a further whole step: low E→C, A→G, D→C, G→F, B→A, high E→D."
+        ),
+    },
+    "open_d": {
+        "label": "Open D",
+        "notes": ["D", "A", "D", "F#", "A", "D"],
+        "retune": (
+            "Tune low E DOWN a whole step to D, G DOWN a half step to F#, and B "
+            "DOWN a whole step to A; A and D strings stay the same."
+        ),
+    },
+    "open_e": {
+        "label": "Open E",
+        "notes": ["E", "B", "E", "G#", "B", "E"],
+        "retune": "Tune A, D, and G strings UP: A→B, D→E, G→G#; low E, B, high E stay the same.",
+    },
+    "open_g": {
+        "label": "Open G",
+        "notes": ["D", "G", "D", "G", "B", "D"],
+        "retune": (
+            "Tune low E, A, and high E strings DOWN a whole step: low E→D, A→G, "
+            "high E→D; D, G, B stay the same."
+        ),
+    },
+    "dadgad": {
+        "label": "DADGAD",
+        "notes": ["D", "A", "D", "G", "A", "D"],
+        "retune": (
+            "Tune low E, B, and high E strings DOWN a whole step: low E→D, B→A, "
+            "high E→D; A, D, G stay the same."
+        ),
+    },
+}
+
+# Flat/sharp enharmonic equivalence so "D#" and "Eb" compare equal — Sonnet is
+# not told which spelling to use, only which pitch.
+_FLAT_TO_SHARP = {"DB": "C#", "EB": "D#", "GB": "F#", "AB": "G#", "BB": "A#"}
+
+
+def _normalize_tuning_notes(notes: list[str]) -> list[str]:
+    out = []
+    for n in notes:
+        key = n.strip().upper().replace("♭", "B").replace("♯", "#")
+        out.append(_FLAT_TO_SHARP.get(key, key))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Tool definition
 # ---------------------------------------------------------------------------
 
@@ -371,6 +476,7 @@ def _format_user_message(
     song_artist: str,
     target_skills: list[dict],
     user_level: float,
+    known_tuning: str | None = None,
 ) -> str:
     """Wrap user-controlled fields with static labels.
 
@@ -382,6 +488,13 @@ def _format_user_message(
     `{"id": "<uuid-str>", "name": "<skill name>"}` dicts (evolved from
     list[str]) so Sonnet can echo the exact id back in each drill's
     `target_skill_temp_id` field (Landmine #2 defense).
+
+    FLE-33: `known_tuning` is the song_catalog.tuning tag (None for
+    user-onboarded songs with no catalog row — the only case where Sonnet still
+    infers tuning from the title, per the SYSTEM_PROMPT's TUNING protocol).
+    When set, this states the ground truth as a fact rather than leaving it to
+    inference — the SYSTEM_PROMPT's TUNING protocol is a fallback for songs
+    without a catalog tag, not a second opinion to weigh against this one.
     """
     if target_skills:
         skills_block = "\n".join(
@@ -393,11 +506,30 @@ def _format_user_message(
         )
     else:
         skills_str = "(no target skills specified — use idiomatic voicings for the genre)"
+
+    if known_tuning is not None:
+        info = TUNING_NOTE_MAP.get(known_tuning)
+        if info is not None:
+            retune_line = f" {info['retune']}" if info["retune"] else ""
+            tuning_str = (
+                f"KNOWN TUNING (verified ground truth from the catalog — this is "
+                f"NOT a guess, do not infer a different one): {info['label']} "
+                f"({', '.join(info['notes'])}, low to high).{retune_line}\n"
+                f"Emit tab.tuning as exactly {info['notes']!r}. If this tuning is "
+                f"non-standard, include the matching \"Tuning: {info['label']}\" "
+                f"technique note.\n\n"
+            )
+        else:
+            tuning_str = ""
+    else:
+        tuning_str = ""
+
     return (
         f"Song: {song_title}\n"
         f"Artist: {song_artist}\n"
         f"{skills_str}\n"
         f"User player_level: {user_level:.2f}\n\n"
+        f"{tuning_str}"
         f"Emit the structured breakdown now."
     )
 
@@ -416,6 +548,7 @@ async def run_technique_breakdown(
     song_artist: str,
     target_skills: list[dict],
     user_level: float,
+    known_tuning: str | None = None,
     *,
     db: AsyncSession,
     user_id: UUID,
@@ -440,6 +573,9 @@ async def run_technique_breakdown(
             the exact id in each drill's `target_skill_temp_id` (Plan 04.1-01
             Landmine #2 defense).
         user_level: Mean mastery across user's leaf nodes, 0.0 (beginner) to 1.0 (expert).
+        known_tuning: song_catalog.tuning tag (FLE-33), or None for a song with no
+            catalog row (user-onboarded) — the only case Sonnet still infers tuning.
+            One of TUNING_NOTE_MAP's keys when set.
         db: AsyncSession — required by @governed for cap-check + audit row.
         user_id: UUID — required by @governed for row attribution.
         timeout_seconds: Sonnet call timeout (doubled on retry per D-07).
@@ -449,10 +585,12 @@ async def run_technique_breakdown(
 
     Raises:
         AIBreakdownError: If both Sonnet call attempts fail for any reason.
+        TuningMismatchError: If known_tuning was given and the emitted tab.tuning
+            disagrees with it (subclasses AIBreakdownError).
         BudgetExceededError: Raised by @governed decorator if cap is hit (before this body).
     """
     user_content = _format_user_message(
-        song_title, song_artist, target_skills, user_level
+        song_title, song_artist, target_skills, user_level, known_tuning
     )
     messages = [{"role": "user", "content": user_content}]
 
@@ -591,6 +729,28 @@ async def run_technique_breakdown(
             # Second parse — if THIS fails, the outer try/except of run_technique_breakdown
             # wraps it as AIBreakdownError (real structural failure, not a drills problem).
             parsed = Breakdown.model_validate(raw_input_no_drills)
+
+        # FLE-33: catch a silently re-voiced tab HERE, where we still know what
+        # the catalog claims. known_tuning is None for songs with no catalog row
+        # (user-onboarded) — that path is unchanged, Sonnet's inference stands.
+        if known_tuning is not None:
+            expected = TUNING_NOTE_MAP.get(known_tuning)
+            if expected is not None:
+                emitted_norm = _normalize_tuning_notes(parsed.tab.tuning)
+                expected_norm = _normalize_tuning_notes(expected["notes"])
+                if emitted_norm != expected_norm:
+                    logger.error(
+                        "Tuning mismatch for song %r by %r: catalog says %r (%s) "
+                        "but Sonnet emitted tab.tuning=%r.",
+                        song_title, song_artist, known_tuning, expected["notes"],
+                        parsed.tab.tuning,
+                    )
+                    raise TuningMismatchError(
+                        f"Sonnet emitted tab.tuning={parsed.tab.tuning!r} for "
+                        f"{song_title!r}, but the catalog's verified tuning is "
+                        f"{known_tuning!r} ({expected['notes']!r}). Not serving a "
+                        f"silently re-voiced tab."
+                    )
 
         # FLE-44: song_specific is enforced in code, not asked for in the prompt.
         # The SYSTEM_PROMPT DRILLS block still states the rule as a hint, but the

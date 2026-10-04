@@ -198,10 +198,10 @@ async def _ensure_catalog_song_as_user_song(
     (songs.id is an integer PK; song_catalog.id is a UUID). Serving a catalog song
     directly would break the response type contract.
     """
-    # Look up the catalog row first (we need title/artist/genre/difficulty).
+    # Look up the catalog row first (we need title/artist/genre/difficulty/tuning).
     cat_row = await db.execute(
         text(
-            "SELECT title, artist, genre, primary_skill_root, difficulty "
+            "SELECT title, artist, genre, primary_skill_root, difficulty, tuning "
             "FROM song_catalog WHERE id = :id"
         ),
         {"id": str(catalog_song_id)},
@@ -222,7 +222,17 @@ async def _ensure_catalog_song_as_user_song(
     )
     existing_row = existing.mappings().one_or_none()
     if existing_row:
-        return int(existing_row["id"])
+        songs_id = int(existing_row["id"])
+        # Backfill: this songs row may have been upserted before migration 0014
+        # added the column, or before this function started carrying it through.
+        # song_catalog.tuning is NOT NULL (defaults to 'standard'), so this is
+        # always safe to write; the WHERE guard just avoids a no-op write.
+        await db.execute(
+            text("UPDATE songs SET tuning = :tuning WHERE id = :id AND tuning IS NULL"),
+            {"tuning": cat["tuning"], "id": songs_id},
+        )
+        await db.commit()
+        return songs_id
 
     # Insert the catalog song into the user's songs table as aspirational.
     # ON CONFLICT DO NOTHING backs the unique index; RETURNING gives us the new id.
@@ -230,9 +240,9 @@ async def _ensure_catalog_song_as_user_song(
         text(
             """
             INSERT INTO songs
-              (title, artist, genre, difficulty, breakdown, user_id, category)
+              (title, artist, genre, difficulty, tuning, breakdown, user_id, category)
             VALUES
-              (:title, :artist, :genre, :difficulty, CAST(:breakdown AS jsonb), CAST(:user_id AS uuid), 'aspirational')
+              (:title, :artist, :genre, :difficulty, :tuning, CAST(:breakdown AS jsonb), CAST(:user_id AS uuid), 'aspirational')
             ON CONFLICT (user_id, lower(title), lower(artist)) DO NOTHING
             RETURNING id
             """
@@ -244,6 +254,9 @@ async def _ensure_catalog_song_as_user_song(
             # songs.difficulty is a 3-tier String(50) label, song_catalog.difficulty is
             # NUMERIC(4,3) — bucket, never bind the Decimal through. See difficulty_label().
             "difficulty": difficulty_label(cat["difficulty"]),
+            # Ground-truth tuning, carried straight from song_catalog (FLE-33). This is
+            # what lets the breakdown prompt state the tuning instead of inferring it.
+            "tuning": cat["tuning"],
             "breakdown": '{"tab":{"measures":[],"tuning":["E","A","D","G","B","e"]},"chords":[],"technique_notes":[]}',
             "user_id": str(user_id),
         },
