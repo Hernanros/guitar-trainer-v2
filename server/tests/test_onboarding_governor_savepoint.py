@@ -341,8 +341,15 @@ async def test_rerun_survives_real_governor_commit_inside_savepoint():
                     assert resp.status_code == 201, resp.text
 
                     # Now the re-run — same governor path, different endpoint + SAVEPOINT.
+                    # X-User-ID is required as of FLE-23 §5: re-run is destructive
+                    # AND triggers spend, so it derives identity from the header
+                    # instead of trusting the path. The 403/throttle behavior itself
+                    # is covered in test_multiuser_hardening.py; this test only
+                    # needs a request that gets past it.
                     rerun_resp = await client.post(
-                        f"/api/v1/users/{user_id}/re-run", json=_bootstrap_body(user_id)
+                        f"/api/v1/users/{user_id}/re-run",
+                        headers={"X-User-ID": user_id},
+                        json=_bootstrap_body(user_id),
                     )
 
         assert rerun_resp.status_code == 200, (

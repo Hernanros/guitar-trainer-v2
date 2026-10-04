@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal
 
+from app.api.deps import get_user_id, throttle_re_run
+
 from app.db.session import get_db
 from app.models.db import SkillLevel, SkillNode, SkillNodeProposal, SkillNodeRejection, Song, SongSkill, User, UserSession
 from app.models.skill_node import (
@@ -27,6 +29,11 @@ from app.models.skill_node import (
     SonnetSongProposal,
 )
 from app.models.user import SkillGraphResponse, UserBootstrapRequest, UserResponse
+from app.ai.governor import (
+    ONBOARDING_CAP,
+    BudgetExceededError,
+    assert_cap_available,
+)
 from app.ai.onboarding import AIParseError, FIXED_ROOTS, run_onboarding_parse
 from app.ai.skill_dedupe import best_match, SCORE_AUTO_DEDUPE, SCORE_CURATOR_QUEUE
 from app.ai.skill_verifier import AISkillVerifierError, run_skill_node_verify
@@ -779,6 +786,40 @@ async def _persist_bootstrap(
 
 
 # ---------------------------------------------------------------------------
+# Identity enforcement (FLE-23 §5)
+# ---------------------------------------------------------------------------
+
+def _require_own_user(path_user_id: UUID, caller_id: UUID) -> None:
+    """Refuse 403 when the path user_id is not the caller's device UUID.
+
+    Before this, GET /users/{id}, GET /users/{id}/skill-graph and
+    POST /users/{id}/re-run took user_id straight from the path and never
+    consulted X-User-ID — so any device could read any user's preferences and
+    skill graph, and could WIPE AND REBUILD any user's graph, by editing one
+    path segment. re-run is both destructive and a spend trigger, which is what
+    made this the sharpest of the three.
+
+    Every other user-scoped route in the codebase (song_of_day, breakdowns,
+    sessions, practice_sessions) already derives user_id from
+    Depends(get_user_id) and never from the request path or body — see
+    song_of_day.py's T-03-04-01 note. These three were the outliers; this brings
+    them onto the same contract while keeping the path parameter in the URL, so
+    no client route strings change.
+
+    POC identity is an unverified device UUID (D-04), so this is not
+    authentication — a caller who knows another device's UUID can still spoof the
+    header. It closes the accidental and the trivially-enumerable cases, which is
+    the level of protection the rest of the surface already has; real auth is a
+    post-POC concern tracked separately.
+    """
+    if path_user_id != caller_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Path user_id does not match the X-User-ID device identity.",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -881,6 +922,22 @@ async def bootstrap_user(
         )
         skill_rows = await _persist_bootstrap(db, body.user_id, None, mode="bootstrap")
         mode = "bootstrap"
+    except BudgetExceededError as e:
+        # FLE-23 §3 put a cap on `onboarding`, so this path is now reachable here too.
+        # Fail open rather than 429: reaching the cap on a FRESH bootstrap means the
+        # idempotency guard above found no skill_nodes, i.e. this user has burned the
+        # week's onboarding calls without ending up with a graph. Handing them the
+        # 6-root fallback leaves them with a working app; a 429 would leave them stuck
+        # at the wizard with no way forward. Spend is still bounded — the fallback
+        # costs nothing, it is a local write.
+        logger.warning(
+            "Onboarding cap reached during fresh bootstrap for user %s (resets_at=%s) "
+            "— falling back to 6-root graph.",
+            body.user_id,
+            e.resets_at,
+        )
+        skill_rows = await _persist_bootstrap(db, body.user_id, None, mode="bootstrap")
+        mode = "bootstrap"
 
     # ---- Step 5: mark onboarded_at ----
     await db.execute(
@@ -906,12 +963,16 @@ async def bootstrap_user(
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: UUID,
+    caller_id: UUID = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Return the user's preferences and onboarded_at timestamp.
 
+    Returns 403 if user_id is not the caller's own device UUID (FLE-23 §5).
     Returns 404 if the user has not been bootstrapped yet.
     """
+    _require_own_user(user_id, caller_id)
+
     result = await db.execute(select(User).where(User.id == user_id))
     row = result.scalar_one_or_none()
     if row is None:
@@ -926,9 +987,15 @@ async def get_user(
 @router.get("/users/{user_id}/skill-graph", response_model=SkillGraphResponse)
 async def get_skill_graph(
     user_id: UUID,
+    caller_id: UUID = Depends(get_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> SkillGraphResponse:
-    """Return the user's full skill graph (tree via parent_id, no separate edges list per D-09)."""
+    """Return the user's full skill graph (tree via parent_id, no separate edges list per D-09).
+
+    Returns 403 if user_id is not the caller's own device UUID (FLE-23 §5).
+    """
+    _require_own_user(user_id, caller_id)
+
     user_row = (await db.execute(
         select(User).where(User.id == user_id)
     )).scalar_one_or_none()
@@ -949,6 +1016,8 @@ async def get_skill_graph(
 async def re_run_onboarding(
     user_id: UUID,
     body: UserBootstrapRequest,
+    caller_id: UUID = Depends(get_user_id),
+    _throttle: None = Depends(throttle_re_run),
     db: AsyncSession = Depends(get_db),
 ) -> SkillGraphResponse:
     """Settings re-run (per D-14 Claude's Discretion):
@@ -956,8 +1025,18 @@ async def re_run_onboarding(
     Wipes user's songs + song_skills + skill_nodes; keeps users row + preferences
     (overwritten with new body); then re-runs the same SAVEPOINT fail-open bootstrap.
 
-    Protection: refuses 403 if user_id is the system UUID (T-02-03-06 — seed data guard).
+    Protections, outermost first:
+      - throttle_re_run: 429 above 3 calls per 10 minutes per device (FLE-23 §3).
+      - _require_own_user: 403 unless user_id is the caller's own device UUID
+        (FLE-23 §5) — this endpoint is destructive AND triggers spend, so it was
+        the sharpest of the three identity holes.
+      - system-UUID guard: 403 on the all-zeroes UUID (T-02-03-06 — seed data).
+      - ONBOARDING_CAP: the durable spend bound, enforced inside @governed on
+        run_onboarding_parse; raises BudgetExceededError once the weekly window
+        is used up (FLE-23 §3).
     """
+    _require_own_user(user_id, caller_id)
+
     if body.user_id != user_id:
         raise HTTPException(
             status_code=400, detail="Body user_id must match path user_id."
@@ -977,6 +1056,26 @@ async def re_run_onboarding(
     )).scalar_one_or_none()
     if user_row is None:
         raise HTTPException(status_code=404, detail=f"User {user_id} not found.")
+
+    # Cap probe BEFORE the wipe (FLE-23 §3). The wipe below is committed before
+    # run_onboarding_parse runs — that ordering is load-bearing for the governor's
+    # fresh-session FK (see the commit comment further down) — so a user at the
+    # onboarding cap would otherwise lose their graph and then get a budget error,
+    # ending up with nothing. Refusing here leaves the existing graph untouched.
+    try:
+        await assert_cap_available(db, user_id, "onboarding", ONBOARDING_CAP)
+    except BudgetExceededError as e:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "ONBOARDING_CAPPED",
+                "message": (
+                    "Onboarding re-run limit reached for this week. "
+                    "Your existing skill graph has not been changed."
+                ),
+                "resets_at": e.resets_at,
+            },
+        ) from e
 
     # Wipe order matters — deepest FK references first:
     #   1. song_skills          → refs songs.id + skill_nodes.id
@@ -1032,6 +1131,22 @@ async def re_run_onboarding(
             "Sonnet-backed re-run failed for user %s (%s) — falling back to 6-root graph.",
             user_id,
             e,
+        )
+        skill_rows = await _persist_bootstrap(db, user_id, None, mode="bootstrap")
+        mode = "bootstrap"
+    except BudgetExceededError as e:
+        # Residual race only: the probe above passed, then a concurrent re-run
+        # consumed the last slot before this one reserved it. The wipe is already
+        # committed at this point, so refusing would leave the user with an empty
+        # graph — the 6-root fallback is the least-bad outcome and matches the
+        # existing D-07 fail-open contract. Logged at error, not warning: if this
+        # ever fires, the probe's assumptions are worth re-examining.
+        logger.error(
+            "Onboarding cap hit AFTER the re-run wipe for user %s (resets_at=%s) — "
+            "lost the probe/reserve race. Falling back to 6-root graph so the user "
+            "is not left with an empty skill graph.",
+            user_id,
+            e.resets_at,
         )
         skill_rows = await _persist_bootstrap(db, user_id, None, mode="bootstrap")
         mode = "bootstrap"

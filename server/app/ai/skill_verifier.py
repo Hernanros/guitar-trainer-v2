@@ -121,6 +121,17 @@ def _format_user_message(
 # Main call
 # ---------------------------------------------------------------------------
 
+# Verdicts are short — much smaller than breakdown's 8192. Named so
+# record_estimate() can price governor_calls.dollars_estimated against the same
+# ceiling the create() call uses (FLE-23 §4).
+_MAX_OUTPUT_TOKENS = 1024
+
+
+# Deliberately uncapped. The verifier is fan-out INSIDE one onboarding (up to
+# _VERIFIER_FANOUT_CAP=10 calls per run), so a per-user weekly cap here would
+# abort an onboarding partway through rather than refuse it cleanly. Spend is
+# bounded transitively by the cap on `onboarding`, which is the entry point —
+# see ONBOARDING_CAP in app/ai/governor.py (FLE-23 §3).
 @governed(feature="skill_verify", cap=None)
 async def run_skill_node_verify(
     proposed_name: str,
@@ -171,7 +182,9 @@ async def run_skill_node_verify(
                     model=SONNET_MODEL,
                     messages=messages,
                 )
-                await record_estimate(call_id, estimate.input_tokens)
+                await record_estimate(
+                    call_id, estimate.input_tokens, _MAX_OUTPUT_TOKENS
+                )
             except Exception as est_exc:
                 # count_tokens failure is non-fatal — log and continue dispatch
                 logger.warning(
@@ -183,7 +196,7 @@ async def run_skill_node_verify(
         resp = await asyncio.wait_for(
             client.messages.create(
                 model=SONNET_MODEL,
-                max_tokens=1024,  # verdicts are short — much smaller than breakdown's 8192
+                max_tokens=_MAX_OUTPUT_TOKENS,
                 system=SYSTEM_PROMPT,
                 messages=messages,
                 tools=[_TOOL_DEF],

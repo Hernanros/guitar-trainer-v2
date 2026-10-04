@@ -481,6 +481,7 @@ export interface paths {
          * Get User
          * @description Return the user's preferences and onboarded_at timestamp.
          *
+         *     Returns 403 if user_id is not the caller's own device UUID (FLE-23 §5).
          *     Returns 404 if the user has not been bootstrapped yet.
          */
         get: operations["get_user_api_v1_users__user_id__get"];
@@ -502,6 +503,8 @@ export interface paths {
         /**
          * Get Skill Graph
          * @description Return the user's full skill graph (tree via parent_id, no separate edges list per D-09).
+         *
+         *     Returns 403 if user_id is not the caller's own device UUID (FLE-23 §5).
          */
         get: operations["get_skill_graph_api_v1_users__user_id__skill_graph_get"];
         put?: never;
@@ -528,7 +531,15 @@ export interface paths {
          *     Wipes user's songs + song_skills + skill_nodes; keeps users row + preferences
          *     (overwritten with new body); then re-runs the same SAVEPOINT fail-open bootstrap.
          *
-         *     Protection: refuses 403 if user_id is the system UUID (T-02-03-06 — seed data guard).
+         *     Protections, outermost first:
+         *       - throttle_re_run: 429 above 3 calls per 10 minutes per device (FLE-23 §3).
+         *       - _require_own_user: 403 unless user_id is the caller's own device UUID
+         *         (FLE-23 §5) — this endpoint is destructive AND triggers spend, so it was
+         *         the sharpest of the three identity holes.
+         *       - system-UUID guard: 403 on the all-zeroes UUID (T-02-03-06 — seed data).
+         *       - ONBOARDING_CAP: the durable spend bound, enforced inside @governed on
+         *         run_onboarding_parse; raises BudgetExceededError once the weekly window
+         *         is used up (FLE-23 §3).
          */
         post: operations["re_run_onboarding_api_v1_users__user_id__re_run_post"];
         delete?: never;
@@ -2063,7 +2074,9 @@ export interface operations {
     get_user_api_v1_users__user_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-User-ID": string;
+            };
             path: {
                 user_id: string;
             };
@@ -2094,7 +2107,9 @@ export interface operations {
     get_skill_graph_api_v1_users__user_id__skill_graph_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-User-ID": string;
+            };
             path: {
                 user_id: string;
             };
@@ -2125,7 +2140,9 @@ export interface operations {
     re_run_onboarding_api_v1_users__user_id__re_run_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-User-ID": string;
+            };
             path: {
                 user_id: string;
             };

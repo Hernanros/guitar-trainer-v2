@@ -13,7 +13,13 @@ from anthropic import APITimeoutError, APIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.client import get_client, SONNET_MODEL
-from app.ai.governor import governed, current_call_id, record_estimate, record_actuals
+from app.ai.governor import (
+    ONBOARDING_CAP,
+    current_call_id,
+    governed,
+    record_actuals,
+    record_estimate,
+)
 from app.models.skill_node import SonnetOnboardingOutput
 
 logger = logging.getLogger(__name__)
@@ -75,8 +81,18 @@ _TOOL_DEF: dict[str, Any] = {
     "input_schema": SonnetOnboardingOutput.model_json_schema(),
 }
 
+# Output ceiling for the onboarding call. 4096 was insufficient when a user's
+# aspirational list expanded the skill_graph tree — Sonnet silently dropped the
+# field to stay within budget. 8192 gives headroom for a full 3-level tree +
+# ~20 canonicalized songs.
+#
+# Named (rather than inline) because record_estimate() also needs it, to price
+# governor_calls.dollars_estimated as this call's worst case (FLE-23 §4). Keeping
+# one constant means the ceiling and the price ceiling cannot drift apart.
+_MAX_OUTPUT_TOKENS = 8192
 
-@governed(feature="onboarding", cap=None)
+
+@governed(feature="onboarding", cap=ONBOARDING_CAP)
 async def run_onboarding_parse(
     raw_input: dict,
     *,
@@ -118,7 +134,9 @@ async def run_onboarding_parse(
                     model=SONNET_MODEL,
                     messages=messages,
                 )
-                await record_estimate(call_id, estimate.input_tokens)
+                await record_estimate(
+                    call_id, estimate.input_tokens, _MAX_OUTPUT_TOKENS
+                )
             except Exception as est_exc:
                 # count_tokens failure is non-fatal — log and continue dispatch
                 logger.warning(
@@ -130,10 +148,7 @@ async def run_onboarding_parse(
         resp = await asyncio.wait_for(
             client.messages.create(
                 model=SONNET_MODEL,
-                # 4096 was insufficient when a user's aspirational list expanded the
-                # skill_graph tree — Sonnet silently dropped the field to stay within
-                # budget. 8192 headroom for a full 3-level tree + ~20 canonicalized songs.
-                max_tokens=8192,
+                max_tokens=_MAX_OUTPUT_TOKENS,
                 system=SYSTEM_PROMPT,
                 messages=messages,
                 tools=[_TOOL_DEF],

@@ -464,7 +464,12 @@ async def run_technique_breakdown(
                     model=SONNET_MODEL,
                     messages=messages,
                 )
-                await record_estimate(call_id, estimate.input_tokens)
+                # Passing the create() call's own max_tokens makes
+                # governor_calls.dollars_estimated this call's worst-case cost
+                # rather than its prompt cost alone (FLE-23 §4).
+                await record_estimate(
+                    call_id, estimate.input_tokens, _MAX_OUTPUT_TOKENS
+                )
             except Exception as est_exc:
                 # count_tokens failure is non-fatal — log and continue dispatch
                 logger.warning(
