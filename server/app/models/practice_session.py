@@ -259,3 +259,18 @@ class SessionCompleteResponse(BaseModel):
     done_items: int
     skipped_items: int
     planned_items: int
+
+
+class DevResetTodayResponse(BaseModel):
+    """Dev-only escape hatch (FLE-10, 2026-10-04 triage) — NOT part of the pilot
+    lifecycle, no UI-SPEC string, no telemetry meaning.
+
+    FLE-76 made `/today` deliberately resolve ANY terminal session for the local
+    day rather than minting a second one, so a tester who finishes a walk is
+    otherwise locked out of retrying until the day rolls. This deletes today's
+    `practice_sessions` row (cascades its items) so the next `/today` call falls
+    through to a fresh plan same-day. `drill_attempts` and the `user_sessions`
+    daily verdict are untouched — those are attempt history, not the plan.
+    """
+
+    deleted_session_ids: list[UUID]

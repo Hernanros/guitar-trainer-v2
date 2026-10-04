@@ -127,6 +127,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/practice-sessions/today/dev-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dev Reset Today
+         * @description Delete today's session row so a tester can regenerate it same-day.
+         *
+         *     FLE-10's 2026-10-04 triage: resume was never actually walkable because
+         *     finishing a session (or abandoning one) locks `/today` onto that row until
+         *     the day rolls (FLE-76). This is the deliberate escape hatch — Settings ->
+         *     Dev calls it, not the walker. No admin gate: it only ever touches the
+         *     caller's own `user_id`, the same trust boundary every other route on this
+         *     router already has.
+         */
+        post: operations["dev_reset_today_api_v1_practice_sessions_today_dev_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/practice-sessions/current": {
         parameters: {
             query?: never;
@@ -651,6 +678,22 @@ export interface components {
             finger?: number | null;
         };
         /**
+         * DevResetTodayResponse
+         * @description Dev-only escape hatch (FLE-10, 2026-10-04 triage) — NOT part of the pilot
+         *     lifecycle, no UI-SPEC string, no telemetry meaning.
+         *
+         *     FLE-76 made `/today` deliberately resolve ANY terminal session for the local
+         *     day rather than minting a second one, so a tester who finishes a walk is
+         *     otherwise locked out of retrying until the day rolls. This deletes today's
+         *     `practice_sessions` row (cascades its items) so the next `/today` call falls
+         *     through to a fresh plan same-day. `drill_attempts` and the `user_sessions`
+         *     daily verdict are untouched — those are attempt history, not the plan.
+         */
+        DevResetTodayResponse: {
+            /** Deleted Session Ids */
+            deleted_session_ids: string[];
+        };
+        /**
          * Drill
          * @description A single Fletcher-voiced practice drill (Phase 4.1, Plan 04.1-01).
          *
@@ -857,6 +900,12 @@ export interface components {
              * @default false
              */
             daily_verdict_recorded: boolean;
+            /**
+             * Mastery Shifted
+             * @description FLE-21 §5.2 step 5 (FLE-65) — this rating moved skill_nodes.mastery on the item's own target node by D-08's shift, so FLE-4 §11.2's `deficit` term sees it when tomorrow's session is selected. False on a duplicate flush, on a repertoire item whose day already carried a whole-song verdict (the shift it would apply is already applied), and on an item whose target node is missing or not this user's.
+             * @default false
+             */
+            mastery_shifted: boolean;
             session: components["schemas"]["PracticeSessionResponse"];
         };
         /**
@@ -1579,6 +1628,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dev_reset_today_api_v1_practice_sessions_today_dev_reset_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-User-ID": string;
+                "X-Timezone-Offset"?: number;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevResetTodayResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

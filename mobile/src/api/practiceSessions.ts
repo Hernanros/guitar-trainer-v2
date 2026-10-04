@@ -266,3 +266,27 @@ export function useCompletePracticeSession(sessionId: string) {
     onSuccess: (result) => cacheSession(qc, userId, result.session),
   });
 }
+
+export type DevResetTodayResponse = components['schemas']['DevResetTodayResponse'];
+
+/**
+ * Dev-only escape hatch (FLE-10, 2026-10-04 triage) — NOT part of the pilot lifecycle.
+ * Deletes today's session row so the next `useTodaySession` call mints a fresh plan
+ * instead of resolving the finished/abandoned one FLE-76 deliberately pins `/today`
+ * onto for the rest of the local day. Settings -> Dev only; never called by the walker.
+ */
+export function useDevResetToday() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<DevResetTodayResponse>('/api/v1/practice-sessions/today/dev-reset', {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      // Drops both the by-id and current-day cache slots (deleted_session_ids'
+      // rows no longer exist server-side) so a stale summary can't re-render.
+      qc.removeQueries({ queryKey: ['practice-session'] });
+    },
+  });
+}

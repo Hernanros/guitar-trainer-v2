@@ -15,6 +15,7 @@ import {
   useCurrentPracticeSession,
   useCompleteItem,
   useSkipItem,
+  useDevResetToday,
   practiceSessionQueryKey,
   currentPracticeSessionQueryKey,
 } from './practiceSessions';
@@ -192,5 +193,25 @@ describe('useSkipItem', () => {
       '/api/v1/practice-sessions/session-1/items/0/skip',
       { method: 'POST', body: JSON.stringify({ active_seconds: 0 }) },
     );
+  });
+});
+
+describe('useDevResetToday', () => {
+  it('posts to the dev-reset endpoint and drops every cached practice-session entry', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    qc.setQueryData(practiceSessionQueryKey('session-1'), baseSession);
+    qc.setQueryData(currentPracticeSessionQueryKey(USER_ID, '2026-09-24'), baseSession);
+    mockApiFetch.mockResolvedValueOnce({ deleted_session_ids: ['session-1'] });
+
+    const { result } = await renderHook(() => useDevResetToday(), { wrapper: makeWrapper(qc) });
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(mockApiFetch).toHaveBeenCalledWith('/api/v1/practice-sessions/today/dev-reset', {
+      method: 'POST',
+    });
+    expect(qc.getQueryData(practiceSessionQueryKey('session-1'))).toBeUndefined();
+    expect(qc.getQueryData(currentPracticeSessionQueryKey(USER_ID, '2026-09-24'))).toBeUndefined();
   });
 });

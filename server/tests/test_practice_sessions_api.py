@@ -788,3 +788,63 @@ async def test_a_duplicate_daily_verdict_is_409_with_the_rating_still_committed(
         assert stored == "getting_closer"
     finally:
         await _cleanup(uid)
+
+
+@pytest.mark.asyncio
+async def test_dev_reset_today_clears_a_completed_session_so_today_regenerates():
+    """FLE-10's 2026-10-04 triage: FLE-76 deliberately pins `/today` onto a
+    terminal session for the rest of the local day, so without this a tester who
+    finishes a walk can't retry it until the day rolls. dev-reset is the escape
+    hatch; prove it deletes the row (cascading its items) and that the very next
+    `/today` call mints a fresh plan rather than resolving the one just deleted.
+    """
+    uid = uuid.uuid4()
+    async with _make_session() as db:
+        await _seed(db, uid)
+        sid = await _generate_today(db, uid)
+    try:
+        async with _client() as c:
+            h = _headers(uid)
+            reset = await c.post(
+                "/api/v1/practice-sessions/today/dev-reset", headers=h
+            )
+            assert reset.status_code == 200, reset.text
+            assert reset.json()["deleted_session_ids"] == [str(sid)]
+
+            async with _make_session() as db:
+                gone = await db.scalar(
+                    text("SELECT count(*) FROM practice_sessions WHERE id = :s"),
+                    {"s": sid},
+                )
+                orphaned_items = await db.scalar(
+                    text("SELECT count(*) FROM practice_session_items WHERE session_id = :s"),
+                    {"s": sid},
+                )
+            assert gone == 0, "dev-reset must delete the session row, not just mark it"
+            assert orphaned_items == 0, "items must cascade-delete with their session"
+
+            regenerated = await c.post(
+                "/api/v1/practice-sessions/today", json={}, headers=h
+            )
+        assert regenerated.status_code == 201, (
+            "a stale resolve of the deleted session would answer 200 here instead"
+        )
+        assert regenerated.json()["id"] != str(sid)
+    finally:
+        await _cleanup(uid)
+
+
+@pytest.mark.asyncio
+async def test_dev_reset_today_is_a_no_op_with_nothing_to_delete():
+    uid = uuid.uuid4()
+    async with _make_session() as db:
+        await _seed(db, uid)
+    try:
+        async with _client() as c:
+            resp = await c.post(
+                "/api/v1/practice-sessions/today/dev-reset", headers=_headers(uid)
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["deleted_session_ids"] == []
+    finally:
+        await _cleanup(uid)

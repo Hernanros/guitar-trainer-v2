@@ -29,6 +29,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '../../api/users';
+import { useDevResetToday } from '../../api/practiceSessions';
 import { clearOnboardedAt, clearWizardState, setReRunPending } from '../../api/mmkv';
 import { applyUpdateIfAvailable, describeRunningBundle } from '../../hooks/use-ota-update';
 
@@ -42,6 +43,7 @@ const RETENTION_LABELS: Record<string, string> = {
 export default function SettingsScreen() {
   const { data: user, isLoading } = useUser();
   const qc = useQueryClient();
+  const devResetToday = useDevResetToday();
 
   // POC dev affordance — invalidate all TanStack Query cache entries so the next
   // render refetches from server. Needed for testing when server-side state has
@@ -76,6 +78,35 @@ export default function SettingsScreen() {
             : 'Could not reach the update server. Try again on a better connection.';
       Alert.alert('Update check', message);
     });
+  };
+
+  // POC dev affordance (FLE-10, 2026-10-04 triage) — FLE-76 deliberately pins
+  // /today onto a finished/abandoned session for the rest of the local day, so
+  // without this a tester who finishes (or force-quits) a walk can't retry it
+  // until the day rolls. Deletes today's session row; the next session-player
+  // open generates a fresh plan same-day.
+  const onRegenerateToday = () => {
+    Alert.alert(
+      "Regenerate today's session?",
+      "Deletes today's session so the next time you open it, you get a fresh one. Your drill history is kept.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Regenerate',
+          style: 'destructive',
+          onPress: () => {
+            devResetToday.mutate(undefined, {
+              onSuccess: () => {
+                Alert.alert('Done', "Today's session was cleared. Open it again to generate a new one.");
+              },
+              onError: () => {
+                Alert.alert('Could not regenerate', 'Try again on a better connection.');
+              },
+            });
+          },
+        },
+      ],
+    );
   };
 
   const onReRun = () => {
@@ -147,6 +178,12 @@ export default function SettingsScreen() {
         onPress={onRefreshCache}
       >
         <Text style={styles.devButtonText}>Refresh cache</Text>
+      </Pressable>
+      <Pressable
+        style={({ pressed }) => [styles.devButton, styles.devButtonSpaced, pressed && styles.buttonPressed]}
+        onPress={onRegenerateToday}
+      >
+        <Text style={styles.devButtonText}>Regenerate today's session</Text>
       </Pressable>
     </ScrollView>
   );

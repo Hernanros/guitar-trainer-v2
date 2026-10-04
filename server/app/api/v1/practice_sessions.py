@@ -40,11 +40,13 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_tz_offset_minutes, get_user_id
 from app.db.session import get_db
 from app.models.practice_session import (
+    DevResetTodayResponse,
     EmbeddedDrill,
     EmbeddedSong,
     ItemCompleteRequest,
@@ -268,6 +270,40 @@ async def generate_today(
     )
     session = await lifecycle.load_session(db, user_id, stored.session_id)
     return await _payload(db, session)
+
+
+# ---------------------------------------------------------------------------
+# Dev-only
+# ---------------------------------------------------------------------------
+
+
+@router.post("/today/dev-reset", response_model=DevResetTodayResponse)
+async def dev_reset_today(
+    user_id: UUID = Depends(get_user_id),
+    tz_offset_minutes: int = Depends(get_tz_offset_minutes),
+    db: AsyncSession = Depends(get_db),
+) -> DevResetTodayResponse:
+    """Delete today's session row so a tester can regenerate it same-day.
+
+    FLE-10's 2026-10-04 triage: resume was never actually walkable because
+    finishing a session (or abandoning one) locks `/today` onto that row until
+    the day rolls (FLE-76). This is the deliberate escape hatch — Settings ->
+    Dev calls it, not the walker. No admin gate: it only ever touches the
+    caller's own `user_id`, the same trust boundary every other route on this
+    router already has.
+    """
+    async with db.begin():
+        day = await local_day(db, tz_offset_minutes)
+        result = await db.execute(
+            text(
+                "DELETE FROM practice_sessions "
+                "WHERE user_id = :user_id AND local_calendar_day = :day "
+                "RETURNING id"
+            ),
+            {"user_id": user_id, "day": day},
+        )
+        deleted_ids = [row[0] for row in result.fetchall()]
+    return DevResetTodayResponse(deleted_session_ids=deleted_ids)
 
 
 # ---------------------------------------------------------------------------
