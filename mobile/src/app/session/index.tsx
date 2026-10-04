@@ -9,9 +9,11 @@ import { useEffect, useRef } from 'react';
 import { View, ActivityIndicator, Text, StyleSheet, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTodaySession, firstNonTerminalIndex } from '../../api/practiceSessions';
+import { useTodaySong } from '../../api/todaySong';
 
 export default function SessionEntryScreen() {
   const router = useRouter();
+  const todaySong = useTodaySong();
   const todaySession = useTodaySession();
   // React 18 StrictMode / fast-refresh double-invokes effects; the mutation itself
   // is safe to double-fire (server-side partial unique index), but a ref keeps this
@@ -20,8 +22,13 @@ export default function SessionEntryScreen() {
 
   useEffect(() => {
     if (fired.current) return;
+    // FLE-90 (G7): wait for song-of-day to settle so its id can be threaded into
+    // generation — the Today tab already fetched it before this screen was
+    // reachable, so this is normally already cached and resolves immediately.
+    // On error it still settles (isLoading flips false), so this never hangs.
+    if (todaySong.isLoading) return;
     fired.current = true;
-    todaySession.mutate(undefined, {
+    todaySession.mutate({ song_id: todaySong.data?.song.id }, {
       onSuccess: ({ data: session }) => {
         const nextIndex = firstNonTerminalIndex(session.items);
         if (nextIndex === null) {
@@ -35,7 +42,7 @@ export default function SessionEntryScreen() {
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [todaySong.isLoading]);
 
   if (todaySession.isError) {
     return (

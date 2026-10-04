@@ -449,8 +449,21 @@ def build_plan(inputs: GeneratorInputs) -> SessionPlan:
     cons_song: Optional[ConsolidationSong] = None
     cons_drill: Optional[DrillCandidate] = None
     if budget.consolidation > 0:
-        cons_song = _consolidation_song(
-            inputs.can_play_songs, user_id=inputs.user_id, day=today
+        # FLE-90 (G7): consolidation mirrors today's song rather than re-selecting
+        # independently from can_play_songs. "Here's today's song" is the product's
+        # promise, and a session that then works a different song reads as a bug to
+        # anyone who notices. `inputs.song` IS song_of_day (§5.3 — "this arrives
+        # already decided by app/selectors/today_song.py"), so this is the one
+        # agreement point between the two, not a second selector.
+        #
+        # Only when song_of_day is unset for the day (inputs.song is None) does
+        # consolidation fall back to its own independent pick over can_play_songs.
+        cons_song = (
+            ConsolidationSong(song_id=inputs.song.song_id, bpm=inputs.song.bpm)
+            if inputs.song is not None
+            else _consolidation_song(
+                inputs.can_play_songs, user_id=inputs.user_id, day=today
+            )
         )
         if cons_song is None:
             cons_drill = _consolidation_drill(

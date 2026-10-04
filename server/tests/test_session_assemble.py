@@ -214,13 +214,17 @@ def test_the_seed_is_the_user_and_the_day_and_nothing_else():
 
 
 def test_a_different_day_moves_the_seeded_choices():
-    """The consolidation song and the stretch slot are seeded on the day, so two
-    days running should not be the identical session."""
+    """The consolidation fallback (no song_of_day) and the stretch slot are seeded
+    on the day, so two days running should not be the identical session."""
     songs = [ConsolidationSong(song_id=i, bpm=90) for i in (11, 12, 13, 14, 15)]
     picks = set()
     for offset in range(12):
         plan = build_plan(
-            inputs(local_calendar_day=TODAY + timedelta(days=offset), can_play_songs=songs)
+            inputs(
+                local_calendar_day=TODAY + timedelta(days=offset),
+                song=None,
+                can_play_songs=songs,
+            )
         )
         picks.add(by_block(plan, Block.CONSOLIDATION)[0].song_id)
     assert len(picks) > 1
@@ -292,16 +296,29 @@ def test_above_t15_consolidation_is_its_own_block(minutes):
 # §5.4 — consolidation
 # ---------------------------------------------------------------------------
 
-def test_the_consolidation_item_is_a_can_play_song_unrated_and_unclicked():
-    """§5.4 — a rating tap here converts the win back into an assessment."""
+def test_the_consolidation_item_is_song_of_day_unrated_and_unclicked():
+    """§5.4 / FLE-90 (G7) — consolidation mirrors song_of_day (`inputs.song`), not an
+    independent pick over can_play_songs. A rating tap here converts the win back
+    into an assessment."""
     plan = build_plan(inputs())
+    item = by_block(plan, Block.CONSOLIDATION)[0]
+    assert item.kind is ItemKind.SONG_PLAY
+    assert item.song_id == SONG.song_id
+    assert item.planned_bpm == SONG.bpm
+    assert item.rated is False
+    assert item.click_enabled is False
+    assert item.skippable is True
+    assert item.is_consolidation is True
+
+
+def test_with_no_song_of_day_consolidation_falls_back_to_can_play():
+    """FLE-90 (G7) — song_of_day unset for the day is the one case where
+    consolidation still runs its own independent pick over can_play_songs."""
+    plan = build_plan(inputs(song=None, can_play_songs=[ConsolidationSong(song_id=12, bpm=90)]))
     item = by_block(plan, Block.CONSOLIDATION)[0]
     assert item.kind is ItemKind.SONG_PLAY
     assert item.song_id == 12
     assert item.planned_bpm == 90
-    assert item.rated is False
-    assert item.click_enabled is False
-    assert item.skippable is True
     assert item.is_consolidation is True
 
 
@@ -309,7 +326,7 @@ def test_with_no_can_play_song_the_fallback_is_the_most_owned_drill_below_tempo(
     """§5.4 fallback — highest historical clear rate, planned at rung_bpm - 10."""
     owned = drill("owned", attempts=20, lifetime_clears=18, rung_bpm=110)
     shaky = drill("shaky", attempts=20, lifetime_clears=2)
-    plan = build_plan(inputs(can_play_songs=[], candidates=[owned, shaky]))
+    plan = build_plan(inputs(song=None, can_play_songs=[], candidates=[owned, shaky]))
     item = by_block(plan, Block.CONSOLIDATION)[0]
     assert item.kind is ItemKind.DRILL
     assert item.drill_id == "owned"
@@ -340,13 +357,15 @@ def test_a_drill_with_no_history_is_never_the_end_on_a_win_item():
     assert _consolidation_drill([drill("new", attempts=0)], already_planned=frozenset()) is None
 
 
-def test_with_neither_a_can_play_song_nor_a_practised_drill_the_block_folds_forward():
-    """The spec does not cover this. Folded into the play-through exactly as §2 does
-    at T=15, rather than inventing a new behaviour or dropping the seconds."""
+def test_a_song_present_never_folds_consolidation_even_with_no_can_play_or_drill():
+    """FLE-90 (G7) follow-on: the old fold-for-lack-of-material path (neither a
+    can_play song nor a practised drill) is no longer reachable once a song is
+    present, because consolidation now mirrors it directly instead of depending on
+    can_play_songs/_consolidation_drill finding something."""
     plan = build_plan(inputs(can_play_songs=[], candidates=[drill("d", attempts=0)]))
-    assert by_block(plan, Block.CONSOLIDATION) == []
-    assert by_block(plan, Block.REPERTOIRE)[1].is_consolidation is True
-    assert "consolidation_folded_into_play_through" in plan.notes
+    item = by_block(plan, Block.CONSOLIDATION)[0]
+    assert item.song_id == SONG.song_id
+    assert "consolidation_folded_into_play_through" not in plan.notes
     assert plan.planned_seconds == 45 * 60
 
 
