@@ -81,12 +81,17 @@ async def _cleanup_user(user_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _valid_tab_dict() -> dict:
-    """Minimal valid Tab dict shape."""
+    """Minimal valid Tab dict shape — 4 quarter-note beats so FLE-106's METER
+    check (bar duration must sum to the time signature) doesn't block these
+    unrelated soft-fail tests."""
     return {
         "measures": [
             {
                 "beats": [
-                    {"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]}
+                    {"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]},
+                    {"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]},
+                    {"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]},
+                    {"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]},
                 ],
                 "time_signature": "4/4",
             }

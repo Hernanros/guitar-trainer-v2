@@ -33,11 +33,16 @@ from app.models.song import Breakdown, enforce_song_specific
 # ---------------------------------------------------------------------------
 
 def _valid_tab_dict() -> dict:
+    """4 quarter-note beats so FLE-106's METER check (bar duration must sum
+    to the time signature) doesn't block these unrelated song_specific tests."""
     return {
         "measures": [
             {
                 "beats": [
-                    {"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]}
+                    {"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]},
+                    {"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]},
+                    {"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]},
+                    {"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]},
                 ],
                 "time_signature": "4/4",
             }

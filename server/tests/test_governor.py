@@ -82,10 +82,13 @@ def _canned_breakdown() -> Breakdown:
         tab=Tab(
             measures=[
                 Measure(
+                    # Notes are the declared E7 chord tones (E, B, G#, D) — FLE-106's
+                    # OWN_CHORDS check blocks a tab note outside the chords the
+                    # breakdown itself names.
                     beats=[
                         Beat(notes=[Note(string=1, fret=0, duration="quarter")]),
-                        Beat(notes=[Note(string=2, fret=2, duration="quarter")]),
-                        Beat(notes=[Note(string=3, fret=2, duration="quarter")]),
+                        Beat(notes=[Note(string=2, fret=0, duration="quarter")]),
+                        Beat(notes=[Note(string=3, fret=1, duration="quarter")]),
                         Beat(notes=[Note(string=4, fret=0, duration="quarter")]),
                     ],
                     time_signature="4/4",

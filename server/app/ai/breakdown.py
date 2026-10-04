@@ -22,6 +22,7 @@ from app.ai.governor import (
     record_actuals,
     record_estimate,
 )
+from app.ai.tab_verification import verify as verify_tab
 from app.models.song import Breakdown, enforce_song_specific
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,20 @@ class TuningMismatchError(AIBreakdownError):
     the output; it refuses to serve it, same contract as BreakdownTruncatedError:
     breakdown_generated_at is NOT set, and the next tap retries with a fresh
     (non-deterministic) Sonnet call rather than replaying a certain failure.
+    """
+
+
+class TabVerificationError(AIBreakdownError):
+    """Sonnet's tab/chords failed a recording-free mechanical check (FLE-106).
+
+    app.ai.tab_verification.verify() runs checks that need no reference
+    recording because they are wrong against notation, against the guitar
+    itself, or against the chords this SAME breakdown declares — unplayable
+    beats, bars that don't add up, measures too wide for the mobile renderer,
+    a note outside every chord the breakdown names. Same contract as
+    TuningMismatchError and BreakdownTruncatedError: breakdown_generated_at is
+    NOT set, so the next tap retries with a fresh (non-deterministic) Sonnet
+    call rather than persisting output already known to be defective.
     """
 
 
@@ -750,7 +765,34 @@ async def run_technique_breakdown(
         # endpoint (which persists the result to songs.breakdown) and
         # scripts/eval_drills.py. Rows cached BEFORE this fix keep whatever flag
         # Sonnet emitted — they are not re-validated on read.
-        return enforce_song_specific(parsed, song_title, song_artist)
+        parsed = enforce_song_specific(parsed, song_title, song_artist)
+
+        # FLE-106: the generator verification pass. Runs on every call, cached
+        # or not — this is the only place a breakdown is born, same reasoning
+        # as the song_specific enforcement above. A blocking defect raises
+        # TabVerificationError here, before song.breakdown is ever assigned by
+        # either write path (the live endpoint or breakdown_backfill.py), so a
+        # tab that fails its own chord list or overflows the renderer is never
+        # persisted. Warnings (today: only the C4 uniform-duration grid, a feel
+        # judgement and not a notation error) are logged, not blocking.
+        result = verify_tab(parsed)
+        if result.warnings:
+            logger.warning(
+                "Breakdown for %r passed verification with %d warning(s): %s",
+                song_title, len(result.warnings), "; ".join(result.warnings),
+            )
+        if result.blocking:
+            logger.error(
+                "Breakdown for %r by %r FAILED verification (%d defect(s)): %s",
+                song_title, song_artist, len(result.blocking), "; ".join(result.blocking),
+            )
+            raise TabVerificationError(
+                f"Sonnet's breakdown for {song_title!r} failed {len(result.blocking)} "
+                f"recording-free check(s), not serving a defective tab: "
+                f"{'; '.join(result.blocking)}"
+            )
+
+        return parsed
 
     try:
         try:
