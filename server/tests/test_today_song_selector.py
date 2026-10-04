@@ -321,7 +321,11 @@ async def test_reroll_endpoint_first_returns_200(seed_user):
     if resp.status_code == 200:
         body = resp.json()
         assert body["rerolled"] is True
-        assert body["from_bank"] is True
+        # FLE-41: from_bank is derived, not hard-coded. force_reroll only re-seeds the
+        # same 75/25 CTE, so ~75% of rerolls land on working_on_pick with
+        # bank_source=null. Asserting `from_bank is True` here pinned the bug and
+        # passed only on a lucky uuid4 seed.
+        assert body["from_bank"] == (body["bank_source"] is not None)
         assert body["rerolls_left"] == 0
 
 
@@ -404,6 +408,82 @@ async def test_get_song_of_day_after_reroll_reads_marker(seed_user, db: AsyncSes
     assert body["from_bank"] is True
     # Revision B: bank_source must be read from the marker row, not hardcoded
     assert body["bank_source"] == "user_bench"
+
+
+@pytest.mark.asyncio
+async def test_reroll_post_and_get_agree_on_from_bank(seed_user):
+    """FLE-41: POST /today-song/reroll and GET /song-of-day must report the same
+    (from_bank, bank_source) pair for one and the same state.
+
+    The original bug: POST hard-coded from_bank=True while GET derived it from the
+    persisted marker's bank_source, so the two endpoints disagreed. The mobile client
+    hid the discrepancy behind Boolean(from_bank && bank_source); any consumer reading
+    from_bank alone got a wrong answer.
+    """
+    user_id = seed_user
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        post = await client.post(
+            "/api/v1/today-song/reroll",
+            headers={"X-User-ID": str(user_id), "X-Timezone-Offset": "0"},
+        )
+        if post.status_code == 404:
+            pytest.skip("bank empty for this test user — nothing to reroll into")
+        assert post.status_code == 200, post.text
+
+        get = await client.get(
+            "/api/v1/song-of-day",
+            headers={"X-User-ID": str(user_id), "X-Timezone-Offset": "0"},
+        )
+    assert get.status_code == 200, get.text
+
+    post_body, get_body = post.json(), get.json()
+    assert (post_body["from_bank"], post_body["bank_source"]) == (
+        get_body["from_bank"],
+        get_body["bank_source"],
+    ), "reroll POST and song-of-day GET disagree on the bank fields"
+    # Both must also be internally consistent, not merely equal to each other.
+    assert post_body["from_bank"] == (post_body["bank_source"] is not None)
+    assert post_body["song"]["id"] == get_body["song"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_reroll_on_working_on_branch_reports_from_bank_false(
+    seed_user, db: AsyncSession, monkeypatch
+):
+    """FLE-41, deterministic arm: when the reroll lands on the working_on branch
+    (bank_source=null), POST must report from_bank=false.
+
+    The coin flip is seeded off the user uuid, so the real CTE hits this branch on
+    ~75% of seeds but cannot be forced. Stubbing the selector pins the response
+    mapping itself, which is where the bug lived.
+    """
+    user_id = seed_user
+    song_id = (
+        await db.execute(
+            text("SELECT id FROM songs WHERE user_id = :uid AND category = 'working_on'"),
+            {"uid": str(user_id)},
+        )
+    ).scalar_one()
+
+    async def _working_on_branch(*_args, **_kwargs):
+        # Exactly what the CTE returns on the ELSE branch: a pick, from_bank False,
+        # bank_source None. The old code discarded all of this and returned True.
+        return song_id, False, None
+
+    monkeypatch.setattr(
+        "app.api.v1.song_of_day.select_today_song", _working_on_branch
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/today-song/reroll",
+            headers={"X-User-ID": str(user_id), "X-Timezone-Offset": "0"},
+        )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["bank_source"] is None
+    assert body["from_bank"] is False, "working_on-branch reroll must not claim from_bank"
+    assert body["rerolled"] is True
 
 
 @pytest.mark.asyncio

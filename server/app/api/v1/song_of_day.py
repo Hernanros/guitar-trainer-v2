@@ -345,7 +345,12 @@ async def reroll_today_song(
             row.breakdown_generated_at is not None
             and is_renderable_breakdown(row.breakdown)
         ),
-        from_bank=True,  # rerolls are always bank picks (D-05)
+        # FLE-41: derived, not hard-coded. D-05's "rerolls are always bank picks" is
+        # wrong — force_reroll re-seeds the same 75/25 CTE, so a reroll can land on the
+        # working_on_pick branch with bank_source=null. GET /song-of-day already derives
+        # this from the persisted marker (line 115); returning True here made the two
+        # endpoints disagree for one and the same state.
+        from_bank=bank_source is not None,
         bank_source=bank_source,
         rerolled=True,
         rated=None,  # reroll marker and rating row are distinct (db.py lines 244-251)
