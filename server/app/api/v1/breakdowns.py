@@ -332,6 +332,7 @@ async def get_breakdown(
     try:
         breakdown = await run_technique_breakdown(
             song.title, song.artist or "", target_skills, user_level,
+            song.tuning,
             db=db, user_id=user_id,
         )
     except BudgetExceededError as exc:

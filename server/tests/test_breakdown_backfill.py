@@ -280,7 +280,7 @@ async def _stored_drills(song_id: int) -> object:
 async def test_regenerate_writes_drills_and_clears_the_candidate(fx, monkeypatch):
     song_id = await fx.add_song("Lenny", _breakdown(), PRE_DRILLS)
 
-    async def fake_run(title, artist, target_skills, user_level, *, db, user_id):
+    async def fake_run(title, artist, target_skills, user_level, known_tuning=None, *, db, user_id):
         return _FakeBreakdown([_FakeDrill(target_skills[0]["id"])])
 
     monkeypatch.setattr(bf, "run_technique_breakdown", fake_run)
@@ -309,7 +309,7 @@ async def test_hallucinated_skill_ids_are_dropped_and_the_row_is_left_as_is(fx, 
     song_id = await fx.add_song("Lenny", _breakdown(), PRE_DRILLS)
     before = await _stored_drills(song_id)
 
-    async def fake_run(title, artist, target_skills, user_level, *, db, user_id):
+    async def fake_run(title, artist, target_skills, user_level, known_tuning=None, *, db, user_id):
         return _FakeBreakdown([_FakeDrill(str(uuid.uuid4()))])
 
     monkeypatch.setattr(bf, "run_technique_breakdown", fake_run)

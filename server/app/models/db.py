@@ -159,6 +159,12 @@ class Song(Base):
     difficulty: Mapped[str] = mapped_column(String(50), nullable=True)
     bpm: Mapped[int] = mapped_column(Integer, nullable=True)
     key: Mapped[str] = mapped_column(String(10), nullable=True)
+    # Canonical recorded tuning, copied from song_catalog.tuning at upsert time
+    # (migration 0014, FLE-33). NULL means no catalog ground truth exists for
+    # this song (user-onboarded, or a pre-migration row) — the breakdown prompt
+    # falls back to Sonnet's own inference in that case. One of the slugs in
+    # that migration's ALLOWED_TUNINGS / app.ai.breakdown.TUNING_NOTE_MAP when set.
+    tuning: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     breakdown: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
