@@ -31,6 +31,21 @@
 // `currentTime` back after the promise resolves, because the resolution
 // alone was never proof.
 //
+// FLE-77 (the third pass): the second pass's own diagnostics proved it right
+// — 0 no-op, 0 rejected, 0 starved on the 2026-09-29 retest — while the bug
+// still reproduced, and this time with a description of the doubled beat's
+// texture: "one click stutters/restarts", not two independent clean clicks.
+// That is what you hear when `seekTo(0, 0, 0)` is issued while the voice is
+// still audibly playing: the seek is exact and verified (correctly, per the
+// second pass), it just landed mid-click instead of after it. The fixed
+// `CLICK_REWIND_DELAY_MS` this pass replaces was a guess about how long the
+// click takes to finish on real hardware — the asset is 35ms but device
+// output latency is not part of that number. `AudioPlayer.playing` is
+// expo-audio's own live signal for whether the native player still has audio
+// in flight; the pool now polls it and only seeks once it reads false,
+// instead of guessing a delay long enough to outlast whatever the device's
+// actual latency turns out to be.
+//
 // The sounds are in the tree: assets/audio/tick.wav and accent.wav, generated
 // by scripts/generate-click-assets.py.
 
@@ -60,6 +75,14 @@ export interface AudioPlayerLike {
    * landed the voice at 0.
    */
   currentTime: number;
+  /**
+   * Whether the native player still has audio in flight. FLE-77's third
+   * pass polls this before ever calling `seekTo(0, 0, 0)` on a voice — a
+   * seek issued while this is true is exact and verifiable but still
+   * audible as an interruption, which is the stutter Hernan described on
+   * the 2026-09-29 retest.
+   */
+  playing: boolean;
   /** Frees the native player. */
   remove(): void;
 }
@@ -103,14 +126,30 @@ export function loadClickSources(): ClickSources {
 }
 
 /**
- * How long after `play()` a voice's rewind is first attempted.
+ * How often a voice's `playing` flag is rechecked before attempting its
+ * rewind.
  *
- * The click assets are 35ms (verified with `wave`); 60ms gives the native
- * `play()` room to actually start before anything asks the player to seek
- * out from under it. It is not proof of anything on its own — see
- * REWIND_POSITION_EPSILON_SECONDS below for what actually gates readiness.
+ * FLE-77's third pass: rather than guess how long a 35ms click takes to
+ * finish on real hardware (the second pass's `CLICK_REWIND_DELAY_MS`, which
+ * the 2026-09-29 retest proved wrong — clean diagnostics, audible stutter),
+ * the pool polls the native player's own `playing` signal and only seeks
+ * once it reads false. 5ms keeps the wait itself well under a single click's
+ * duration.
  */
-export const CLICK_REWIND_DELAY_MS = 60;
+export const CLICK_REWIND_POLL_MS = 5;
+
+/**
+ * How long the pool will wait for `playing` to clear before seeking anyway.
+ *
+ * A voice stuck `playing === true` forever (a native player that never
+ * reports done) must not strand the pool as busy forever either — that is
+ * its own path into a starved pool. This is generous next to a 35ms click:
+ * if `playing` hasn't cleared in this long, something is already wrong and
+ * a possible stutter is preferable to a voice that can never be reused.
+ * Counted via `stillPlayingSeeks` so it shows up in the diagnostics line
+ * instead of failing silently.
+ */
+export const CLICK_REWIND_MAX_WAIT_MS = 250;
 
 /**
  * How close to 0 `currentTime` must read, after `seekTo(0, 0, 0)` resolves,
@@ -161,12 +200,25 @@ interface VoicePoolDiagnostics {
   nonZeroRewinds: number;
   /** seekTo(0, 0, 0) rejected outright. */
   rewindErrors: number;
+  /**
+   * Rewinds that gave up waiting for `playing` to clear and sought anyway
+   * (FLE-77 third pass, CLICK_REWIND_MAX_WAIT_MS). Should stay at 0 on real
+   * hardware — anything above that means a voice's audio is taking far
+   * longer than a 35ms click to finish playing.
+   */
+  stillPlayingSeeks: number;
   /** Resolve latency of every seekTo call that completed, successfully or not. */
   seekLatenciesMs: number[];
 }
 
 function emptyDiagnostics(): VoicePoolDiagnostics {
-  return { starvedBeats: 0, nonZeroRewinds: 0, rewindErrors: 0, seekLatenciesMs: [] };
+  return {
+    starvedBeats: 0,
+    nonZeroRewinds: 0,
+    rewindErrors: 0,
+    stillPlayingSeeks: 0,
+    seekLatenciesMs: [],
+  };
 }
 
 /**
@@ -198,6 +250,15 @@ function emptyDiagnostics(): VoicePoolDiagnostics {
  * doubled beat for a possible silent one (see DEFAULT_VOICES_PER_SOUND for
  * why that should be rare in practice), and the caller counts it rather than
  * papering over it.
+ *
+ * FLE-77's third pass: the second pass's diagnostics came back clean on
+ * device (0 no-op, 0 rejected, 0 starved) while the bug still reproduced,
+ * described as one click stuttering/restarting rather than two clean clicks
+ * — the signature of a seek landing mid-click, not a pooling error. The
+ * fixed `CLICK_REWIND_DELAY_MS` that gated the FIRST seek attempt is gone;
+ * the pool now polls the voice's own `playing` flag and only issues
+ * `seekTo(0, 0, 0)` once it reads false, so a rewind can never interrupt
+ * audio that the native layer itself still considers in flight.
  */
 function createVoicePool(
   audio: AudioModuleLike,
@@ -234,8 +295,9 @@ function createVoicePool(
     busy.add(player);
     const myGeneration = (generation.get(player) ?? 0) + 1;
     generation.set(player, myGeneration);
+    const armedAt = now();
 
-    const handle = setTimer(() => {
+    function seekNow(): void {
       pendingTimers.delete(player);
       const startedAt = now();
 
@@ -261,8 +323,27 @@ function createVoicePool(
           diagnostics.rewindErrors += 1;
           armRewind(player);
         });
-    }, CLICK_REWIND_DELAY_MS);
-    pendingTimers.set(player, handle);
+    }
+
+    // FLE-77 third pass: never seek a voice the native layer still reports
+    // as playing — that is what turned an exact, verified rewind into an
+    // audible stutter on device. Poll `playing` instead of guessing a delay,
+    // and give up waiting only past CLICK_REWIND_MAX_WAIT_MS, so a voice
+    // that somehow never reports done still gets reclaimed instead of
+    // staying busy forever.
+    function pollUntilStopped(): void {
+      pendingTimers.delete(player);
+      if (generation.get(player) !== myGeneration) return;
+
+      if (player.playing && now() - armedAt < CLICK_REWIND_MAX_WAIT_MS) {
+        pendingTimers.set(player, setTimer(pollUntilStopped, CLICK_REWIND_POLL_MS));
+        return;
+      }
+      if (player.playing) diagnostics.stillPlayingSeeks += 1;
+      seekNow();
+    }
+
+    pendingTimers.set(player, setTimer(pollUntilStopped, CLICK_REWIND_POLL_MS));
   }
 
   return {
@@ -312,6 +393,7 @@ function combineDiagnostics(
     starvedBeats: a.starvedBeats + b.starvedBeats,
     nonZeroRewinds: a.nonZeroRewinds + b.nonZeroRewinds,
     rewindErrors: a.rewindErrors + b.rewindErrors,
+    stillPlayingSeeks: a.stillPlayingSeeks + b.stillPlayingSeeks,
     seekCount: latencies.length,
     seekLatencyP50Ms: percentile(latencies, 0.5),
     seekLatencyP95Ms: percentile(latencies, 0.95),
@@ -323,7 +405,10 @@ function combineDiagnostics(
  * refutation of the FLE-77 root cause. `no-op` counting above 0 means a seek
  * is still resolving without moving the playhead even at zero tolerance;
  * `starved` counting above a handful means DEFAULT_VOICES_PER_SOUND needs to
- * go higher, not that the verify-and-retry logic is wrong.
+ * go higher, not that the verify-and-retry logic is wrong. `still-playing`
+ * above 0 (third pass) means a voice's `playing` flag never cleared inside
+ * CLICK_REWIND_MAX_WAIT_MS and the pool sought it anyway — the one counter
+ * that would show the stutter mechanism is still happening.
  */
 export function formatVoicePoolDiagnostics(diagnostics: Record<string, number>): string {
   return [
@@ -332,6 +417,7 @@ export function formatVoicePoolDiagnostics(diagnostics: Record<string, number>):
     `${diagnostics.nonZeroRewinds} no-op`,
     `${diagnostics.rewindErrors} rejected`,
     `${diagnostics.starvedBeats} starved`,
+    `${diagnostics.stillPlayingSeeks} still-playing`,
   ].join(' · ');
 }
 

@@ -16,7 +16,8 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
   CLICK_PLAYER_OPTIONS,
-  CLICK_REWIND_DELAY_MS,
+  CLICK_REWIND_MAX_WAIT_MS,
+  CLICK_REWIND_POLL_MS,
   DEFAULT_VOICES_PER_SOUND,
   createAudioClickEmitter,
   formatVoicePoolDiagnostics,
@@ -67,6 +68,16 @@ interface FakePlayer extends AudioPlayerLike {
   /** The position observed at the instant of every `play()` call, in order. */
   positionAtPlay: number[];
   /**
+   * FLE-77's third-pass signal: true the instant `play()` is called,
+   * mirroring the real player, and never cleared automatically — a fake
+   * click does not finish on its own. Tests that don't care about this
+   * mechanic must clear it themselves (mirroring the click finishing on the
+   * native side) before advancing the clock past a poll tick; tests that DO
+   * care about it are the ones that leave it set and assert nothing was
+   * sought while it stayed true.
+   */
+  playing: boolean;
+  /**
    * FLE-77's actual root cause: on the real package, a seek with no (or
    * infinite) tolerance can resolve its promise without moving the playhead
    * at all. Setting this makes the fake's `seekTo` do the same — "succeed"
@@ -92,6 +103,7 @@ function createFakeAudio() {
         failOnPlay: false,
         position: 0,
         positionAtPlay: [],
+        playing: false,
         seekIsNoop: false,
         failOnSeek: false,
         get currentTime() {
@@ -115,6 +127,7 @@ function createFakeAudio() {
           player.positionAtPlay.push(player.position);
           player.calls.push('play');
           player.position = 1;
+          player.playing = true;
         },
         remove() {
           player.removed = true;
@@ -259,14 +272,71 @@ describe('createAudioClickEmitter — playback', () => {
     const player = played()[0];
     expect(player.calls).toEqual(['play']);
     expect(player.position).toBe(1); // parked at EOF until the rewind lands
+    expect(player.playing).toBe(true); // native reports the click still in flight
 
-    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    player.playing = false; // the click has finished playing on the native side
+    clock.advanceBy(CLICK_REWIND_POLL_MS);
     await flushMicrotasks();
 
     // Zero tolerance both sides (FLE-77) — see audioEmitter.ts's file header
     // for why an un-toleranced seekTo(0) can resolve without moving anything.
     expect(player.calls).toEqual(['play', 'seekTo(0, 0, 0)']);
     expect(player.position).toBe(0);
+  });
+
+  it('FLE-77 (third pass): never seeks a voice the native player still reports as playing', async () => {
+    // The confirmed root cause of the 2026-09-29 retest's stutter: a seek
+    // issued while `playing` is still true is exact and verifiable but still
+    // audible as an interruption. The pool must not issue it until `playing`
+    // reads false.
+    const clock = new MultiTimerClock();
+    const { audio, played } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    emitter.emit(beat());
+    const player = played()[0];
+    // player.playing stays true — the click is still audibly rendering.
+    clock.advanceBy(CLICK_REWIND_POLL_MS * 10);
+    await flushMicrotasks();
+
+    expect(player.calls).toEqual(['play']); // no seekTo issued while still playing
+    expect(player.position).toBe(1);
+
+    player.playing = false; // the click finally finishes
+    clock.advanceBy(CLICK_REWIND_POLL_MS);
+    await flushMicrotasks();
+
+    expect(player.calls).toEqual(['play', 'seekTo(0, 0, 0)']);
+    expect(player.position).toBe(0);
+  });
+
+  it('FLE-77 (third pass): gives up waiting past CLICK_REWIND_MAX_WAIT_MS and seeks anyway, counting it', async () => {
+    // A voice stuck reporting `playing === true` forever must not stay busy
+    // forever either — that is its own path into a starved pool. The pool
+    // seeks anyway past the cap and counts it so it is visible on the timing
+    // panel instead of failing silently.
+    const clock = new MultiTimerClock();
+    let wallClockMs = 0;
+    const { audio, played } = createFakeAudio();
+    const emitter = createAudioClickEmitter(audio, SOURCES, {
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+      now: () => wallClockMs,
+    });
+
+    emitter.emit(beat());
+    const player = played()[0];
+    // player.playing never clears.
+
+    wallClockMs = CLICK_REWIND_MAX_WAIT_MS + 1;
+    clock.advanceBy(CLICK_REWIND_POLL_MS);
+    await flushMicrotasks();
+
+    expect(player.calls).toEqual(['play', 'seekTo(0, 0, 0)']);
+    expect(emitter.getDiagnostics?.().stillPlayingSeeks).toBe(1);
   });
 
   it('plays every voice from position 0 even though the rewind that parks it there is asynchronous', async () => {
@@ -291,6 +361,8 @@ describe('createAudioClickEmitter — playback', () => {
     // 9 beats cycles a 3-voice pool three times — every voice reused twice.
     for (let i = 1; i <= 9; i += 1) {
       emitter.emit(beat({ beatIndex: i }));
+      // Every voice's click finishes well within the 200ms gap.
+      for (const voice of forSource('tick.wav') as FakePlayer[]) voice.playing = false;
       clock.advanceBy(200); // MAX_BPM's own beat interval — the tightest real gap.
       await flushMicrotasks();
     }
@@ -330,9 +402,10 @@ describe('createAudioClickEmitter — playback', () => {
     emitter.emit(beat({ beatIndex: 3 })); // voice 2
 
     const ticks = forSource('tick.wav') as FakePlayer[];
-    // Fire only voice 1's rewind timer and let its seekTo promise resolve.
+    // Fire only voice 1's rewind poll and let its seekTo promise resolve.
     // Voice 0's and voice 2's timers are deliberately left unfired — on
     // hardware this is a rewind that simply has not landed yet.
+    ticks[1].playing = false; // voice 1's click has finished playing
     timers[1]();
     await flushMicrotasks();
     await flushMicrotasks();
@@ -404,8 +477,9 @@ describe('createAudioClickEmitter — playback', () => {
     emitter.emit(beat({ beatIndex: 1 }));
     const player = forSource('tick.wav')[0] as FakePlayer;
     player.seekIsNoop = true; // the seek "succeeds" without ever reaching 0
+    player.playing = false; // the click itself has already finished
 
-    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    clock.advanceBy(CLICK_REWIND_POLL_MS);
     await flushMicrotasks();
     await flushMicrotasks();
 
@@ -414,7 +488,7 @@ describe('createAudioClickEmitter — playback', () => {
     expect(player.calls.filter((c) => c === 'play')).toHaveLength(1);
 
     player.seekIsNoop = false; // the retried rewind actually lands this time
-    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    clock.advanceBy(CLICK_REWIND_POLL_MS);
     await flushMicrotasks();
     await flushMicrotasks();
 
@@ -435,14 +509,15 @@ describe('createAudioClickEmitter — playback', () => {
     emitter.emit(beat({ beatIndex: 1 }));
     const player = forSource('tick.wav')[0] as FakePlayer;
     player.failOnSeek = true;
+    player.playing = false; // the click itself has already finished
 
-    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    clock.advanceBy(CLICK_REWIND_POLL_MS);
     for (let i = 0; i < 4; i += 1) await flushMicrotasks(); // rejection propagates through an extra .then()/.catch() hop
 
     emitter.emit(beat({ beatIndex: 2 })); // the rejected seek must not have cleared busy
     expect(player.calls.filter((c) => c === 'play')).toHaveLength(1);
 
-    clock.advanceBy(CLICK_REWIND_DELAY_MS); // the retried seekTo, which now succeeds
+    clock.advanceBy(CLICK_REWIND_POLL_MS); // the retried seekTo, which now succeeds
     await flushMicrotasks();
     await flushMicrotasks();
 
@@ -479,7 +554,8 @@ describe('createAudioClickEmitter — playback', () => {
 
     for (let i = 1; i <= 4; i += 1) {
       emitter.emit(beat({ beatIndex: i, barBeat: i % 4 || 1 }));
-      clock.advanceBy(CLICK_REWIND_DELAY_MS);
+      for (const voice of forSource('tick.wav') as FakePlayer[]) voice.playing = false;
+      clock.advanceBy(CLICK_REWIND_POLL_MS);
       await flushMicrotasks();
       await flushMicrotasks();
     }
@@ -572,7 +648,7 @@ describe('createAudioClickEmitter — teardown', () => {
     const player = played()[0];
 
     emitter.dispose?.();
-    clock.advanceBy(CLICK_REWIND_DELAY_MS * 2);
+    clock.advanceBy(CLICK_REWIND_MAX_WAIT_MS * 2);
 
     expect(player.calls).toEqual(['play']); // no seekTo after dispose
     expect(player.removed).toBe(true);
@@ -580,16 +656,17 @@ describe('createAudioClickEmitter — teardown', () => {
 });
 
 describe('createAudioClickEmitter — diagnostics (FLE-77)', () => {
-  it('reports a clean run as zero no-ops, zero rejections, zero starved beats', async () => {
+  it('reports a clean run as zero no-ops, zero rejections, zero starved, zero still-playing', async () => {
     const clock = new MultiTimerClock();
-    const { audio } = createFakeAudio();
+    const { audio, played } = createFakeAudio();
     const emitter = createAudioClickEmitter(audio, SOURCES, {
       setTimer: clock.setTimer,
       clearTimer: clock.clearTimer,
     });
 
     emitter.emit(beat({ beatIndex: 1 }));
-    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    played()[0].playing = false;
+    clock.advanceBy(CLICK_REWIND_POLL_MS);
     await flushMicrotasks();
     await flushMicrotasks();
 
@@ -598,12 +675,13 @@ describe('createAudioClickEmitter — diagnostics (FLE-77)', () => {
     expect(diagnostics?.nonZeroRewinds).toBe(0);
     expect(diagnostics?.rewindErrors).toBe(0);
     expect(diagnostics?.starvedBeats).toBe(0);
+    expect(diagnostics?.stillPlayingSeeks).toBe(0);
   });
 
   it('measures seekTo latency off the injected clock, not a guess', async () => {
     const clock = new MultiTimerClock();
     let wallClockMs = 0;
-    const { audio } = createFakeAudio();
+    const { audio, played } = createFakeAudio();
     const emitter = createAudioClickEmitter(audio, SOURCES, {
       voicesPerSound: 1,
       setTimer: clock.setTimer,
@@ -612,7 +690,8 @@ describe('createAudioClickEmitter — diagnostics (FLE-77)', () => {
     });
 
     emitter.emit(beat({ beatIndex: 1 }));
-    clock.advanceBy(CLICK_REWIND_DELAY_MS);
+    played()[0].playing = false;
+    clock.advanceBy(CLICK_REWIND_POLL_MS);
     wallClockMs = 42; // the seekTo call "took" 42ms to resolve, from now()'s perspective
     await flushMicrotasks();
     await flushMicrotasks();
@@ -630,9 +709,10 @@ describe('formatVoicePoolDiagnostics', () => {
       nonZeroRewinds: 0,
       rewindErrors: 0,
       starvedBeats: 0,
+      stillPlayingSeeks: 0,
     });
 
-    expect(line).toBe('120 seeks · p50 8ms / p95 24ms · 0 no-op · 0 rejected · 0 starved');
+    expect(line).toBe('120 seeks · p50 8ms / p95 24ms · 0 no-op · 0 rejected · 0 starved · 0 still-playing');
   });
 });
 
