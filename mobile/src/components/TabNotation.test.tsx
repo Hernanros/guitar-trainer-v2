@@ -134,6 +134,39 @@ describe('string-to-y position mapping', () => {
 // 5–16 and fails here.
 // ---------------------------------------------------------------------------
 
+/**
+ * Every piece of text rendered in the tree, in document order.
+ *
+ * RNTL's `getByText` is not usable here: react-native-svg renders `<SvgText>`
+ * to a host `RNSVGText`/`RNSVGTSpan` pair and puts the glyphs in a `content`
+ * *prop* rather than in children, while RNTL's text queries match React Native
+ * `Text` nodes. Reading `props.content` off the tree is what actually sees a
+ * fret label (or any other SvgText glyph — bend suffixes, bracket labels, etc).
+ *
+ * This also picks up the six string-name labels from the tuning (e, B, G, D,
+ * A, E), which is why the assertions below filter for the specific frets they
+ * care about instead of counting everything.
+ */
+const renderedStrings = (view: { toJSON: () => unknown }): string[] => {
+  const out: string[] = [];
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+
+    const { props, children } = node as {
+      props?: { content?: unknown };
+      children?: unknown;
+    };
+    if (typeof props?.content === 'string') out.push(props.content);
+    if (children != null) walk(children);
+  };
+  walk(view.toJSON());
+  return out;
+};
+
 describe('TabNotation multi-measure rendering', () => {
   /** One measure of four beats, one note per beat, frets taken in order. */
   const makeMeasure = (frets: number[]): MeasureT =>
@@ -155,39 +188,6 @@ describe('TabNotation multi-measure rendering', () => {
       makeMeasure(FRETS.slice(12, 16)),
     ],
   } as Tab;
-
-  /**
-   * Every piece of text rendered in the tree, in document order.
-   *
-   * RNTL's `getByText` is not usable here: react-native-svg renders `<SvgText>`
-   * to a host `RNSVGText`/`RNSVGTSpan` pair and puts the glyphs in a `content`
-   * *prop* rather than in children, while RNTL's text queries match React Native
-   * `Text` nodes. Reading `props.content` off the tree is what actually sees a
-   * fret label.
-   *
-   * This also picks up the six string-name labels from the tuning (e, B, G, D,
-   * A, E), which is why the assertions below filter for the specific frets they
-   * care about instead of counting everything.
-   */
-  const renderedStrings = (view: { toJSON: () => unknown }): string[] => {
-    const out: string[] = [];
-    const walk = (node: unknown): void => {
-      if (Array.isArray(node)) {
-        node.forEach(walk);
-        return;
-      }
-      if (!node || typeof node !== 'object') return;
-
-      const { props, children } = node as {
-        props?: { content?: unknown };
-        children?: unknown;
-      };
-      if (typeof props?.content === 'string') out.push(props.content);
-      if (children != null) walk(children);
-    };
-    walk(view.toJSON());
-    return out;
-  };
 
   it('renders every measure, not just measures[0]', async () => {
     const view = await render(<TabNotation tab={fourMeasureTab} />);
@@ -218,5 +218,158 @@ describe('TabNotation multi-measure rendering', () => {
     for (const fret of [2, 4, 6, 8]) {
       expect(labels.filter((l) => l === String(fret))).toHaveLength(1);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Width from content — FLE-105 §9.1 / FLE-116
+//
+// FLE-103 §1b measured that MEASURE_WIDTH was hardcoded to four beats while beats laid out
+// unbounded, so a bar with more than four beats' worth of content overprinted its neighbour.
+// These pin the replacement formula directly (mirrors TabNotation.tsx's columnWidth/
+// measureWidth) rather than re-deriving it, the same documentation-with-an-assertion pattern
+// as the "layout constants" block above.
+// ---------------------------------------------------------------------------
+
+describe('width from content', () => {
+  const MIN_COLUMN = 20;
+  const BEAT_WIDTH = 48;
+  const LEFT_MARGIN = 30;
+  const DURATION_BEATS: Record<string, number> = {
+    quarter: 1,
+    eighth: 0.5,
+    sixteenth: 0.25,
+    'thirty-second': 0.125,
+  };
+  const columnWidth = (d: string) => Math.max(MIN_COLUMN, BEAT_WIDTH * DURATION_BEATS[d]);
+  const measureWidth = (durations: string[]) =>
+    LEFT_MARGIN + durations.reduce((w, d) => w + columnWidth(d), 0) + 8;
+
+  it('four quarter notes reproduce the old fixed 4-beat measure width', () => {
+    // 230 is the Phase 1 MEASURE_WIDTH this formula replaces — the common case must not move.
+    expect(measureWidth(['quarter', 'quarter', 'quarter', 'quarter'])).toBe(230);
+  });
+
+  it('a bar of 16 sixteenth notes is wider than the old fixed measure, not clipped to it', () => {
+    const sixteen = Array.from({ length: 16 }, () => 'sixteenth');
+    // Old behaviour laid all 16 out at BEAT_WIDTH each inside a box sized for 4 — this is the
+    // 100%-overprint failure mode FLE-105 §9 names. The new width must scale with content.
+    expect(measureWidth(sixteen)).toBeGreaterThan(230);
+    expect(measureWidth(sixteen)).toBe(30 + 16 * 20 + 8); // MIN_COLUMN clamps 48*0.25=12 up to 20
+  });
+
+  it('MIN_COLUMN clamps a thirty-second note column instead of collapsing it', () => {
+    expect(columnWidth('thirty-second')).toBe(20); // 48 * 0.125 = 6, clamped up to MIN_COLUMN
+  });
+
+  it('a short bar (e.g. one whole note) is narrower, not padded to the old fixed width', () => {
+    expect(measureWidth(['quarter'])).toBeLessThan(230);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2 glyphs — FLE-105 §9.2 / FLE-116
+//
+// Only the items the spec calls load-bearing rather than decorative: the setup line (tuning,
+// capo, feel each render independently of the others — a `feel`/`capo` that reaches the data
+// but not the staff head is the same defect as the `tuning: standard` failure on Wonderwall),
+// the let_ring bracket (the entire sustain story for the fingerstyle catalog), and `b¼`/"curl".
+// ---------------------------------------------------------------------------
+
+describe('v2 glyphs', () => {
+  const oneNoteMeasure = (note: Record<string, unknown>): MeasureT =>
+    ({
+      beats: [{ notes: [note] }],
+      time_signature: '4/4',
+    }) as MeasureT;
+
+  it('renders the capo badge on standard tuning — gating it on non-standard tuning would show nothing for Wonderwall', async () => {
+    const tab = {
+      measures: [oneNoteMeasure({ string: 1, fret: 0, duration: 'quarter' })],
+      tuning: ['E', 'A', 'D', 'G', 'B', 'e'],
+      capo: 2,
+    } as Tab;
+    const view = await render(<TabNotation tab={tab} />);
+
+    expect(view.getByText('Capo II')).toBeTruthy();
+    expect(view.queryByText(/^Tuning:/)).toBeNull();
+  });
+
+  it('renders the feel badge independently of tuning and capo', async () => {
+    const tab = {
+      measures: [oneNoteMeasure({ string: 1, fret: 0, duration: 'quarter' })],
+      feel: 'swing',
+    } as Tab;
+    const view = await render(<TabNotation tab={tab} />);
+
+    expect(view.getByText('Swing 8ths')).toBeTruthy();
+  });
+
+  it('draws nothing for feel: "straight" — a marking that always renders teaches nobody', async () => {
+    const tab = {
+      measures: [oneNoteMeasure({ string: 1, fret: 0, duration: 'quarter' })],
+      feel: 'straight',
+    } as Tab;
+    const view = await render(<TabNotation tab={tab} />);
+
+    expect(view.queryByText('Swing 8ths')).toBeNull();
+    expect(view.queryByText('Shuffle')).toBeNull();
+  });
+
+  it('draws one let_ring bracket spanning a contiguous run, not one per note', async () => {
+    const tab = {
+      measures: [
+        {
+          beats: [
+            { notes: [{ string: 6, fret: 0, duration: 'quarter', effects: ['let_ring'] }] },
+            { notes: [{ string: 6, fret: 0, duration: 'quarter', effects: ['let_ring'] }] },
+            { notes: [{ string: 1, fret: 5, duration: 'quarter' }] },
+          ],
+          time_signature: '4/4',
+        },
+      ],
+    } as Tab;
+    const view = await render(<TabNotation tab={tab} />);
+    const labels = renderedStrings(view);
+
+    expect(labels.filter((l) => l === 'let ring')).toHaveLength(1);
+  });
+
+  it('labels a 0.25-semitone bend "b¼", never "quarter-tone bend"', async () => {
+    const tab = {
+      measures: [
+        oneNoteMeasure({
+          string: 3,
+          fret: 7,
+          duration: 'quarter',
+          bend: { semitones: 0.25, kind: 'bend' },
+        }),
+      ],
+    } as Tab;
+    const view = await render(<TabNotation tab={tab} />);
+    const labels = renderedStrings(view);
+
+    expect(labels.filter((l) => l === 'b¼')).toHaveLength(1);
+    expect(labels.some((l) => l.toLowerCase().includes('quarter-tone'))).toBe(false);
+  });
+
+  it('degrades an unknown link_to_next value to the bare fret number instead of crashing', async () => {
+    const tab = {
+      measures: [
+        {
+          beats: [
+            { notes: [{ string: 1, fret: 3, duration: 'quarter', link_to_next: 'future_link' }] },
+            { notes: [{ string: 1, fret: 5, duration: 'quarter' }] },
+          ],
+          time_signature: '4/4',
+        },
+      ],
+    } as Tab;
+
+    const view = await render(<TabNotation tab={tab} />);
+    const labels = renderedStrings(view);
+
+    expect(labels.filter((l) => l === '3')).toHaveLength(1);
+    expect(labels.filter((l) => l === '5')).toHaveLength(1);
   });
 });

@@ -7,7 +7,10 @@ import { View, StyleSheet } from 'react-native';
 import { Svg, G, Line, Circle, Text, Rect } from 'react-native-svg';
 import type { components } from '../api/generated/schema';
 
-type Chord = components['schemas']['Chord'];
+// FLE-105 §7.2 / FLE-116: `sounding_name` is declared locally, same as TabNotation.tsx's v2
+// additions — schema.d.ts regeneration is blocked on FLE-115 landing, and the field is
+// optional-with-default so this stays assignable against both today's and tomorrow's API shape.
+type Chord = components['schemas']['Chord'] & { sounding_name?: string | null };
 type ChordPosition = components['schemas']['ChordPosition'];
 
 // Layout constants — from RESEARCH.md Pattern 9
@@ -22,16 +25,21 @@ export function ChordDiagram({ chord }: { chord: Chord }) {
   const gridWidth = (STRINGS - 1) * STRING_SPACING;
   const gridHeight = FRETS_SHOWN * FRET_SPACING;
   const svgWidth = gridWidth + PADDING_LEFT * 2;
-  const svgHeight = gridHeight + PADDING_TOP + 20; // 20px bottom padding
+  // FLE-105 §7.2 / FLE-116: `sounding_name` ("sounds F#m7") draws beneath the full-size shape
+  // name, same treatment as TabNotation's capo badge — it needs its own row, so top padding
+  // grows by one line only when the field is set (capo == 0 songs are unaffected).
+  const EXTRA_TOP = chord.sounding_name ? 16 : 0;
+  const topPadding = PADDING_TOP + EXTRA_TOP;
+  const svgHeight = gridHeight + topPadding + 20; // 20px bottom padding
 
   return (
     <View style={styles.wrapper}>
       <Svg width={svgWidth} height={svgHeight}>
-        <G translateX={PADDING_LEFT} translateY={PADDING_TOP}>
-          {/* Chord name label */}
+        <G translateX={PADDING_LEFT} translateY={topPadding}>
+          {/* Chord name label — the shape as fingered, e.g. "Em7" (§7.2) */}
           <Text
             x={gridWidth / 2}
-            y={-22}
+            y={-22 - EXTRA_TOP}
             textAnchor="middle"
             fontSize={14}
             fontWeight="bold"
@@ -39,6 +47,19 @@ export function ChordDiagram({ chord }: { chord: Chord }) {
           >
             {chord.name}
           </Text>
+
+          {/* Sounding name — the absolute pitch under a capo, e.g. "sounds F#m7" (§7.2) */}
+          {chord.sounding_name && (
+            <Text
+              x={gridWidth / 2}
+              y={-20}
+              textAnchor="middle"
+              fontSize={10}
+              fill="#999"
+            >
+              {`sounds ${chord.sounding_name}`}
+            </Text>
+          )}
 
           {/* Base fret label (only when chord window starts above fret 1) */}
           {chord.base_fret > 1 && (
