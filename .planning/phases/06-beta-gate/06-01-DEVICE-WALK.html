@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fletcher — Cold-Start Walk</title>
+<style>
+  :root {
+    --bg: #0f1114;
+    --panel: #171a1f;
+    --panel2: #1d2128;
+    --line: #2a2f38;
+    --text: #e6e8ec;
+    --dim: #949aa6;
+    --faint: #6b7280;
+    --pass: #3fb950;
+    --fail: #f85149;
+    --na: #8b949e;
+    --accent: #58a6ff;
+    --warn: #d29922;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #ffffff; --panel2: #f0f2f5; --line: #d8dce3;
+      --text: #14171c; --dim: #5a6270; --faint: #8b93a1; --accent: #0969da;
+      --pass: #1a7f37; --fail: #cf222e; --na: #6e7781; --warn: #9a6700;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 0 0 6rem;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+
+  header.top {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    backdrop-filter: saturate(1.6) blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 10px 0; flex-wrap: wrap; }
+  .topbar h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  .topbar .sub { color: var(--faint); font-size: 12px; font-family: var(--mono); }
+  .spacer { flex: 1 1 auto; }
+  .bar { height: 4px; background: var(--line); border-radius: 99px; overflow: hidden; width: 100%; margin-bottom: 8px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .18s ease; }
+  .counts { font-family: var(--mono); font-size: 12px; color: var(--dim); white-space: nowrap; }
+  .counts b { color: var(--text); font-weight: 600; }
+  .counts .p { color: var(--pass); } .counts .f { color: var(--fail); }
+
+  button.btn {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 11px; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  button.btn:hover { border-color: var(--accent); }
+  button.btn.danger:hover { border-color: var(--fail); color: var(--fail); }
+
+  section.item {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    margin: 14px 0; overflow: hidden;
+  }
+  section.item > h2 {
+    margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -0.01em;
+    padding: 13px 16px; display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid var(--line); background: var(--panel2);
+  }
+  section.item > h2 .tag {
+    font-family: var(--mono); font-size: 11px; color: var(--faint);
+    border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-weight: 500;
+  }
+  section.item > h2 .done { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  section.item[data-complete="1"] > h2 .done { color: var(--pass); }
+  .body { padding: 6px 16px 14px; }
+
+  .row { display: flex; gap: 11px; padding: 9px 0; border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); align-items: flex-start; }
+  .row:first-child { border-top: 0; }
+  .row .lab { flex: 1 1 auto; min-width: 0; }
+  .row .lab .key { font-family: var(--mono); color: var(--faint); font-size: 12px; margin-right: 6px; }
+  .row.checked .lab { color: var(--dim); }
+  .row.checked .lab .txt { text-decoration: line-through; text-decoration-color: var(--faint); }
+
+  input[type=checkbox].cb {
+    appearance: none; flex: 0 0 auto; width: 21px; height: 21px; margin: 1px 0 0;
+    border: 1.5px solid var(--faint); border-radius: 6px; background: transparent; cursor: pointer;
+    position: relative; transition: background .12s, border-color .12s;
+  }
+  input[type=checkbox].cb:checked { background: var(--pass); border-color: var(--pass); }
+  input[type=checkbox].cb:checked::after {
+    content: ""; position: absolute; left: 6.5px; top: 2.5px; width: 5px; height: 10px;
+    border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(42deg);
+  }
+
+  .verdict { display: flex; gap: 5px; flex: 0 0 auto; }
+  .verdict button {
+    font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .04em;
+    border: 1px solid var(--line); background: transparent; color: var(--faint);
+    border-radius: 6px; padding: 4px 8px; cursor: pointer; min-width: 44px;
+  }
+  .verdict button[aria-pressed=true][data-v=PASS] { background: var(--pass); border-color: var(--pass); color: #fff; }
+  .verdict button[aria-pressed=true][data-v=FAIL] { background: var(--fail); border-color: var(--fail); color: #fff; }
+  .verdict button[aria-pressed=true][data-v="N/A"] { background: var(--na); border-color: var(--na); color: #fff; }
+
+  textarea, input[type=text] {
+    width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 9px; font: 13px/1.45 var(--mono); resize: vertical;
+    margin-top: 7px;
+  }
+  textarea { min-height: 38px; }
+  textarea:focus, input[type=text]:focus { outline: none; border-color: var(--accent); }
+  .fieldrow { display: flex; gap: 10px; flex-wrap: wrap; }
+  .fieldrow > label { flex: 1 1 170px; min-width: 0; }
+  .fieldrow > label > span { display: block; font-size: 12px; color: var(--dim); }
+  .fieldrow > label input { margin-top: 4px; }
+
+  details.why { margin: 2px 0 0; }
+  details.why > summary {
+    cursor: pointer; font-size: 12px; color: var(--accent); list-style: none;
+    display: inline-flex; align-items: center; gap: 4px; padding: 3px 0; user-select: none;
+  }
+  details.why > summary::-webkit-details-marker { display: none; }
+  details.why > summary::before { content: "▸"; font-size: 9px; transition: transform .12s; }
+  details.why[open] > summary::before { transform: rotate(90deg); }
+  details.why .inner {
+    font-size: 13px; color: var(--dim); border-left: 2px solid var(--line);
+    padding: 3px 0 3px 11px; margin: 4px 0 6px;
+  }
+  details.why .inner p { margin: 0 0 7px; }
+  details.why .inner p:last-child { margin-bottom: 0; }
+  code { font-family: var(--mono); font-size: 12px; background: var(--panel2); padding: 1px 4px; border-radius: 4px; }
+
+  .callout { border-radius: 8px; padding: 9px 11px; font-size: 13px; margin: 9px 0; border: 1px solid; }
+  .callout.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 9%, transparent); }
+  .callout.info { border-color: var(--line); background: var(--panel2); color: var(--dim); }
+  .callout.crit { border-color: color-mix(in srgb, var(--fail) 45%, var(--line)); background: color-mix(in srgb, var(--fail) 9%, transparent); }
+  .callout b { color: var(--text); }
+
+  pre.snip {
+    position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 40px 10px 11px; margin: 8px 0; overflow-x: auto;
+    font: 12px/1.5 var(--mono); color: var(--text);
+  }
+  pre.snip button.copy {
+    position: absolute; top: 6px; right: 6px; font-size: 10px; font-family: var(--mono);
+    background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 5px; padding: 3px 6px; cursor: pointer;
+  }
+  pre.snip button.copy:hover { color: var(--text); border-color: var(--accent); }
+  .sub-l { color: var(--faint); font-size: 12px; margin: 10px 0 2px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+
+  footer.out { margin-top: 22px; }
+  #export { width: 100%; min-height: 220px; }
+  .muted { color: var(--faint); font-size: 12px; }
+  a { color: var(--accent); }
+  .toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(8px);
+    background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+    padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; pointer-events: none;
+    transition: opacity .18s, transform .18s; z-index: 99;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="topbar">
+      <h1>Fletcher — Cold-Start Walk</h1>
+      <span class="sub">06-01 · FLE-93 — signup → first session, brand-new account</span>
+      <span class="spacer"></span>
+      <span class="counts" id="counts"></span>
+      <button class="btn" id="btn-export">Sign-off</button>
+      <button class="btn danger" id="btn-reset">Reset</button>
+    </div>
+    <div class="bar"><i id="progbar"></i></div>
+  </div>
+</header>
+
+<main class="wrap" id="app"></main>
+
+<footer class="wrap out">
+  <div class="sub-l">Sign-off output</div>
+  <p class="muted"><b>Nothing you type here leaves this browser until you press “Copy sign-off”.</b> Press it when you’re done and paste the result into the FLE-93 thread.</p>
+  <textarea id="export" readonly spellcheck="false"></textarea>
+  <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+    <button class="btn" id="btn-copy">Copy sign-off</button>
+    <button class="btn" id="btn-save">Download .md</button>
+    <span class="spacer"></span>
+    <span class="muted">OTA shipped to preview/4d91c7cb ~2026-10-04 17:4x UTC · saves to this browser</span>
+  </div>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+const STORE = "fletcher-coldstartwalk-v1";
+let S = {};
+try { S = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { S = {}; }
+
+const get = (k, d) => (k in S ? S[k] : d);
+function set(k, v) { S[k] = v; localStorage.setItem(STORE, JSON.stringify(S)); refresh(); }
+
+// --- walk definition -------------------------------------------------------
+// t: check | verdict | fields | why | callout | snip | sub
+const WALK = [
+{ id: "setup", tag: "pre-flight", title: "Setup — read this first, there's a reinstall step", rows: [
+  { t: "callout", k: "info", html: "<b>Why this walk exists.</b> Every walk to date ran on your existing account (<code>c8c758e4…</code>), which already has songs, a skill graph, and cached breakdowns. Nobody has walked <b>signup → first session on a genuinely empty account</b> on hardware. <a href=\"/FLE/issues/FLE-91\">FLE-91</a> did the API-level version of this on two throwaway accounts and surfaced real findings — this walk is you doing it for real, through the app's own screens, on the fixed build." },
+  { t: "callout", k: "warn", html: "<b>“Re-run onboarding” in Settings is NOT a new account — skip it.</b> It wipes your songs and re-asks the wizard, but keeps your existing <code>user_id</code>, so the server still sees the same returning user. The only way to get a truly new <code>user_id</code> without a new EAS build is: <b>delete the app from your phone, then reinstall it from the same install link you already used</b> (the one from <a href=\"/FLE/issues/FLE-94\">FLE-94</a>'s outside-install test, or your existing internal-distribution link) — not a new TestFlight/EAS build, just the app you already have, reinstalled. Deleting the app wipes its on-device storage, so the device generates a fresh UUID on next launch and the server has never seen it." },
+  { t: "callout", k: "crit", html: "<b>Enforcement can't flip under you mid-walk.</b> The $0.19/breakdown cost cap (<a href=\"/FLE/issues/FLE-92\">FLE-92</a>) is confirmed off in prod and held off for as long as this issue stays <code>in_progress</code> — so you won't get locked out partway through for hitting a quota. If you see any cap/quota message at all, that itself is a finding worth reporting, not something expected." },
+  { t: "fields", f: [
+      { id: "uuid", label: "New device UUID (Settings, once you reach it)", ph: "fill in after reinstall" } ] },
+  { t: "check", id: "s1", label: "Deleted the app from the phone (not just force-quit)" },
+  { t: "check", id: "s2", label: "Reinstalled from the same install link — no new build, no Xcode, no TestFlight re-download of a different build" },
+  { t: "check", id: "s3", label: "First launch after reinstall lands on the Welcome screen (“Meet Fletcher.”), not the Today tab",
+    why: "If it lands on Today instead, the old storage wasn't actually cleared — the delete didn't take, or iOS restored it from a backup. Stop and say so rather than walking a non-fresh account." },
+  { t: "check", id: "s4", label: "Settings → Dev bundle stamp (visit it once you're past onboarding) names a recent update, not “embedded”",
+    why: "If it says embedded, tap Check for update, force-quit, relaunch. The fix this walk depends on (the onboarding network-timeout fix, FLE-93) only ships as that update." },
+  { t: "verdict", id: "s0v", label: "Pre-flight clean — genuinely new account, right bundle" },
+]},
+
+{ id: "i1", tag: "item 1", title: "Signup wizard → first account created", rows: [
+  { t: "why", label: "What's actually being created here", html: "<p>There's no username/password — tapping through the wizard to “Complete” is the entire signup. The last screen's Complete tap fires <code>POST /api/v1/users</code>, which runs a Sonnet call to parse whatever you typed into a skill graph. <a href=\"/FLE/issues/FLE-91\">FLE-91</a> found this call took <b>68-70s</b> end-to-end on realistic answers (it retries once at a widened server timeout) and the client had no timeout override for it — unlike the breakdown call, which does. That gap is exactly what <a href=\"/FLE/issues/FLE-93\">FLE-93</a>'s fix (now in the build you just installed) covers: a 150s client-side allowance so the request isn't aborted mid-retry.</p>" },
+  { t: "check", id: "i1a", label: "Tap through Welcome → “What can you play” → “What are you working on” → “Aspirational songs” → Preferences",
+    why: "Answer for real or leave fields blank — both are real pilot paths FLE-91 tested. Either way is fine; just note which you did in the verdict note." },
+  { t: "check", id: "i1b", label: "Tap Complete — note the time you tapped it" },
+  { t: "check", id: "i1c", label: "App does not show a bare “Network request failed” or crash during the wait" },
+  { t: "check", id: "i1d", label: "Note the time the app actually moved past the wait (Today tab appears, or an error screen does)" },
+  { t: "verdict", id: "i1v", label: "Onboarding completes end-to-end — a wait, then the Today tab, no bare network error" },
+]},
+
+{ id: "i2", tag: "item 2", title: "Picked a song → can practice (a number you've already seen)", rows: [
+  { t: "callout", k: "info", html: "<b>FLE-91 already measured this wait so you're not walking in blind.</b> Across 3 live cold-start breakdown calls on throwaway accounts: <b>min 51.7s, median 64.5s, max 69.1s</b> from tapping into a song's breakdown to it rendering — a live model call, not a cache hit, because a brand-new account has nothing cached yet. That's roughly the same ballpark as onboarding's own wait in item 1. The question for you isn't whether it's fast — it isn't — it's whether what's on screen while it's happening makes that wait feel broken or just makes you wait." },
+  { t: "check", id: "i2a", label: "From Today, tap into the song's breakdown (tab/chords)" },
+  { t: "check", id: "i2b", label: "Something on screen changes within a couple seconds of tapping — a spinner, skeleton, or loading message, not a frozen screen" },
+  { t: "check", id: "i2c", label: "Note how long the wait actually was for you, start to finish" },
+  { t: "verdict", id: "i2v", label: "A wait this long, with whatever loading state you saw, is acceptable for a stranger's first launch",
+    why: "FLE-91's own verdict was: tolerable as a one-time cost IF the loading state reads clearly as \"working,\" not \"stuck.\" You're the one who gets to actually call that, on real hardware." },
+]},
+
+{ id: "i3", tag: "item 3", title: "First session, start to finish", rows: [
+  { t: "check", id: "i3a", label: "From Today, start today's session" },
+  { t: "check", id: "i3b", label: "Work through every item in the session (warm-up, technique drill(s), consolidation) without a dead end" },
+  { t: "check", id: "i3c", label: "If you hit a screen that says there's nothing to practice, or a 409/error instead of a session, note exactly what you typed (or didn't) in the wizard — that's a known rough edge for accounts with no can_play songs and no working_on, not something to suppress, just context for the report" },
+  { t: "check", id: "i3d", label: "Session reaches a completion / summary screen, not a bounce back to an empty Today" },
+  { t: "verdict", id: "i3v", label: "A brand-new account reaches a genuinely completed first session" },
+]},
+
+{ id: "i4", tag: "item 4", title: "Metronome by ear, at the top of a tempo ladder (FLE-77)", rows: [
+  { t: "why", label: "Why this needs your ear specifically", html: "<p><a href=\"/FLE/issues/FLE-77\">FLE-77</a> has gone through three fix passes today — the latest replaces a fixed rewind delay with a poll of the native player's own \"still playing\" flag, specifically to stop a voice being re-seeked while its audio is still in flight at speed. Diagnostics can confirm the scheduling logs look clean; they can't confirm the click sounds right. This item folds that check into this sitting rather than costing you a separate one.</p>" },
+  { t: "check", id: "i4a", label: "Open any drill with a tempo ladder and run it up to its fastest rung (the top BPM, not the starting one)" },
+  { t: "check", id: "i4b", label: "Let the click run at least 60 seconds at that top rung" },
+  { t: "check", id: "i4c", label: "No beat sounds doubled (a fast \"ta-ta\" where there should be one click)" },
+  { t: "check", id: "i4d", label: "No beat goes silent / drops out" },
+  { t: "verdict", id: "i4v", label: "The click holds steady by ear for a full 60s run at the fastest rung" },
+]},
+
+{ id: "signoff", tag: "close", title: "Sign-off", rows: [
+  { t: "callout", k: "warn", html: "<b>Screenshot every failure.</b> A fail that only happens sometimes is the most useful thing on this page." },
+  { t: "check", id: "so1", label: "Screenshot captured for every FAIL above" },
+  { t: "fields", f: [
+      { id: "sostamp", label: "Bundle stamp from Settings → Dev", ph: "paste it" },
+      { id: "sosignal", label: "Signal", ph: "approved / fail: <items> / blocked: <why>" } ] },
+  { t: "verdict", id: "sov", label: "Walk complete and signed off" },
+  { t: "callout", k: "crit", html: "<b>Now press “Copy sign-off” at the bottom and paste it into the FLE-93 thread.</b> Everything on this page lives in this browser only until that button is pressed — not a verbal yes, not silence." },
+]},
+];
+
+// --- render ----------------------------------------------------------------
+const el = (t, c, h) => { const n = document.createElement(t); if (c) n.className = c; if (h != null) n.innerHTML = h; return n; };
+const scored = r => r.t === "check" || r.t === "verdict";
+const isDone = r => r.t === "check" ? !!get(r.id, false) : !!get(r.id, "");
+
+const OPEN = new Set();
+function whyBlock(key, label, html) {
+  const d = el("details", "why");
+  d.appendChild(el("summary", null, label || "Why / what passes"));
+  d.appendChild(el("div", "inner", html));
+  d.open = OPEN.has(key);
+  d.addEventListener("toggle", () => { d.open ? OPEN.add(key) : OPEN.delete(key); });
+  return d;
+}
+
+function renderRow(row, key) {
+  if (row.t === "callout") return el("div", "callout " + (row.k || "info"), row.html);
+  if (row.t === "sub") return el("div", "sub-l", row.label);
+  if (row.t === "why") return whyBlock(key, row.label, row.html);
+
+  if (row.t === "fields") {
+    const box = el("div", "fieldrow");
+    row.f.forEach(f => {
+      const lab = el("label");
+      lab.appendChild(el("span", null, f.label));
+      const inp = el("input");
+      inp.type = "text"; inp.placeholder = f.ph || ""; inp.value = get(f.id, "");
+      inp.oninput = () => { S[f.id] = inp.value; localStorage.setItem(STORE, JSON.stringify(S)); softRefresh(); };
+      lab.appendChild(inp);
+      box.appendChild(lab);
+    });
+    return box;
+  }
+
+  if (row.t === "check") {
+    const r = el("div", "row" + (get(row.id, false) ? " checked" : ""));
+    const cb = el("input", "cb"); cb.type = "checkbox"; cb.checked = get(row.id, false);
+    cb.onchange = () => set(row.id, cb.checked);
+    r.appendChild(cb);
+    const lab = el("div", "lab");
+    lab.appendChild(el("span", "txt", row.label));
+    if (row.why) lab.appendChild(whyBlock(key, "why", row.why));
+    lab.onclick = e => { if (e.target.closest("details")) return; cb.checked = !cb.checked; set(row.id, cb.checked); };
+    r.appendChild(lab);
+    return r;
+  }
+
+  if (row.t === "verdict") {
+    const cur = get(row.id, "");
+    const r = el("div", "row" + (cur ? " checked" : ""));
+    const lab = el("div", "lab");
+    lab.appendChild(el("span", "txt", row.label));
+    const ta = el("textarea");
+    ta.placeholder = "Observed — what actually happened, not what was expected";
+    ta.value = get(row.id + "_n", "");
+    ta.oninput = () => { S[row.id + "_n"] = ta.value; localStorage.setItem(STORE, JSON.stringify(S)); softRefresh(); };
+    lab.appendChild(ta);
+    if (row.why) lab.appendChild(whyBlock(key, "why", row.why));
+    r.appendChild(lab);
+    const v = el("div", "verdict");
+    ["PASS", "FAIL", "N/A"].forEach(val => {
+      const b = el("button", null, val);
+      b.dataset.v = val;
+      b.setAttribute("aria-pressed", String(cur === val));
+      b.onclick = () => set(row.id, cur === val ? "" : val);
+      v.appendChild(b);
+    });
+    r.appendChild(v);
+    return r;
+  }
+  return null;
+}
+
+function render() {
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+  WALK.forEach(sec => {
+    const visible = sec.rows;
+    const s = visible.filter(scored);
+    const node = el("section", "item");
+    const done = s.filter(isDone).length;
+    node.dataset.complete = s.length && done === s.length ? "1" : "0";
+    const h = el("h2");
+    h.appendChild(el("span", "tag", sec.tag));
+    h.appendChild(el("span", null, sec.title));
+    h.appendChild(el("span", "done", s.length ? done + "/" + s.length : ""));
+    node.appendChild(h);
+    const body = el("div", "body");
+    visible.forEach((row, i) => { const n = renderRow(row, sec.id + ":" + i); if (n) body.appendChild(n); });
+    node.appendChild(body);
+    app.appendChild(node);
+  });
+  stats();
+  buildExport();
+}
+
+function stats() {
+  let total = 0, done = 0, pass = 0, fail = 0;
+  WALK.forEach(sec => {
+    sec.rows.filter(scored).forEach(r => {
+      total++;
+      if (isDone(r)) done++;
+      if (r.t === "verdict") { const v = get(r.id, ""); if (v === "PASS") pass++; if (v === "FAIL") fail++; }
+    });
+  });
+  document.getElementById("progbar").style.width = total ? (done / total * 100) + "%" : "0";
+  document.getElementById("counts").innerHTML =
+    "<b>" + done + "</b>/" + total + " · <span class='p'>" + pass + " pass</span> · <span class='f'>" + fail + " fail</span>";
+}
+
+function refresh() { const y = window.scrollY; render(); window.scrollTo(0, y); }
+function softRefresh() { stats(); buildExport(); }
+
+// --- sign-off output -------------------------------------------------------
+function buildExport() {
+  const L = [];
+  L.push("# Fletcher cold-start walk — 06-01 (FLE-93: signup → first session, brand-new account)");
+  L.push("");
+  L.push("New device UUID: " + (get("uuid", "") || "—"));
+  L.push("Bundle stamp: " + (get("sostamp", "") || "—"));
+  L.push("");
+  WALK.forEach(sec => {
+    const visible = sec.rows;
+    const s = visible.filter(scored);
+    if (!s.length) return;
+    L.push("## " + sec.tag + " — " + sec.title);
+    visible.forEach(row => {
+      if (row.t === "check") L.push("- [" + (get(row.id, false) ? "x" : " ") + "] " + row.label);
+      else if (row.t === "verdict") {
+        const v = get(row.id, "") || "—";
+        L.push("- " + v.padEnd(4) + " · " + row.label);
+        const n = (get(row.id + "_n", "") || "").trim();
+        if (n) n.split("\n").forEach(line => L.push("      observed: " + line));
+      } else if (row.t === "fields") {
+        row.f.forEach(f => { const v = (get(f.id, "") || "").trim(); if (v) L.push("  " + f.label + ": " + v); });
+      }
+    });
+    L.push("");
+  });
+  L.push("signal: " + (get("sosignal", "") || "—"));
+  document.getElementById("export").value = L.join("\n");
+}
+
+let tm;
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(tm); tm = setTimeout(() => t.classList.remove("show"), 1400);
+}
+
+document.getElementById("btn-export").onclick = () =>
+  document.getElementById("export").scrollIntoView({ behavior: "smooth" });
+document.getElementById("btn-copy").onclick = () => {
+  navigator.clipboard.writeText(document.getElementById("export").value); toast("Sign-off copied");
+};
+document.getElementById("btn-save").onclick = () => {
+  const b = new Blob([document.getElementById("export").value], { type: "text/markdown" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(b); a.download = "cold-start-walk-signoff.md"; a.click();
+};
+document.getElementById("btn-reset").onclick = () => {
+  if (!confirm("Clear every check, verdict and note on this walk?")) return;
+  S = {}; localStorage.removeItem(STORE); refresh(); toast("Cleared");
+};
+
+render();
+</script>
+</body>
+</html>
