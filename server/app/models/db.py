@@ -291,6 +291,10 @@ class SongCatalog(Base):
     contract for difficulty / primary_skill_root / tuning is documented at the top of
     0007_song_catalog_tuning_and_expansion.py — read it before adding a row, because
     the session generator reads these fields and a sloppy tag becomes a bad session.
+    Migration 0015 added `rights_status`; its own tagging contract is at the top of
+    0015_song_catalog_rights_status.py. A new row MUST be added to that migration's
+    _RIGHTS_STATUS map too, or it silently inherits the 'unknown' default —
+    tests/test_alembic_0015.py::test_no_row_left_on_the_default fails if you forget.
     The spread is tabulated in
     .planning/quick/260915-01-expand-song-catalog/260915-01-CATALOG.md.
     """
@@ -320,6 +324,19 @@ class SongCatalog(Base):
     # `server_default` covers raw-SQL inserts, so the column is never None on read.
     tuning: Mapped[str] = mapped_column(
         String(32), nullable=False, default="standard", server_default=text("'standard'")
+    )
+    # Clip-eligibility / rights posture (migration 0015, FLE-51). One of
+    # ALLOWED_RIGHTS_STATUSES in that migration, enforced DB-side by
+    # song_catalog_rights_status_check. Same dual-default pattern as `tuning`.
+    #
+    # Records whether A USER'S OWN CLIP of this song is postable — NOT the
+    # composition-copyright tiers in 260915-01-CATALOG.md §4, which rank how
+    # likely a rights-holder is to act against *us* distributing generated tab.
+    # Different actor, different artefact. Read the migration header before
+    # using this to gate anything; a §4 "Tier 3 / standard risk" song is still
+    # un-postable to Instagram.
+    rights_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="unknown", server_default=text("'unknown'")
     )
     breakdown: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
