@@ -7,17 +7,29 @@
 //                  hides re-roll ghost button entirely.
 //
 // Phase 4 (D-05, D-06): breakdown_quota prop adds inline chip + disabled CTA state.
-//   - remaining >= 1: chip "{N} left this week" renders below CTA
-//   - remaining === 0: CTA disabled, label "Come back in {N} days" (derived from resets_at)
+//   - remaining >= 1: chip "{N} left today" renders below CTA
+//   - remaining === 0: CTA disabled, label "Back at midnight"
+//
+// FLE-92 — the quota is per local DAY, not per rolling week, so both strings name
+// the day. They used to be "{N} left this week" and "Come back in {N} days", the
+// second computed from resets_at by daysUntilReset(). Neither survives the change:
+// "this week" is now wrong, and a day count over a window that always ends tonight
+// rounds to "come back in 1 days" at every hour of the day. A fixed boundary can
+// just be named, so it is — no arithmetic, nothing to drift while the screen sits
+// open, and no resets_at parsing on this path at all.
 //
 // onTitlePress: optional prop — wraps the header/metadata region in a Pressable so the user can
 //   re-open the breakdown in read-only mode even after rating.
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { BreakdownQuota } from '../api/todaySong';
 import type { components } from '../api/generated/schema';
-import { daysUntilReset } from '../utils/quota';
 
 type SongResponse = components['schemas']['SongResponse'];
+
+// Shown on the disabled CTA when the user has spent today's allowance. Deliberately
+// states when it comes back rather than that it is gone: the old label named a
+// multi-day wait, which is what made a rationed feature read as a broken one.
+const CAP_REACHED_CTA_LABEL = 'Back at midnight';
 
 interface SongOfDayCardProps {
   song: SongResponse;
@@ -89,19 +101,19 @@ export function SongOfDayCard({
                 accessibilityRole="button"
                 accessibilityLabel={
                   breakdown_quota?.remaining === 0
-                    ? `Come back in ${daysUntilReset(breakdown_quota?.resets_at)} days`
+                    ? CAP_REACHED_CTA_LABEL
                     : 'See the breakdown'
                 }
               >
                 <Text style={styles.ctaText}>
                   {breakdown_quota?.remaining === 0
-                    ? `Come back in ${daysUntilReset(breakdown_quota?.resets_at)} days`
+                    ? CAP_REACHED_CTA_LABEL
                     : 'See the breakdown'}
                 </Text>
               </Pressable>
             )}
             {breakdown_quota && breakdown_quota.remaining >= 1 && (
-              <Text style={styles.quotaChip}>{breakdown_quota.remaining} left this week</Text>
+              <Text style={styles.quotaChip}>{breakdown_quota.remaining} left today</Text>
             )}
             {onReroll && (
               <Pressable

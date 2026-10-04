@@ -23,9 +23,15 @@ On AIBreakdownError (Sonnet failure after retry):
   - Return HTTP 503 with Fletcher-voiced detail
   - breakdown_generated_at stays NULL — next user tap retries
 
-On BudgetExceededError (Phase 4 — per-user 3/7d cap hit):
+On BudgetExceededError (per-user 5-per-local-day cap hit — FLE-92):
   - Return HTTP 429 with BREAKDOWN_CAPPED body (D-02 Fletcher voice)
   - No Sonnet dispatch occurred
+
+On PilotBudgetExhaustedError (global $25 pilot ceiling reached — FLE-92):
+  - Return HTTP 429 with PILOT_BUDGET_SPENT body
+  - Deliberately a DIFFERENT code from BREAKDOWN_CAPPED: the cap clears at
+    midnight and the ceiling does not clear at all without Hernan raising it, so
+    one message cannot serve both without lying to somebody.
 
 On AnthropicQuotaExceededError (Phase 4 — org-level Anthropic 429):
   - Return HTTP 503 with FLETCHER_OUT body (D-08)
@@ -41,7 +47,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.breakdown import AIBreakdownError, run_technique_breakdown
-from app.ai.governor import BudgetExceededError, AnthropicQuotaExceededError
+from app.ai.governor import (
+    AnthropicQuotaExceededError,
+    BudgetExceededError,
+    PilotBudgetExhaustedError,
+)
 from app.api.deps import get_tz_offset_minutes, get_user_id
 from app.db.session import get_db
 from app.models.db import SkillNode, Song, SongSkill, UserSession
@@ -50,6 +60,36 @@ from app.selectors.player_level import floor_player_level
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Limit copy (FLE-92 item 3) — review with Nadia before editing
+# ---------------------------------------------------------------------------
+# What the user used to hit was "Not my tempo. You've had 3 breakdowns this week.
+# Come back in 7 days." Three things were wrong with it:
+#
+#   - "Not my tempo" is the label on a RATING PILL in the player. Reusing it as an
+#     error heading made the refusal read as the app insulting the player's playing.
+#   - It named a wall a week wide with no stated reason, which a motivated user
+#     reads as "this feature is broken" rather than "this feature is rationed".
+#   - The day count was computed from a rolling window, so it drifted while the
+#     screen was open.
+#
+# Both strings below are deliberately plain about the fact that there IS a limit and
+# why. A rationed feature that says so keeps its credibility; one that just refuses
+# loses it. Mirrored verbatim in mobile/src/components/BreakdownErrorCard.tsx — the
+# server copy is what ships when the client is older than the server, so they have
+# to agree.
+CAPPED_MESSAGE_TEMPLATE = (
+    "That's your {cap} breakdowns for today. The counter resets at midnight — "
+    "go put the ones you've got into your hands."
+)
+
+PILOT_BUDGET_SPENT_MESSAGE = (
+    "Not you, and nothing's broken — Fletcher's beta runs on a fixed budget for "
+    "new breakdowns, and it's spent. Everything you've already pulled apart "
+    "still opens."
+)
 
 
 def _load_cached_breakdown(cached: dict) -> Breakdown:
@@ -149,7 +189,13 @@ async def get_breakdown(
     # override the @governed decorator and song-of-day quota use, or the
     # env switch silently fails to uncap the actual breakdown endpoint.
     # BudgetExceededError → 429 BREAKDOWN_CAPPED
-    from app.ai.governor import BREAKDOWN_CAP, _check_cap, effective_cap
+    from app.ai.governor import (
+        BREAKDOWN_CAP,
+        _check_cap,
+        _check_pilot_ceiling,
+        effective_cap,
+        effective_pilot_ceiling,
+    )
     from sqlalchemy import text as _text
 
     call_cap = effective_cap("breakdown", BREAKDOWN_CAP)
@@ -158,19 +204,11 @@ async def get_breakdown(
         if call_cap is not None:
             await _check_cap(db, user_id, "breakdown", call_cap)
     except BudgetExceededError as exc:
-        resets_at_dt = datetime.fromisoformat(exc.resets_at)
-        if resets_at_dt.tzinfo is None:
-            resets_at_dt = resets_at_dt.replace(tzinfo=timezone.utc)
-        days_remaining = max(0, (resets_at_dt - datetime.now(timezone.utc)).days + 1)
-        message = (
-            f"Not my tempo. You've had {call_cap} breakdowns this week. "
-            f"Come back in {days_remaining} days."
-        )
         raise HTTPException(
             status_code=429,
             detail={
                 "code": "BREAKDOWN_CAPPED",
-                "message": message,
+                "message": CAPPED_MESSAGE_TEMPLATE.format(cap=call_cap),
                 "resets_at": exc.resets_at,
             },
         )
@@ -190,11 +228,18 @@ async def get_breakdown(
         import uuid as _uuid
         from app.ai.client import SONNET_MODEL as _SONNET_MODEL
         cached_call_id = str(_uuid.uuid4())
+        # FLE-39: the actuals are written as explicit 0, not left NULL. A cached
+        # view spends nothing, but the cap predicate now reads NULL actuals on an
+        # old row as "abandoned mid-dispatch, don't charge the user" — so leaving
+        # them NULL here would quietly stop cached views counting ten minutes
+        # after the fact, i.e. unlimited free breakdown views. Zero is also the
+        # truthful number: this row is finished and it cost nothing.
         await db.execute(
             _text(
                 "INSERT INTO governor_calls "
-                "  (id, user_id, feature, model, prompt_tokens_estimated, created_at) "
-                "VALUES (:id, :uid, 'breakdown', :model, 0, now())"
+                "  (id, user_id, feature, model, prompt_tokens_estimated, "
+                "   prompt_tokens_actual, output_tokens_actual, dollars_actual, created_at) "
+                "VALUES (:id, :uid, 'breakdown', :model, 0, 0, 0, 0, now())"
             ),
             {"id": cached_call_id, "uid": str(user_id), "model": _SONNET_MODEL},
         )
@@ -209,6 +254,36 @@ async def get_breakdown(
             breakdown=cached_breakdown,
             drill_rated_today_indices=drill_indices,
         )
+
+    # 3b. FLE-92 — the global pilot ceiling, checked only on the path that spends.
+    #
+    # Placed AFTER the cache-hit return on purpose. A cached breakdown costs nothing
+    # to serve, so refusing one because the pilot's budget is spent would withhold
+    # work the user already paid for out of their daily five while billing the pilot
+    # nothing for it. The ceiling gates spend, so it gates dispatch — not reads.
+    #
+    # This is a courtesy check, not the enforcement: _reserve_call_slot checks again
+    # under the global advisory lock and that is the one that actually holds. Doing
+    # it here too means a refusal costs one SELECT rather than building the whole
+    # prompt and resolving skills first, and it keeps the refused response identical
+    # whichever of the two fires.
+    ceiling = effective_pilot_ceiling()
+    if ceiling is not None:
+        try:
+            await _check_pilot_ceiling(db, ceiling)
+        except PilotBudgetExhaustedError as exc:
+            logger.warning(
+                "Refusing breakdown for song %s user %s: pilot ceiling reached "
+                "($%s of $%s).", song_id, user_id, exc.spent, exc.ceiling,
+            )
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "code": "PILOT_BUDGET_SPENT",
+                    "message": PILOT_BUDGET_SPENT_MESSAGE,
+                    "resets_at": None,
+                },
+            )
 
     # 4. Cache miss — resolve target skills for this song + user_level
     # Phase 4.1 (Plan 04.1-01 Task 2 rename → Task 3 wiring): fetch both id + name
@@ -248,22 +323,33 @@ async def get_breakdown(
             db=db, user_id=user_id,
         )
     except BudgetExceededError as exc:
-        # Defensive catch — should not reach here since step 2 already checked;
-        # but handle it gracefully if concurrent requests race past step 2.
-        resets_at_dt = datetime.fromisoformat(exc.resets_at)
-        if resets_at_dt.tzinfo is None:
-            resets_at_dt = resets_at_dt.replace(tzinfo=timezone.utc)
-        days_remaining = max(0, (resets_at_dt - datetime.now(timezone.utc)).days + 1)
-        message = (
-            f"Not my tempo. You've had {call_cap} breakdowns this week. "
-            f"Come back in {days_remaining} days."
-        )
+        # Not merely defensive: this is the arm that fires when two taps race past
+        # step 2's unlocked pre-check. _reserve_call_slot's locked check is the
+        # authority, and it reports here. Same body as step 2 so the user cannot
+        # tell which one refused them.
         raise HTTPException(
             status_code=429,
             detail={
                 "code": "BREAKDOWN_CAPPED",
-                "message": message,
+                "message": CAPPED_MESSAGE_TEMPLATE.format(cap=call_cap),
                 "resets_at": exc.resets_at,
+            },
+        )
+    except PilotBudgetExhaustedError as exc:
+        # FLE-92 — the authoritative ceiling refusal, from under the global advisory
+        # lock in _reserve_call_slot. Step 3b's pre-check is unlocked and can be
+        # raced; this one cannot, which is what makes "no number of users can exceed
+        # the ceiling" hold rather than nearly hold.
+        logger.warning(
+            "Refusing breakdown for song %s user %s at reservation: pilot ceiling "
+            "reached ($%s of $%s).", song_id, user_id, exc.spent, exc.ceiling,
+        )
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "PILOT_BUDGET_SPENT",
+                "message": PILOT_BUDGET_SPENT_MESSAGE,
+                "resets_at": None,
             },
         )
     except AnthropicQuotaExceededError:

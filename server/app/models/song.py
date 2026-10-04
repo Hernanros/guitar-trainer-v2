@@ -530,10 +530,18 @@ class TodayRatingInfo(BaseModel):
 class BreakdownQuota(BaseModel):
     """Phase 4 quota snapshot embedded in TodaySongResponse (D-06).
 
-    remaining: calls left in the current 7-day rolling window (0..cap).
-    cap: per-user cap — 3 for the breakdown feature per D-01, unless
+    remaining: calls left today (0..cap).
+    cap: per-user cap — 5 for the breakdown feature per FLE-92, unless
          FLETCHER_CAP_BREAKDOWN overrides it for this deploy.
-    resets_at: ISO datetime string — oldest_call_in_window + 7 days, server-authoritative.
+    resets_at: ISO datetime string — the user's NEXT LOCAL MIDNIGHT in UTC,
+         server-authoritative.
+
+    FLE-92 changed what resets_at means without changing its type, so a client
+    older than the server still parses it. It used to be oldest_call_in_window + 7
+    days, which moved as calls aged out; it is now a fixed daily boundary. An old
+    client rendering it as "come back in N days" reads a few hours and rounds to 1 —
+    wrong in wording, not in substance — which is why the mobile copy moved to
+    naming midnight in the same change.
     """
     remaining: int
     cap: int

@@ -2,7 +2,11 @@
 
 Verifies that GET /api/v1/song-of-day and POST /api/v1/today-song/reroll
 always return breakdown_quota with correct remaining/cap/resets_at values
-derived from governor_calls COUNT + MIN(created_at) queries (D-06).
+derived from governor.count_window_calls (D-06, rewritten by FLE-92).
+
+FLE-92 changed the quota from 3 per rolling 7 days to 5 per the user's local
+calendar day, and resets_at from "oldest counted call + 7 days" to "next local
+midnight". Both numbers and both window edges move here as a result.
 
 Runs against a REAL Postgres instance (no mocks — COUNT + MIN are indexed SQL).
 Requires DATABASE_URL pointing to a local Postgres with migration 0004 applied.
@@ -140,14 +144,14 @@ async def _get_today_song(user_id: uuid.UUID) -> dict:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_breakdown_quota_defaults_to_three_when_no_calls(quota_user):
-    """Fresh user with no governor_calls rows → breakdown_quota.remaining == 3."""
+async def test_breakdown_quota_defaults_to_five_when_no_calls(quota_user):
+    """Fresh user with no governor_calls rows → breakdown_quota.remaining == 5 (FLE-92)."""
     body = await _get_today_song(quota_user)
 
     assert "breakdown_quota" in body, "TodaySongResponse must include breakdown_quota"
     quota = body["breakdown_quota"]
-    assert quota["remaining"] == 3
-    assert quota["cap"] == 3
+    assert quota["remaining"] == 5
+    assert quota["cap"] == 5
     # resets_at must be a parseable ISO datetime string
     parsed = datetime.fromisoformat(quota["resets_at"])
     assert parsed > datetime.now(timezone.utc), "resets_at must be in the future for a fresh user"
@@ -155,12 +159,13 @@ async def test_breakdown_quota_defaults_to_three_when_no_calls(quota_user):
 
 @pytest.mark.asyncio
 async def test_breakdown_quota_decrements_after_governor_row(quota_user, db: AsyncSession):
-    """INSERT 1 governor_calls row for the user → remaining == 2."""
+    """INSERT 1 governor_calls row for the user today → remaining == 4."""
     user_id = quota_user
     await db.execute(
         text(
-            "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
-            "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', now())"
+            "INSERT INTO governor_calls (id, user_id, feature, model, "
+            "  prompt_tokens_actual, output_tokens_actual, created_at) "
+            "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', 1000, 500, now())"
         ),
         {"uid": str(user_id)},
     )
@@ -168,19 +173,20 @@ async def test_breakdown_quota_decrements_after_governor_row(quota_user, db: Asy
 
     body = await _get_today_song(user_id)
     quota = body["breakdown_quota"]
-    assert quota["remaining"] == 2
-    assert quota["cap"] == 3
+    assert quota["remaining"] == 4
+    assert quota["cap"] == 5
 
 
 @pytest.mark.asyncio
 async def test_breakdown_quota_zero_when_capped(quota_user, db: AsyncSession):
-    """INSERT 3 governor_calls rows → remaining == 0 (capped)."""
+    """INSERT 5 governor_calls rows today → remaining == 0 (capped)."""
     user_id = quota_user
-    for _ in range(3):
+    for _ in range(5):
         await db.execute(
             text(
-                "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
-                "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', now())"
+                "INSERT INTO governor_calls (id, user_id, feature, model, "
+                "  prompt_tokens_actual, output_tokens_actual, created_at) "
+                "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', 1000, 500, now())"
             ),
             {"uid": str(user_id)},
         )
@@ -189,7 +195,7 @@ async def test_breakdown_quota_zero_when_capped(quota_user, db: AsyncSession):
     body = await _get_today_song(user_id)
     quota = body["breakdown_quota"]
     assert quota["remaining"] == 0
-    assert quota["cap"] == 3
+    assert quota["cap"] == 5
 
 
 @pytest.mark.asyncio
@@ -203,11 +209,12 @@ async def test_breakdown_quota_is_null_when_cap_switched_off(
     """
     user_id = quota_user
     monkeypatch.setenv("FLETCHER_CAP_BREAKDOWN", "off")
-    for _ in range(3):
+    for _ in range(5):
         await db.execute(
             text(
-                "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
-                "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', now())"
+                "INSERT INTO governor_calls (id, user_id, feature, model, "
+                "  prompt_tokens_actual, output_tokens_actual, created_at) "
+                "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', 1000, 500, now())"
             ),
             {"uid": str(user_id)},
         )
@@ -219,13 +226,14 @@ async def test_breakdown_quota_is_null_when_cap_switched_off(
 
 @pytest.mark.asyncio
 async def test_breakdown_quota_follows_raised_cap(quota_user, db: AsyncSession, monkeypatch):
-    """FLETCHER_CAP_BREAKDOWN=10 → remaining/cap reported against 10, not 3."""
+    """FLETCHER_CAP_BREAKDOWN=10 → remaining/cap reported against 10, not 5."""
     user_id = quota_user
     monkeypatch.setenv("FLETCHER_CAP_BREAKDOWN", "10")
     await db.execute(
         text(
-            "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
-            "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', now())"
+            "INSERT INTO governor_calls (id, user_id, feature, model, "
+            "  prompt_tokens_actual, output_tokens_actual, created_at) "
+            "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', 1000, 500, now())"
         ),
         {"uid": str(user_id)},
     )
@@ -238,13 +246,20 @@ async def test_breakdown_quota_follows_raised_cap(quota_user, db: AsyncSession, 
 
 @pytest.mark.asyncio
 async def test_breakdown_quota_ignores_other_features(quota_user, db: AsyncSession):
-    """INSERT 5 rows with feature='onboarding' → breakdown_quota.remaining stays 3."""
+    """INSERT 5 rows with feature='onboarding' → breakdown_quota.remaining stays 5.
+
+    Worth keeping sharp after FLE-92: onboarding is still capped over a rolling 7-day
+    window while breakdowns are capped per local day, so the two features now
+    disagree about what "the window" even means. If FEATURE_WINDOWS were ever read
+    with the wrong feature, this is where it shows up.
+    """
     user_id = quota_user
     for _ in range(5):
         await db.execute(
             text(
-                "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
-                "VALUES (gen_random_uuid(), :uid, 'onboarding', 'claude-sonnet-4-6', now())"
+                "INSERT INTO governor_calls (id, user_id, feature, model, "
+                "  prompt_tokens_actual, output_tokens_actual, created_at) "
+                "VALUES (gen_random_uuid(), :uid, 'onboarding', 'claude-sonnet-4-6', 1000, 500, now())"
             ),
             {"uid": str(user_id)},
         )
@@ -252,54 +267,89 @@ async def test_breakdown_quota_ignores_other_features(quota_user, db: AsyncSessi
 
     body = await _get_today_song(user_id)
     quota = body["breakdown_quota"]
-    assert quota["remaining"] == 3, "Non-breakdown governor_calls must not affect breakdown quota"
+    assert quota["remaining"] == 5, "Non-breakdown governor_calls must not affect breakdown quota"
 
 
 @pytest.mark.asyncio
-async def test_breakdown_quota_ignores_old_calls(quota_user, db: AsyncSession):
-    """INSERT 3 rows with created_at 8 days ago → they age out, remaining == 3."""
+async def test_breakdown_quota_ignores_yesterdays_calls(quota_user, db: AsyncSession):
+    """A full cap's worth yesterday → today's chip still reads 5 left (FLE-92).
+
+    Was test_breakdown_quota_ignores_old_calls, which only proved rows aged out at 8
+    days. The daily window has to clear at midnight and the chip has to clear with
+    it — a chip still reading "0 left" the morning after is the same lockout FLE-58
+    was filed about, just with a correct cap sitting behind it.
+    """
     user_id = quota_user
-    eight_days_ago = datetime.now(timezone.utc) - timedelta(days=8)
-    for _ in range(3):
+    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+    for _ in range(5):
         await db.execute(
             text(
-                "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
-                "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', :ts)"
+                "INSERT INTO governor_calls (id, user_id, feature, model, "
+                "  prompt_tokens_actual, output_tokens_actual, created_at) "
+                "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', 1000, 500, :ts)"
             ),
-            {"uid": str(user_id), "ts": eight_days_ago},
+            {"uid": str(user_id), "ts": yesterday},
         )
     await db.commit()
 
     body = await _get_today_song(user_id)
     quota = body["breakdown_quota"]
-    assert quota["remaining"] == 3, "Calls older than 7 days must not count against the quota"
+    assert quota["remaining"] == 5, (
+        "Yesterday's calls must not count against today's chip"
+    )
 
 
 @pytest.mark.asyncio
-async def test_breakdown_quota_resets_at_matches_oldest_plus_7d(quota_user, db: AsyncSession):
-    """INSERT 1 row 2 days ago → resets_at ≈ that timestamp + 7 days (within 5s tolerance)."""
+async def test_breakdown_quota_resets_at_is_next_local_midnight(quota_user, db: AsyncSession):
+    """resets_at is the next local midnight, and does NOT move with the oldest call.
+
+    Replaces test_breakdown_quota_resets_at_matches_oldest_plus_7d. Under the rolling
+    window resets_at was a function of the rows, so it drifted every time a call aged
+    out and any copy built from it could only approximate. Under a daily window it is
+    a property of the clock alone — which is what lets the UI name midnight instead
+    of counting days.
+
+    Asserted by requiring the same resets_at before and after inserting calls at two
+    different times today: under the old rule those inserts would have moved it.
+
+    The fixture's requests declare X-Timezone-Offset: 0, so local midnight is UTC
+    midnight here; the tz-sensitive half is
+    test_governor.test_day_boundary_follows_the_users_timezone.
+    """
     user_id = quota_user
-    two_days_ago = datetime.now(timezone.utc) - timedelta(days=2)
-    await db.execute(
-        text(
-            "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
-            "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', :ts)"
-        ),
-        {"uid": str(user_id), "ts": two_days_ago},
+
+    midnight_utc = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
     )
+    expected = midnight_utc + timedelta(days=1)
+
+    async def _resets_at() -> datetime:
+        quota = (await _get_today_song(user_id))["breakdown_quota"]
+        parsed = datetime.fromisoformat(quota["resets_at"])
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    first = await _resets_at()
+    assert abs((first - expected).total_seconds()) < 1, (
+        f"Expected next UTC midnight {expected.isoformat()} for a fresh user at "
+        f"offset 0, got {first.isoformat()}"
+    )
+
+    for ts in (midnight_utc + timedelta(minutes=1), datetime.now(timezone.utc)):
+        await db.execute(
+            text(
+                "INSERT INTO governor_calls (id, user_id, feature, model, "
+                "  prompt_tokens_actual, output_tokens_actual, created_at) "
+                "VALUES (gen_random_uuid(), :uid, 'breakdown', 'claude-sonnet-4-6', 1000, 500, :ts)"
+            ),
+            {"uid": str(user_id), "ts": ts},
+        )
     await db.commit()
 
-    body = await _get_today_song(user_id)
-    quota = body["breakdown_quota"]
-
-    expected_resets_at = two_days_ago + timedelta(days=7)
-    actual_resets_at = datetime.fromisoformat(quota["resets_at"])
-    # Allow 5s tolerance for test execution time
-    delta = abs((actual_resets_at - expected_resets_at).total_seconds())
-    assert delta < 5, (
-        f"resets_at should be oldest_call + 7d. "
-        f"Expected ~{expected_resets_at.isoformat()}, got {quota['resets_at']}, "
-        f"delta={delta}s"
+    after = await _resets_at()
+    assert after == first, (
+        f"resets_at must not depend on when today's calls happened — it is the day "
+        f"boundary, not oldest_call + window. Was {first.isoformat()}, now "
+        f"{after.isoformat()}"
     )
 
 
@@ -321,5 +371,5 @@ async def test_reroll_endpoint_also_includes_breakdown_quota(quota_user):
         assert "remaining" in quota
         assert "cap" in quota
         assert "resets_at" in quota
-        assert quota["cap"] == 3
+        assert quota["cap"] == 5
         assert quota["remaining"] >= 0

@@ -32,6 +32,7 @@ from app.models.user import SkillGraphResponse, UserBootstrapRequest, UserRespon
 from app.ai.governor import (
     ONBOARDING_CAP,
     BudgetExceededError,
+    PilotBudgetExhaustedError,
     assert_cap_available,
 )
 from app.ai.onboarding import AIParseError, FIXED_ROOTS, run_onboarding_parse
@@ -415,8 +416,20 @@ async def _run_verifier_pipeline(
                         db=verifier_db,
                         user_id=user_id,
                     )
-                except AISkillVerifierError as ve:
+                except (AISkillVerifierError, PilotBudgetExhaustedError) as ve:
                     # D-14: verifier failure degrades gracefully — queue as 'uncertain'
+                    #
+                    # FLE-92 added PilotBudgetExhaustedError here. skill_verify is
+                    # @governed(cap=None) so no per-user cap ever reached this arm,
+                    # but the global ceiling applies to every governed feature — and
+                    # this is one Sonnet call per proposal, up to 10 per onboarding,
+                    # so it is a realistic place for the budget to run out mid-run.
+                    #
+                    # Unhandled it would escape _bounded_verify into the gather and
+                    # fail the whole bootstrap. Degrading to 'uncertain' is exactly
+                    # the behaviour D-14 already defines for "we could not verify
+                    # this": the node is queued for manual review rather than
+                    # silently accepted or silently dropped.
                     logger.warning(
                         "Verifier pipeline: skill_verify failed for '%s' (%s) — queuing as uncertain.",
                         prop.name, ve,
@@ -938,6 +951,23 @@ async def bootstrap_user(
         )
         skill_rows = await _persist_bootstrap(db, body.user_id, None, mode="bootstrap")
         mode = "bootstrap"
+    except PilotBudgetExhaustedError as e:
+        # FLE-92 — the global $25 ceiling is reachable here for the same reason the
+        # per-user cap is, and it fails open for an even stronger reason.
+        #
+        # This is a brand-new pilot participant's FIRST launch. If the pilot's budget
+        # ran out an hour before they opened the app, a 429 leaves them stuck at the
+        # wizard with no graph and no way forward — the worst first impression the
+        # product can make, over a condition that has nothing to do with them. The
+        # 6-root fallback is a local write that costs nothing, so they get a working
+        # app and the ceiling is still honoured: no Sonnet call happened.
+        logger.warning(
+            "Pilot ceiling reached during fresh bootstrap for user %s ($%s of $%s) "
+            "— falling back to 6-root graph.",
+            body.user_id, e.spent, e.ceiling,
+        )
+        skill_rows = await _persist_bootstrap(db, body.user_id, None, mode="bootstrap")
+        mode = "bootstrap"
 
     # ---- Step 5: mark onboarded_at ----
     await db.execute(
@@ -1076,6 +1106,31 @@ async def re_run_onboarding(
                 "resets_at": e.resets_at,
             },
         ) from e
+    except PilotBudgetExhaustedError as e:
+        # FLE-92 — refusing is RIGHT here, unlike the fresh-bootstrap path above. A
+        # re-run is a user with a working graph asking to rebuild it; declining
+        # leaves them exactly as they were, which is a far better outcome than the
+        # 6-root fallback would be (that would replace a real graph with a generic
+        # one over a budget condition).
+        #
+        # resets_at is null because there is no reset: this clears when the ceiling
+        # is raised, not when a clock ticks over.
+        logger.warning(
+            "Pilot ceiling reached on onboarding re-run for user %s ($%s of $%s) "
+            "— refused before the wipe, graph untouched.",
+            user_id, e.spent, e.ceiling,
+        )
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "PILOT_BUDGET_SPENT",
+                "message": (
+                    "Fletcher's beta budget is spent, so the graph can't be rebuilt "
+                    "right now. Your existing skill graph has not been changed."
+                ),
+                "resets_at": None,
+            },
+        ) from e
 
     # Wipe order matters — deepest FK references first:
     #   1. song_skills          → refs songs.id + skill_nodes.id
@@ -1147,6 +1202,23 @@ async def re_run_onboarding(
             "is not left with an empty skill graph.",
             user_id,
             e.resets_at,
+        )
+        skill_rows = await _persist_bootstrap(db, user_id, None, mode="bootstrap")
+        mode = "bootstrap"
+    except PilotBudgetExhaustedError as e:
+        # FLE-92 — same residual race as above, against the global ceiling instead of
+        # the per-user cap, and strictly more likely to fire: the ceiling is shared,
+        # so ANY other user's call can consume the last of it between this request's
+        # probe and its reservation.
+        #
+        # Fails open for the reason the refusal before the wipe does not: the wipe is
+        # already committed, so the user's old graph is gone either way and raising
+        # here would leave them with nothing at all.
+        logger.error(
+            "Pilot ceiling hit AFTER the re-run wipe for user %s ($%s of $%s) — lost "
+            "the probe/reserve race. Falling back to 6-root graph so the user is not "
+            "left with an empty skill graph.",
+            user_id, e.spent, e.ceiling,
         )
         skill_rows = await _persist_bootstrap(db, user_id, None, mode="bootstrap")
         mode = "bootstrap"

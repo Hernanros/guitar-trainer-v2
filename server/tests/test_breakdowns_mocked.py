@@ -1311,7 +1311,7 @@ async def test_get_breakdown_envelope_backward_compat_wrap(mock_breakdown_never_
 # ---------------------------------------------------------------------------
 # FLETCHER_CAP_BREAKDOWN env override — this endpoint has its own cap-check
 # (step 2, BEFORE the cache read) that is separate from the @governed
-# decorator wrapping run_technique_breakdown. It hardcoded cap=3 directly
+# decorator wrapping run_technique_breakdown. It hardcoded the cap directly
 # instead of going through app.ai.governor.effective_cap, so setting
 # FLETCHER_CAP_BREAKDOWN=off uncapped the song-of-day quota display but the
 # breakdown endpoint itself kept returning 429 BREAKDOWN_CAPPED. Regression
@@ -1319,10 +1319,15 @@ async def test_get_breakdown_envelope_backward_compat_wrap(mock_breakdown_never_
 # ---------------------------------------------------------------------------
 
 async def _insert_governor_call(db: AsyncSession, user_id: str, feature: str = "breakdown") -> None:
+    # Actuals stamped: these rows stand in for calls the user already RECEIVED.
+    # FLE-39's cap predicate treats an old row with NULL actuals as killed
+    # mid-dispatch and stops charging it, so "a prior completed call" has to look
+    # completed rather than relying on created_at being recent.
     await db.execute(
         text(
-            "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
-            "VALUES (gen_random_uuid(), :uid, :feature, 'claude-sonnet-4-6', now())"
+            "INSERT INTO governor_calls "
+            "  (id, user_id, feature, model, prompt_tokens_actual, output_tokens_actual, created_at) "
+            "VALUES (gen_random_uuid(), :uid, :feature, 'claude-sonnet-4-6', 1000, 500, now())"
         ),
         {"uid": user_id, "feature": feature},
     )
@@ -1331,12 +1336,16 @@ async def _insert_governor_call(db: AsyncSession, user_id: str, feature: str = "
 
 @pytest.mark.asyncio
 async def test_breakdown_endpoint_returns_429_when_capped(mock_breakdown_never_called):
-    """Baseline: 3 prior breakdown calls this week → 4th request is 429 BREAKDOWN_CAPPED."""
+    """Baseline: 5 prior breakdown calls today → 6th request is 429 BREAKDOWN_CAPPED.
+
+    FLE-92: was 3 prior calls "this week". The helper inserts at now(), which is
+    inside the user's local day either way, so only the count moved.
+    """
     user_id = str(uuid.uuid4())
 
     async with _make_session() as db:
         song_id = await _seed_user_and_song(db, user_id)
-        for _ in range(3):
+        for _ in range(5):
             await _insert_governor_call(db, user_id)
 
     try:
@@ -1358,14 +1367,14 @@ async def test_breakdown_endpoint_returns_429_when_capped(mock_breakdown_never_c
 async def test_breakdown_endpoint_honours_env_override_when_capped(
     mock_breakdown_success, monkeypatch
 ):
-    """FLETCHER_CAP_BREAKDOWN=off → a user already at 3 calls this week still gets
+    """FLETCHER_CAP_BREAKDOWN=off → a user already at 5 calls today still gets
     a real breakdown (200), not 429 BREAKDOWN_CAPPED, from this endpoint directly."""
     monkeypatch.setenv("FLETCHER_CAP_BREAKDOWN", "off")
     user_id = str(uuid.uuid4())
 
     async with _make_session() as db:
         song_id = await _seed_user_and_song(db, user_id)
-        for _ in range(3):
+        for _ in range(5):
             await _insert_governor_call(db, user_id)
 
     try:
@@ -1379,6 +1388,73 @@ async def test_breakdown_endpoint_honours_env_override_when_capped(
         assert resp.status_code == 200, resp.text
         assert "breakdown" in resp.json()
         assert mock_breakdown_success["count"] == 1
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_old_cache_hit_views_still_count_against_cap(mock_breakdown_never_called):
+    """FLE-39: a cached view is finished, not in flight — it must count forever.
+
+    The FLE-39 cap predicate refunds a row whose actuals are still NULL once it is
+    older than any call could take, which is how a breakdown killed by a disconnect
+    or a container replacement stops burning quota. A cache-hit view row spends
+    nothing and so looked exactly like one of those, and this endpoint deliberately
+    counts cached views against the cap. Left alone, the refund would have turned
+    the daily allowance into unlimited free views ten minutes later.
+
+    Caught against real prod data, not in review: the pilot user's three capped rows
+    on 2026-10-04 were all cache-hit views, and the first draft of the predicate
+    refunded all three. Migration 0013 backfills the historical rows; the endpoint
+    writes explicit zeros now. This test is the guard for both.
+    """
+    user_id = str(uuid.uuid4())
+    canned = _canned_breakdown()
+    cached_ts = datetime(2026, 7, 28, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(
+            db,
+            user_id,
+            breakdown_generated_at=cached_ts,
+            existing_breakdown=canned.model_dump(),
+        )
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            # A full day's cached views — each writes its own governor_calls row.
+            for i in range(5):
+                resp = await client.get(
+                    f"/api/v1/songs/{song_id}/breakdown",
+                    headers={"X-User-ID": user_id},
+                )
+                assert resp.status_code == 200, f"view {i + 1}: {resp.text}"
+
+            # Age them well past the in-flight grace window. Without the zero
+            # actuals this is the point where all three silently stopped counting.
+            async with _make_session() as db:
+                await db.execute(
+                    text(
+                        "UPDATE governor_calls SET created_at = now() - interval '2 hours' "
+                        "WHERE user_id = :uid"
+                    ),
+                    {"uid": user_id},
+                )
+                await db.commit()
+
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id},
+            )
+
+        assert resp.status_code == 429, (
+            "A 6th view after 5 aged cached views must still be capped — "
+            f"got {resp.status_code}. Cached views are complete, not abandoned."
+        )
+        assert resp.json()["detail"]["code"] == "BREAKDOWN_CAPPED"
     finally:
         async with _make_session() as db:
             await _cleanup(db, user_id)

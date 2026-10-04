@@ -178,16 +178,35 @@ async def _insert_governor_call(
     user_id: str,
     feature: str = "breakdown",
     created_at: datetime | None = None,
+    abandoned: bool = False,
 ) -> str:
-    """Insert a governor_calls row directly for setup. Returns the row id."""
+    """Insert a governor_calls row directly for setup. Returns the row id.
+
+    Stamps actual token counts by default, because the thing these fixtures stand
+    in for is a COMPLETED call. FLE-39 made that distinction load-bearing: the cap
+    predicate now reads an old row with NULL actuals as a call that was killed
+    mid-dispatch and refunds it, so a fixture that leaves them NULL is no longer
+    describing a prior success.
+
+    abandoned=True leaves the actuals NULL — the unstamped, never-completed row a
+    client disconnect or a container replacement leaves behind.
+    """
     row_id = str(uuid.uuid4())
     ts = created_at or datetime.now(timezone.utc)
     await db.execute(
         text(
-            "INSERT INTO governor_calls (id, user_id, feature, model, created_at) "
-            "VALUES (:id, :uid, :feature, 'claude-sonnet-4-6', :ts)"
+            "INSERT INTO governor_calls "
+            "  (id, user_id, feature, model, prompt_tokens_actual, output_tokens_actual, created_at) "
+            "VALUES (:id, :uid, :feature, 'claude-sonnet-4-6', :pt, :ot, :ts)"
         ),
-        {"id": row_id, "uid": user_id, "feature": feature, "ts": ts},
+        {
+            "id": row_id,
+            "uid": user_id,
+            "feature": feature,
+            "pt": None if abandoned else 1000,
+            "ot": None if abandoned else 500,
+            "ts": ts,
+        },
     )
     await db.commit()
     return row_id
@@ -196,6 +215,13 @@ async def _insert_governor_call(
 async def _cleanup_user(db: AsyncSession, user_id: str) -> None:
     await db.execute(
         text("DELETE FROM governor_calls WHERE user_id = :uid"), {"uid": user_id}
+    )
+    # FLE-92: user_sessions references songs, so it has to go before the songs
+    # DELETE below or cleanup dies on user_sessions_song_id_fkey. Nothing in this
+    # file wrote a session row until the governor started reading tz_offset_minutes
+    # off one, which is why the gap went unnoticed.
+    await db.execute(
+        text("DELETE FROM user_sessions WHERE user_id = :uid"), {"uid": user_id}
     )
     await db.execute(
         text("DELETE FROM song_skills WHERE song_id IN (SELECT id FROM songs WHERE user_id = :uid)"),
@@ -234,8 +260,14 @@ def _patch_client_for_success(monkeypatch, input_tokens: int = 100, output_token
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_governor_blocks_fourth_breakdown(monkeypatch):
-    """4th call to @governed(cap=3) for same user raises BudgetExceededError — no Sonnet dispatch."""
+async def test_governor_blocks_sixth_breakdown_same_day(monkeypatch):
+    """FLE-92: the 6th call in one local day raises BudgetExceededError — no dispatch.
+
+    Was test_governor_blocks_fourth_breakdown against cap=3 per rolling 7 days. The
+    number and the window both moved (5 per local calendar day, Hernan's decision on
+    the FLE-88 card), so this pins the new boundary: five calls land, the sixth does
+    not, and the sixth costs nothing.
+    """
     from app.ai.governor import BudgetExceededError
     import app.ai.breakdown as breakdown_mod
 
@@ -258,8 +290,8 @@ async def test_governor_blocks_fourth_breakdown(monkeypatch):
 
     from app.ai.breakdown import run_technique_breakdown
 
-    # 3 successful calls
-    for _ in range(3):
+    # 5 successful calls — the whole day's allowance
+    for _ in range(5):
         async with _make_session() as db:
             result = await run_technique_breakdown(
                 "Sweet Home Chicago", "Robert Johnson", [], 0.3,
@@ -267,11 +299,11 @@ async def test_governor_blocks_fourth_breakdown(monkeypatch):
             )
         assert result is not None
 
-    assert sonnet_call_count["n"] == 3, (
-        f"Expected 3 Sonnet calls after 3 successful breakdowns, got {sonnet_call_count['n']}"
+    assert sonnet_call_count["n"] == 5, (
+        f"Expected 5 Sonnet calls after 5 successful breakdowns, got {sonnet_call_count['n']}"
     )
 
-    # 4th call — must raise BudgetExceededError without dispatching Sonnet
+    # 6th call — must raise BudgetExceededError without dispatching Sonnet
     async with _make_session() as db:
         with pytest.raises(BudgetExceededError) as exc_info:
             await run_technique_breakdown(
@@ -286,9 +318,9 @@ async def test_governor_blocks_fourth_breakdown(monkeypatch):
     dt = datetime.fromisoformat(exc_info.value.resets_at)
     assert dt > datetime.now(timezone.utc), "resets_at should be in the future"
 
-    # Sonnet call count should still be 3 — no 4th dispatch
-    assert sonnet_call_count["n"] == 3, (
-        f"4th call should not dispatch Sonnet — expected count=3, got {sonnet_call_count['n']}"
+    # Sonnet call count should still be 5 — no 6th dispatch
+    assert sonnet_call_count["n"] == 5, (
+        f"6th call should not dispatch Sonnet — expected count=5, got {sonnet_call_count['n']}"
     )
 
     # Cleanup
@@ -431,8 +463,18 @@ async def test_governor_records_error_code_on_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_governor_seven_day_window_slides(monkeypatch):
-    """Call that would be the 4th succeeds if the oldest of 3 calls is >7 days old."""
+async def test_yesterdays_calls_do_not_count_today(monkeypatch):
+    """FLE-92: a full day's worth of yesterday's calls leaves today's allowance intact.
+
+    Replaces test_governor_seven_day_window_slides. That test proved the rolling
+    7-day window aged its oldest row out; this proves the thing the daily window
+    exists for, which is strictly stronger from the user's point of view: being
+    refused yesterday tells you nothing about today.
+
+    This is the half of FLE-58 that was actually hostile. Under 3-per-7-days the wall
+    you hit on Tuesday was still standing on Thursday, which is how the cap locked
+    Hernan out of his own app for most of a week.
+    """
     import app.ai.breakdown as breakdown_mod
 
     user_id = str(uuid.uuid4())
@@ -445,17 +487,18 @@ async def test_governor_seven_day_window_slides(monkeypatch):
         await _seed_user(db, user_id)
         await _seed_song(db, user_id)
 
-    # Insert 3 governor_calls rows with the oldest one >7 days ago
-    eight_days_ago = datetime.now(timezone.utc) - timedelta(days=8)
-    two_days_ago = datetime.now(timezone.utc) - timedelta(days=2)
-    one_day_ago = datetime.now(timezone.utc) - timedelta(days=1)
-
+    # A full cap's worth yesterday, plus more the day before — under the old rolling
+    # window this user was locked out until the middle of next week.
     async with _make_session() as db:
-        await _insert_governor_call(db, user_id, created_at=eight_days_ago)
-        await _insert_governor_call(db, user_id, created_at=two_days_ago)
-        await _insert_governor_call(db, user_id, created_at=one_day_ago)
+        for _ in range(5):
+            await _insert_governor_call(
+                db, user_id, created_at=datetime.now(timezone.utc) - timedelta(days=1),
+            )
+        for _ in range(5):
+            await _insert_governor_call(
+                db, user_id, created_at=datetime.now(timezone.utc) - timedelta(days=3),
+            )
 
-    # The oldest (8 days ago) is outside the 7-day window → effective count = 2 → 4th call should succeed
     from app.ai.breakdown import run_technique_breakdown
 
     async with _make_session() as db:
@@ -463,7 +506,74 @@ async def test_governor_seven_day_window_slides(monkeypatch):
             "Wonderwall", "Oasis", [], 0.2,
             db=db, user_id=uuid.UUID(user_id),
         )
-    assert result is not None, "Expected successful breakdown when oldest call is aged out"
+    assert result is not None, (
+        "Yesterday's calls must not count against today — a daily window whose wall "
+        "survives midnight is the rolling window again under another name"
+    )
+
+    async with _make_session() as db:
+        await _cleanup_user(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_day_boundary_follows_the_users_timezone():
+    """FLE-92: "today" is the USER's local day, not the server's UTC day.
+
+    Hernan's device reports +180 (UTC+3), so for three hours after 21:00 UTC his
+    local day has already turned over while the server's has not. A UTC-day window
+    would hold his wall up through those hours.
+
+    Constructed so the two interpretations disagree: the row sits just inside today
+    in UTC but inside YESTERDAY for a user at -660 (UTC-11), whose local midnight is
+    11:00 UTC. A UTC-based window would count it.
+    """
+    from app.ai.governor import count_window_calls
+
+    user_id = str(uuid.uuid4())
+    tz_far_west = -660  # UTC-11
+
+    async with _make_session() as db:
+        await _seed_user(db, user_id)
+        song_id = await _seed_song(db, user_id)
+        # The device's reported offset — where the governor reads tz from, since
+        # neither users nor governor_calls carries one.
+        await db.execute(
+            text(
+                "INSERT INTO user_sessions "
+                "  (id, user_id, song_id, rating, local_calendar_day, tz_offset_minutes) "
+                "VALUES (gen_random_uuid(), :uid, :sid, NULL, "
+                "        DATE((now() AT TIME ZONE 'UTC') + (:tz * INTERVAL '1 minute')), :tz)"
+            ),
+            {"uid": user_id, "sid": song_id, "tz": tz_far_west},
+        )
+        await db.commit()
+
+    # 00:30 UTC today: inside the UTC day, but 13:30 YESTERDAY at UTC-11.
+    utc_today_early = datetime.now(timezone.utc).replace(
+        hour=0, minute=30, second=0, microsecond=0
+    )
+
+    async with _make_session() as db:
+        await _insert_governor_call(db, user_id, created_at=utc_today_early)
+
+    async with _make_session() as db:
+        count, resets_at = await count_window_calls(db, user_id, "breakdown")
+
+    # The suite can legitimately run before 00:30 UTC, in which case the row is in
+    # the future for every timezone and there is no distinction left to draw.
+    if datetime.now(timezone.utc) >= utc_today_early:
+        assert count == 0, (
+            f"A call at 00:30 UTC is yesterday for a user at UTC-11 and must not "
+            f"count against their today, got count={count}"
+        )
+
+    assert resets_at.hour == 11 and resets_at.minute == 0, (
+        f"Next local midnight for UTC-11 is 11:00 UTC, got {resets_at}"
+    )
+    assert resets_at > datetime.now(timezone.utc), "resets_at must be in the future"
+    assert resets_at - datetime.now(timezone.utc) <= timedelta(days=1), (
+        f"A daily window cannot reset more than 24h out, got {resets_at}"
+    )
 
     async with _make_session() as db:
         await _cleanup_user(db, user_id)
@@ -691,7 +801,13 @@ async def test_governor_record_estimate_populates_prompt_tokens(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_endpoint_returns_429_breakdown_capped(monkeypatch):
-    """After 3 prior breakdowns, 4th call returns 429 BREAKDOWN_CAPPED with Fletcher copy."""
+    """After 5 prior breakdowns today, the 6th returns 429 BREAKDOWN_CAPPED.
+
+    FLE-92 also rewrote the copy. The old assertion required the message to start
+    with "Not my tempo." — which is the label on a rating pill in the player, so the
+    refusal read as the app grading the user's playing. This now asserts the two
+    things the copy has to do: name the daily allowance, and name when it lifts.
+    """
     import app.ai.breakdown as breakdown_mod
 
     user_id = str(uuid.uuid4())
@@ -707,27 +823,38 @@ async def test_endpoint_returns_429_breakdown_capped(monkeypatch):
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
-        # 3 successful requests to hit the cap
-        for _ in range(3):
+        # 5 successful requests to spend the day's allowance
+        for _ in range(5):
             resp = await client.get(
                 f"/api/v1/songs/{song_id}/breakdown",
                 headers={"X-User-ID": user_id},
             )
             assert resp.status_code == 200, f"Expected 200 on call {_+1}, got {resp.status_code}: {resp.text}"
 
-        # 4th request — must return 429
+        # 6th request — must return 429
         resp = await client.get(
             f"/api/v1/songs/{song_id}/breakdown",
             headers={"X-User-ID": user_id},
         )
 
     assert resp.status_code == 429, (
-        f"Expected 429 BREAKDOWN_CAPPED after 3 successful calls, got {resp.status_code}: {resp.text}"
+        f"Expected 429 BREAKDOWN_CAPPED after 5 successful calls, got {resp.status_code}: {resp.text}"
     )
     detail = resp.json().get("detail", {})
     assert detail.get("code") == "BREAKDOWN_CAPPED", f"Expected code='BREAKDOWN_CAPPED', got: {detail}"
-    assert detail.get("message", "").startswith("Not my tempo."), (
-        f"Expected Fletcher voice starting with 'Not my tempo.', got: {detail.get('message')}"
+    message = detail.get("message", "")
+    assert "5 breakdowns for today" in message, (
+        f"Copy must name the daily allowance, got: {message!r}"
+    )
+    assert "midnight" in message, (
+        f"Copy must name when the allowance returns, got: {message!r}"
+    )
+    assert "Not my tempo" not in message, (
+        "'Not my tempo' is a rating-pill label; reusing it here reads as the app "
+        f"grading the player rather than reporting a quota. Got: {message!r}"
+    )
+    assert "this week" not in message, (
+        f"The window is one local day, not a week. Got: {message!r}"
     )
     assert "resets_at" in detail, "429 body must include resets_at"
 
@@ -782,14 +909,24 @@ async def test_endpoint_returns_503_fletcher_out(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_endpoint_429_days_remaining_is_integer(monkeypatch):
-    """429 body detail.message contains 'Come back in N days' where N is an integer in [1, 8].
+async def test_endpoint_429_resets_at_is_the_next_local_midnight(monkeypatch):
+    """429 body resets_at is a real, parseable midnight within the next 24h.
 
-    Verifies no literal {N} string slipped through, and the integer is plausible.
+    Replaces test_endpoint_429_days_remaining_is_integer, which asserted the message
+    matched "Come back in N days" for N in [1, 8]. That assertion cannot survive a
+    daily window — every refusal would read "come back in 1 days" — and the copy it
+    was guarding is gone. What still needs guarding is the field the client renders
+    off, so this pins resets_at instead of the sentence built from it: an absolute
+    instant, in the future, at most a day out, and on a midnight boundary for the
+    offset the request declared.
+
+    Also asserts no literal format placeholder survived into the message, which was
+    the original test's other job.
     """
     import app.ai.breakdown as breakdown_mod
 
     user_id = str(uuid.uuid4())
+    tz_offset = 180          # Hernan's device reads +180
     mock_client = MagicMock()
     mock_client.messages.create = AsyncMock(return_value=_fake_sonnet_response())
     mock_client.messages.count_tokens = AsyncMock(return_value=_fake_count_tokens_response(42))
@@ -798,33 +935,53 @@ async def test_endpoint_429_days_remaining_is_integer(monkeypatch):
     async with _make_session() as db:
         await _seed_user(db, user_id)
         song_id = await _seed_song(db, user_id)
+        await db.execute(
+            text(
+                "INSERT INTO user_sessions "
+                "  (id, user_id, song_id, rating, local_calendar_day, tz_offset_minutes) "
+                "VALUES (gen_random_uuid(), :uid, :sid, NULL, "
+                "        DATE((now() AT TIME ZONE 'UTC') + (:tz * INTERVAL '1 minute')), :tz)"
+            ),
+            {"uid": user_id, "sid": song_id, "tz": tz_offset},
+        )
+        await db.commit()
 
+    headers = {"X-User-ID": user_id, "X-Timezone-Offset": str(tz_offset)}
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
-        for _ in range(3):
+        for _ in range(5):
             resp = await client.get(
-                f"/api/v1/songs/{song_id}/breakdown",
-                headers={"X-User-ID": user_id},
+                f"/api/v1/songs/{song_id}/breakdown", headers=headers,
             )
             assert resp.status_code == 200
 
         resp = await client.get(
-            f"/api/v1/songs/{song_id}/breakdown",
-            headers={"X-User-ID": user_id},
+            f"/api/v1/songs/{song_id}/breakdown", headers=headers,
         )
 
     assert resp.status_code == 429
-    message = resp.json().get("detail", {}).get("message", "")
+    detail = resp.json().get("detail", {})
+    message = detail.get("message", "")
 
-    # Must match 'Come back in <N> days' with an integer N (no literal {N})
-    match = re.search(r"Come back in (\d+) days", message)
-    assert match is not None, (
-        f"Expected 'Come back in N days' with integer N in 429 message, got: {message!r}"
+    assert "{" not in message and "}" not in message, (
+        f"An unformatted placeholder survived into the user-facing copy: {message!r}"
     )
-    days = int(match.group(1))
-    assert 1 <= days <= 8, (
-        f"Expected days_remaining in [1, 8], got {days}. Message: {message!r}"
+
+    resets_at = datetime.fromisoformat(detail["resets_at"])
+    if resets_at.tzinfo is None:
+        resets_at = resets_at.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    assert now < resets_at <= now + timedelta(days=1), (
+        f"resets_at must be the next local midnight — in the future and at most 24h "
+        f"out. now={now.isoformat()} resets_at={resets_at.isoformat()}"
+    )
+
+    local_reset = resets_at + timedelta(minutes=tz_offset)
+    assert (local_reset.hour, local_reset.minute, local_reset.second) == (0, 0, 0), (
+        f"resets_at must land on midnight in the user's own offset (+{tz_offset}), "
+        f"got {local_reset.isoformat()} local"
     )
 
     async with _make_session() as db:
@@ -917,3 +1074,211 @@ async def test_failed_breakdown_does_not_consume_cap(monkeypatch):
 
     async with _make_session() as db:
         await _cleanup_user(db, user_id)
+
+
+# ---------------------------------------------------------------------------
+# FLE-39 — terminations that never reach an `except Exception` handler
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cancelled_call_does_not_consume_cap():
+    """FLE-39: a client disconnect must not cost the user one of their 3 breakdowns.
+
+    This is the hole test_failed_breakdown_does_not_consume_cap cannot cover: it
+    raises asyncio.TimeoutError, an ordinary Exception, so arm (g) of the wrapper
+    catches it and stamps error_code. On Python 3.13 asyncio.CancelledError
+    subclasses BaseException instead, so arm (g) never fired and the row was left
+    indistinguishable from a delivered breakdown.
+
+    Cancels a real asyncio Task mid-await rather than raising CancelledError by
+    hand, because the bug IS the real cancellation path: the ASGI task dies and
+    the request-scoped session goes with it.
+    """
+    from app.ai.governor import governed
+
+    user_id = str(uuid.uuid4())
+    entered = asyncio.Event()
+
+    @governed(feature="breakdown", cap=3)
+    async def _slow_governed_call(*, db: AsyncSession, user_id: uuid.UUID) -> str:
+        entered.set()
+        await asyncio.sleep(3600)   # stands in for the ~87s Sonnet dispatch
+        return "never reached"
+
+    async with _make_session() as db:
+        await _seed_user(db, user_id)
+
+    # Three disconnects. Pre-fix every one of these left a NULL-error_code row and
+    # the user was locked out for a week having received nothing.
+    for _ in range(3):
+        async with _make_session() as db:
+            entered.clear()
+            task = asyncio.ensure_future(
+                _slow_governed_call(db=db, user_id=uuid.UUID(user_id))
+            )
+            await entered.wait()        # row is INSERTed, dispatch is in flight
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    async with _make_session() as db:
+        total = await db.scalar(
+            text(
+                "SELECT COUNT(*) FROM governor_calls "
+                "WHERE user_id = :u AND feature = 'breakdown'"
+            ),
+            {"u": user_id},
+        )
+        stamped = await db.scalar(
+            text(
+                "SELECT COUNT(*) FROM governor_calls "
+                "WHERE user_id = :u AND feature = 'breakdown' "
+                "AND error_code = 'CancelledError'"
+            ),
+            {"u": user_id},
+        )
+    assert total == 3, f"All 3 cancelled calls must still be audited, got {total}"
+    assert stamped == 3, (
+        f"All 3 rows must carry error_code='CancelledError', got {stamped}. "
+        "An unstamped row counts against the 3-per-7d cap."
+    )
+
+    # The cap must be intact: a 4th call still gets through.
+    async with _make_session() as db:
+        await _check_cap_or_fail(db, user_id)
+        await _cleanup_user(db, user_id)
+
+
+async def _check_cap_or_fail(db: AsyncSession, user_id: str) -> None:
+    """Assert _check_cap sees headroom for `user_id` at the breakdown cap of 3."""
+    from app.ai.governor import BudgetExceededError, _check_cap
+
+    try:
+        await _check_cap(db, uuid.UUID(user_id), "breakdown", 3)
+    except BudgetExceededError as exc:
+        pytest.fail(f"Cap must have headroom left, but _check_cap raised: {exc}")
+
+
+@pytest.mark.asyncio
+async def test_abandoned_inflight_rows_stop_counting_after_grace():
+    """FLE-39: rows orphaned by process death must stop counting against the cap.
+
+    A deploy SIGTERM or an OOM kill runs NO handler at all, so no in-process
+    `except` arm can ever stamp these — the cap predicate itself has to heal them.
+    Two such rows were found in prod on 2026-09-16, one of them holding a unit of
+    the real pilot user's weekly allowance hostage indefinitely.
+
+    Also pins the two properties the heal must not break:
+      - a row that COMPLETED keeps counting however old it gets, or the cap leaks;
+      - a row still plausibly IN FLIGHT keeps counting, or concurrent taps race
+        past the cap (the FLE-23 §6 property).
+    """
+    from app.ai.governor import BudgetExceededError, _check_cap
+
+    long_ago = datetime.now(timezone.utc) - timedelta(hours=2)
+
+    # (1) Three rows killed mid-dispatch two hours ago → all three refunded.
+    abandoned_user = str(uuid.uuid4())
+    async with _make_session() as db:
+        await _seed_user(db, abandoned_user)
+        for _ in range(3):
+            await _insert_governor_call(
+                db, abandoned_user, created_at=long_ago, abandoned=True
+            )
+    async with _make_session() as db:
+        await _check_cap_or_fail(db, abandoned_user)
+
+    # (2) Same age, but they completed → they must still count. This is the
+    #     regression that would turn the refund into a free-breakdown exploit.
+    completed_user = str(uuid.uuid4())
+    async with _make_session() as db:
+        await _seed_user(db, completed_user)
+        for _ in range(3):
+            await _insert_governor_call(db, completed_user, created_at=long_ago)
+    async with _make_session() as db:
+        with pytest.raises(BudgetExceededError):
+            await _check_cap(db, uuid.UUID(completed_user), "breakdown", 3)
+
+    # (3) Unstamped but only seconds old → still in flight, must still count, or
+    #     three simultaneous taps all pass a cap of 3.
+    inflight_user = str(uuid.uuid4())
+    async with _make_session() as db:
+        await _seed_user(db, inflight_user)
+        for _ in range(3):
+            await _insert_governor_call(db, inflight_user, abandoned=True)
+    async with _make_session() as db:
+        with pytest.raises(BudgetExceededError):
+            await _check_cap(db, uuid.UUID(inflight_user), "breakdown", 3)
+
+    async with _make_session() as db:
+        for uid in (abandoned_user, completed_user, inflight_user):
+            await _cleanup_user(db, uid)
+
+
+@pytest.mark.asyncio
+async def test_cap_and_quota_chip_share_one_computation():
+    """FLE-37 confirmed the cap and the chip agreed exactly; nothing may regress it.
+
+    The chip saying "2 left" over a cap that refuses is worse than either bug alone,
+    and hand-copied query logic is how that happens.
+
+    FLE-39 enforced this structurally by making both sides interpolate one shared
+    WHERE clause. FLE-92 raised the bar: the window itself is now per-feature and
+    needs a timezone lookup, so a shared string is no longer sufficient — the
+    predicate could match while the two sides measured different days. Both sides
+    now call governor.count_window_calls and do no querying of their own, so this
+    asserts that rather than counting interpolations.
+    """
+    import inspect
+
+    import app.api.v1.song_of_day as song_of_day_mod
+    from app.ai.governor import (
+        COUNTS_AGAINST_CAP_SQL,
+        _check_cap,
+        count_window_calls,
+    )
+
+    assert "prompt_tokens_actual IS NOT NULL" in COUNTS_AGAINST_CAP_SQL
+    assert "error_code IS NULL" in COUNTS_AGAINST_CAP_SQL
+
+    def _body(fn) -> str:
+        """Source of `fn` with its docstring lines removed.
+
+        Both functions discuss governor_calls, the shared predicate and the index by
+        name in prose. Prose is documentation, not a second source of truth — read
+        only the code, or this test fails on a comment and passes on a copy-pasted
+        query.
+        """
+        src = inspect.getsource(fn)
+        for line in (inspect.getdoc(fn) or "").splitlines():
+            if line.strip():
+                src = src.replace(line, "")
+        return src
+
+    cap_src = _body(_check_cap)
+    chip_src = _body(song_of_day_mod._breakdown_quota)
+    shared_src = inspect.getsource(count_window_calls)
+
+    # Each side delegates; neither builds a window or a predicate.
+    for name, src in (("_check_cap", cap_src), ("_breakdown_quota", chip_src)):
+        assert "count_window_calls(" in src, (
+            f"{name} must read its count from count_window_calls, not its own query"
+        )
+        assert "governor_calls" not in src, (
+            f"{name} queries governor_calls directly; that is how the cap and the "
+            f"chip drift apart. Go through count_window_calls."
+        )
+        # The interpolation form, not the bare name — both docstrings reference the
+        # constant in prose, and prose is not a second source of truth.
+        assert "{COUNTS_AGAINST_CAP_SQL}" not in src, (
+            f"{name} must not interpolate the predicate into a query of its own"
+        )
+        assert "INTERVAL" not in src.upper(), (
+            f"{name} must not define a window of its own"
+        )
+
+    # And the one place that does query carries the shared predicate on every branch
+    # (local-day COUNT, rolling COUNT, rolling MIN).
+    assert shared_src.count("AND {COUNTS_AGAINST_CAP_SQL}") == 3, (
+        "Every query in count_window_calls must interpolate the shared predicate"
+    )

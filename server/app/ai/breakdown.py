@@ -3,7 +3,7 @@ guitar breakdown (tab + chord diagrams + technique notes) for a given song.
 
 Phase 4 cost-governor interception point: this is the ONLY function that calls
 Sonnet during breakdown fetch. Do not sprinkle client.messages.create() calls
-anywhere else. Wrapped with @governed(feature='breakdown', cap=3, window='7d').
+anywhere else. Wrapped with @governed(feature='breakdown', cap=BREAKDOWN_CAP).
 """
 import asyncio
 import logging
@@ -15,7 +15,13 @@ from anthropic import APIError, APITimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.client import SONNET_MODEL, get_client
-from app.ai.governor import governed, current_call_id, record_estimate, record_actuals
+from app.ai.governor import (
+    BREAKDOWN_CAP,
+    current_call_id,
+    governed,
+    record_actuals,
+    record_estimate,
+)
 from app.models.song import Breakdown, enforce_song_specific
 
 logger = logging.getLogger(__name__)
@@ -400,7 +406,11 @@ def _format_user_message(
 # Main call
 # ---------------------------------------------------------------------------
 
-@governed(feature="breakdown", cap=3, window="7d")
+# FLE-92: cap comes from governor.BREAKDOWN_CAP (5/user/local-day) rather than a
+# literal. The literal 3 here was a second copy of the number that did not move
+# when BREAKDOWN_CAP did, so the endpoint's pre-check and the decorator's
+# authoritative check could disagree by two calls.
+@governed(feature="breakdown", cap=BREAKDOWN_CAP)
 async def run_technique_breakdown(
     song_title: str,
     song_artist: str,
@@ -413,7 +423,7 @@ async def run_technique_breakdown(
 ) -> Breakdown:
     """Single Sonnet 4.6 call. Mirrors run_onboarding_parse structure exactly.
 
-    Phase 4: wrapped with @governed(feature='breakdown', cap=3, window='7d').
+    Phase 4: wrapped with @governed(feature='breakdown', cap=BREAKDOWN_CAP).
     The decorator handles pre-cap-check → INSERT governor_calls row → set call_id ContextVar.
     This function retrieves call_id from the ContextVar, calls count_tokens + record_estimate
     BEFORE dispatch, then record_actuals AFTER dispatch for the full audit trail (D-03 / SC-1).

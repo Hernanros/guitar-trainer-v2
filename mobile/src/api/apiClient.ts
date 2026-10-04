@@ -118,7 +118,23 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
     headers,
   });
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status} ${init.method ?? 'GET'} ${path}`);
+    // FLE-92: append the response body, matching the XHR path above. Without it the
+    // two transports disagreed on exactly the thing callers pattern-match — the
+    // server's error code. GET /songs/{id}/breakdown happens to take the XHR path
+    // (it passes timeoutMs), which made correct 429-code handling an accident of
+    // transport choice, and BREAKDOWN_CAPPED vs PILOT_BUDGET_SPENT now have
+    // different copy and different remedies.
+    //
+    // res.text() on an already-failed response can itself reject (body consumed,
+    // connection dropped mid-error). The status is the part callers cannot do
+    // without, so failing to read the body must not turn a 429 into a network error.
+    let detail = '';
+    try {
+      detail = await res.text();
+    } catch {
+      detail = '';
+    }
+    throw new Error(`HTTP ${res.status} ${init.method ?? 'GET'} ${path} ${detail}`.trim());
   }
   return res.json() as Promise<T>;
 }

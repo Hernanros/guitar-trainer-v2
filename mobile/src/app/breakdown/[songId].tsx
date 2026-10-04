@@ -137,11 +137,13 @@ export default function BreakdownScreen() {
   if (isError || !today) {
     // Parse error code from the useTodaySong error for code-based rendering.
     const msg = error instanceof Error ? error.message : String(error ?? '');
-    const parsedCode = msg.includes('BREAKDOWN_CAPPED')
-      ? ('BREAKDOWN_CAPPED' as const)
-      : msg.includes('FLETCHER_OUT')
-        ? ('FLETCHER_OUT' as const)
-        : null;
+    const parsedCode = msg.includes('PILOT_BUDGET_SPENT')
+      ? ('PILOT_BUDGET_SPENT' as const)
+      : msg.includes('BREAKDOWN_CAPPED')
+        ? ('BREAKDOWN_CAPPED' as const)
+        : msg.includes('FLETCHER_OUT')
+          ? ('FLETCHER_OUT' as const)
+          : null;
     return (
       <BreakdownErrorCard
         code={parsedCode}
@@ -157,14 +159,20 @@ export default function BreakdownScreen() {
   const cachedSong = songId != null ? qc.getQueryData<SongResponse>(songByIdQueryKey(songId)) : undefined;
   const song = resolveDisplaySong(cachedSong, today.song, songId);
 
-  // Breakdown error branch — parse HTTP status inline (apiFetch throws
-  // "HTTP {status} {method} {path}" per apiClient.ts:50; body is not included, so
-  // resets_at is null and BreakdownErrorCard's BREAKDOWN_CAPPED variant renders
-  // "Come back in 0 days" — acceptable POC compromise per T-quick-03).
+  // Breakdown error branch — apiFetch throws "HTTP {status} {method} {path} {body}",
+  // so the server's own error code is in the message (both transports append the body
+  // as of FLE-92).
+  //
+  // Order matters: PILOT_BUDGET_SPENT is tested BEFORE the bare `HTTP 429` fallback,
+  // because both limits answer 429 and the fallback would otherwise claim every
+  // refusal is the daily cap. That mis-naming is not cosmetic — the cap clears at
+  // midnight and the budget does not, so it would tell a user to come back tomorrow
+  // for something that will refuse them again tomorrow.
   if (breakdown.isError) {
     const bdMsg = breakdown.error instanceof Error ? breakdown.error.message : String(breakdown.error);
-    const code =
-      bdMsg.includes('HTTP 429') || bdMsg.includes('BREAKDOWN_CAPPED')
+    const code = bdMsg.includes('PILOT_BUDGET_SPENT')
+      ? ('PILOT_BUDGET_SPENT' as const)
+      : bdMsg.includes('HTTP 429') || bdMsg.includes('BREAKDOWN_CAPPED')
         ? ('BREAKDOWN_CAPPED' as const)
         : bdMsg.includes('HTTP 503') || bdMsg.includes('FLETCHER_OUT')
           ? ('FLETCHER_OUT' as const)
@@ -173,6 +181,7 @@ export default function BreakdownScreen() {
       <BreakdownErrorCard
         code={code}
         resets_at={null}
+        cap={today.breakdown_quota?.cap ?? null}
         onRetry={() => breakdown.refetch()}
         onBack={() => router.back()}
       />
