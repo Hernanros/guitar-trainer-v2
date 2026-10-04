@@ -64,6 +64,63 @@ python3 -c "import asyncio,asyncpg; print(asyncio.run(
 # conn.fetch('select version_num from alembic_version')
 ```
 
+## Cost controls ride in on the deploy (FLE-92)
+
+Two independent spend limits live in `app/ai/governor.py`, and because a push of `main`
+is the whole deploy, **both arrive the moment anyone pushes** — neither is behind a
+feature flag you have to remember to turn on. They resolve differently, and the
+difference is the thing to get right:
+
+| control | env var | absent/empty → |
+|---|---|---|
+| per-user breakdown cap | `FLETCHER_CAP_BREAKDOWN` | **enforces `BREAKDOWN_CAP = 5`/day** |
+| global dollar ceiling | `FLETCHER_PILOT_CEILING_USD` | **enforces `$25.00`** |
+
+`effective_cap` and `effective_pilot_ceiling` both fall back to the code default when
+the var is unset, and only the literal strings `off`/`none`/`unlimited`/`-1` remove a
+limit. A typo fails toward spending less, by design.
+
+**The consequence that bites: prod is capped-off only because `FLETCHER_CAP_BREAKDOWN=off`
+is *present*.** Delete that variable, or stand up an environment without it, and the
+per-user cap silently self-enables at 5/day — the FLE-58 lockout, with nobody having
+decided to flip anything. It is a deliberate absence, not a leftover. Don't tidy it up.
+
+### Verified state, 2026-10-04
+
+- Prod runs `6e8426f`, **ten commits behind `main`** — the ceiling is not deployed, so
+  right now nothing bounds total pilot spend.
+- `FLETCHER_CAP_BREAKDOWN=off`. `FLETCHER_PILOT_CEILING_USD` and `FLETCHER_PILOT_START`
+  are both unset, so the first push of `main` turns the $25 ceiling on at its default
+  and measures it against every row ever written.
+- Measured spend against that ceiling: **$0.507 of $25 (2.0%)**, ~122 breakdowns of
+  headroom. The FLE-95 backfill of 143 historical rows contributes ~$0.06 of it, so
+  counting all-rows-ever is survivable and `FLETCHER_PILOT_START` can wait until the
+  pilot actually opens.
+
+Re-measure before trusting those numbers:
+
+```bash
+railway variables --service Postgres --json | python3 -c "import json,sys; print(json.load(sys.stdin)['DATABASE_PUBLIC_URL'])"
+cd server && DATABASE_URL='<that url>' .venv/bin/python -m scripts.pilot_spend
+```
+
+Exit codes: `0` under 80%, `1` over 80%, `2` already refusing calls, `3` ceiling
+switched off entirely.
+
+### Flipping the per-user cap on
+
+Enforcement reaching a real device is a product decision, not a deploy step. Hernan
+owns the shape and the timing (FLE-92), and as of 2026-10-04 the flip is **held** until
+his on-device cold-start walk (FLE-93) is signed off — turning the cap on mid-walk locks
+him out of his own acceptance test. Pushing `main` is fine while the hold stands: it
+deploys the ceiling with ~$24.49 of headroom and leaves the cap off, because the env var
+says so.
+
+When it is time, the flip is `FLETCHER_CAP_BREAKDOWN=5` on the Railway `fletcher`
+service — no code change and no rebuild. Both limits are read per call rather than at
+import, so the value a variable edit lands takes effect immediately; Railway applies the
+edit by restarting the service, so expect a brief restart rather than a full build.
+
 ## Writing a migration
 
 Test it against a local/dev Postgres first — `alembic upgrade head`, then
