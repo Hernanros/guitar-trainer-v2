@@ -2,7 +2,7 @@
 type: spec
 task: FLE-105
 created: 2026-10-05
-status: draft — awaiting Fret sign-off on §9
+status: draft — awaiting Fret sign-off on §11 (Q1–Q5)
 author: Ripley (engineering)
 parent: FLE-102 (tab error taxonomy), FLE-89 (trainer-quality bar)
 inputs:
@@ -109,7 +109,7 @@ remain inexpressible.** A held half-note bass under an eighth-note melody — *B
 the *Hotel California* 12-string arrangement — cannot be written in v2. Expressing it requires a
 `voices: list[Voice]` layer above `Beat`, which is a larger change to both schema and renderer than
 this spec, and it is not what makes six of FLE-102's ten songs unrepresentable. Open question Q3 in
-§9 asks Fret to confirm that split.
+§11 asks Fret to confirm that split.
 
 ---
 
@@ -186,7 +186,7 @@ single-target bends:
 | `pre_bend_release` | already bent at the attack, released to the fretted pitch |
 
 `0.25` is in the set for the blues curl (the quarter-tone bend that is most of *Pride and Joy*'s
-vocabulary). Q2 in §9 asks Fret whether that granularity earns its place.
+vocabulary). Q2 in §11 asks Fret whether that granularity earns its place.
 
 **Out of scope, named:** a bend released to a *different* non-zero amount, unison bends as a single
 object (write them as two notes, one bent), and vibrato applied to the bent pitch specifically
@@ -280,7 +280,7 @@ Three consequences that are easy to miss and each break something:
 
 Under a capo at 2, the Wonderwall shape is fingered as Em7 and sounds as F#m7. `Chord.name` is a
 single string. Whether the player is taught the shape name or the sounding name is a pedagogy call,
-not an engineering one. Q4 in §9. My recommendation is `name` = the shape the hand makes (`Em7`,
+not an engineering one. Q4 in §11. My recommendation is `name` = the shape the hand makes (`Em7`,
 because that is what the player is doing and what the diagram depicts) plus an optional
 `sounding_name` for the chart-reading case — but Fret owns this and I have not added the field.
 
