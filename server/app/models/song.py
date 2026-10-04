@@ -25,7 +25,15 @@
 #   degradation keyed on TodaySongResponse.breakdown_available (deferred to the next
 #   EAS batch; see .planning/debug/mobile-crash-null-breakdown.md), the coerce target
 #   can move back to None — until then empty-Breakdown is the mobile-safe contract.
+#
+# FLE-115 (2026-10-05): tab schema v2 — articulation, rhythm, capo. Implements
+#   deliverable 1 of .planning/design/261005-fle105-tab-schema-v2.md (accepted,
+#   commit 1b20620). Section references below (§2.1, §7.1.4, ...) are to that
+#   document. Nine additions, every one optional with a default, so a plain
+#   picked note stays exactly {string, fret, duration} and every cached JSONB
+#   breakdown reads back unchanged.
 import logging
+from fractions import Fraction
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -34,16 +42,415 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# FLE-115 repair policy — when a validator clamps and when it raises
+# ---------------------------------------------------------------------------
+# §8.2 states the governing constraint: unlike `drills`, which breakdown.py
+# soft-fails to [] on ValidationError, a `tab` validation error has NO soft-fail
+# path. Raising there does not drop a note, it drops the song — permanently, for
+# a cached row. But "never raise" is not right either: some violations have no
+# honest repair, and inventing one would be our musical judgement standing in
+# for the model's.
+#
+# The split already exists in this file and v2 just generalises it —
+# `Drill._clamp_repetitions` clamps a value, `Drill._target_bpm_above_start`
+# raises on a relationship:
+#
+#   CLAMP/COERCE a VALUE that has a nearest-legal answer.
+#     - an unknown duration string            -> "quarter"   (§8.2)
+#     - a legacy `fret: -1`                   -> fret 0 + effects:["dead"] (§6.1)
+#     - a fret outside 0..24-capo             -> the bound    (§7.1)
+#     - a beat with neither notes nor rest    -> a quarter rest (§3)
+#     - simultaneous notes that disagree on duration -> the longest (§2.4)
+#
+#   RAISE on a RELATIONSHIP that contradicts itself, where any repair would be
+#   an invention:
+#     - a beat that is BOTH a sounding column and a rest (§3)
+#     - a legato link whose target fret contradicts it (§4)
+#     - `sounding_name` that is not `name` transposed up `capo` (§7.2)
+#     - a drill snippet whose capo/tuning differ from the parent tab's (§7.1.4)
+#
+# Every clamp logs a warning. None of the raising cases is reachable from a
+# cached row: all four involve v2-only fields that no pre-FLE-115 breakdown
+# carries, so the compatibility argument above does not apply to them.
+# ---------------------------------------------------------------------------
+
+
+# --- §2.1 Duration -- a closed vocabulary, canonical spelling <modifier>-<base>
+Duration = Literal[
+    "whole", "half", "quarter", "eighth", "sixteenth", "thirty-second",
+    "dotted-half", "dotted-quarter", "dotted-eighth", "dotted-sixteenth",
+    "triplet-half", "triplet-quarter", "triplet-eighth", "triplet-sixteenth",
+]
+
+# --- §2.2 The beat-value table. THE one table; `Fraction`, not float.
+#
+# Exported deliberately: the repo carried three private, mutually disagreeing
+# duration tables (app/ai/tab_verification.py, scripts/fle102_tab_audit.py:47,
+# scripts/fle103_verify_pilot_tabs.py:42). This is the one they import.
+#
+# `Fraction`, and the reason stated here is NOT the one in §2.2 of the spec.
+# §2.2 (and the FLE-115 issue body) justify it with `sum([1/6] * 6) != 1.0`.
+# That is false — it is exactly 1.0. Measured before relying on it: every bar of
+# <= 7 columns for 4/4, 3/4, 7/8 and 3/8 exhaustively, plus 400k sampled bars up
+# to 40 columns, produced ZERO float false verdicts, and the 1e-6 tolerance was
+# never hiding a short bar either (the smallest expressible shortfall is a 32nd,
+# 0.125). See test_float_residue_appears_on_a_partial_sum_not_a_complete_bar.
+#
+# `Fraction` is still the right call, for the weaker true reason: with these 14
+# denominators float exactness is a COINCIDENCE of symmetric rounding, not a
+# property, and it stops holding the moment a sum does not complete a bar —
+# sum([1/3] * 5) != float(Fraction(5, 3)) is real, and a partial sum is what a
+# consumer compares the moment it measures anything but a full measure. Exact
+# arithmetic makes that structural and lets the meter check drop its tolerance
+# rather than pick one. It costs nothing on 14 fixed denominators.
+#
+# One quarter note = 1 beat, independent of the time signature's denominator.
+DURATION_BEATS: dict[str, Fraction] = {
+    "whole": Fraction(4),
+    "half": Fraction(2),
+    "quarter": Fraction(1),
+    "eighth": Fraction(1, 2),
+    "sixteenth": Fraction(1, 4),
+    "thirty-second": Fraction(1, 8),
+    "dotted-half": Fraction(3),
+    "dotted-quarter": Fraction(3, 2),
+    "dotted-eighth": Fraction(3, 4),
+    "dotted-sixteenth": Fraction(3, 8),
+    "triplet-half": Fraction(4, 3),
+    "triplet-quarter": Fraction(2, 3),
+    "triplet-eighth": Fraction(1, 3),
+    "triplet-sixteenth": Fraction(1, 6),
+}
+
+# §8.2 — the alternate spellings the two existing audit scripts already accept.
+# Nothing that passes today's audit may fail tomorrow's parse.
+_DURATION_ALIASES = {
+    "dotted_half": "dotted-half",
+    "dotted_quarter": "dotted-quarter",
+    "dotted_eighth": "dotted-eighth",
+    "dotted_sixteenth": "dotted-sixteenth",
+    "eighth-triplet": "triplet-eighth",
+    "quarter-triplet": "triplet-quarter",
+    "sixteenth-triplet": "triplet-sixteenth",
+    "half-triplet": "triplet-half",
+    "thirty_second": "thirty-second",
+    "32nd": "thirty-second",
+}
+
+_FALLBACK_DURATION = "quarter"
+
+# §7.1 — there is no way to express a note behind the capo, which is correct:
+# physically there isn't one. The usable range shrinks as the capo climbs.
+MAX_FRET = 24
+
+
+def canonical_duration(v: object) -> object:
+    """§8.2 — normalise an inbound duration string. COERCE, DO NOT RAISE.
+
+    See the repair-policy block above: `duration: str` -> `duration: Duration`
+    is the one field v2 makes stricter, and a value outside the 14 taken as a
+    ValidationError would cost the whole song, not the note.
+
+    Non-string input falls through untouched so Pydantic's own type error is
+    still the thing the caller sees.
+    """
+    if not isinstance(v, str):
+        return v
+    s = v.strip().lower().replace(" ", "-").replace("--", "-")
+    s = _DURATION_ALIASES.get(s, s)
+    if s not in DURATION_BEATS:
+        logger.warning(
+            "Unknown note duration %r — coerced to %r (FLE-115 §8.2).",
+            v, _FALLBACK_DURATION,
+        )
+        return _FALLBACK_DURATION
+    return s
+
+
+def duration_beats(value: object) -> Optional[Fraction]:
+    """§2.2 — exact beat-value of a duration string, or None if it is unknown.
+
+    The read-only companion to `canonical_duration`, and the entry point the
+    audit scripts use. The two behaviours have to stay separate: on the WRITE
+    path an unknown duration is coerced so a whole song is not lost (§8.2), but
+    on the AUDIT path coercing it would silently repair the very defect the
+    audit exists to count. So this reports `None` and the caller decides.
+
+    Accepts the §8.2 aliases, because the scripts that call it accepted them
+    before this table existed and nothing that passes today's audit may fail
+    tomorrow's.
+    """
+    if not isinstance(value, str):
+        return None
+    s = value.strip().lower().replace(" ", "-").replace("--", "-")
+    return DURATION_BEATS.get(_DURATION_ALIASES.get(s, s))
+
+
+# --- §4 Legato links ------------------------------------------------------
+# All four say the same structural thing: the next note on this string is
+# reached without a fresh pick. The target is implicit — the next note on the
+# same string in beat order, crossing the barline if necessary.
+Link = Literal["tie", "hammer_on", "pull_off", "slide"]
+
+# §4 — each link carries a free, exact check that needs no recording.
+# (predicate on (this_fret, next_fret), human description)
+_LINK_RULES: dict[str, tuple] = {
+    "tie": (lambda a, b: a == b, "the same fret"),
+    "hammer_on": (lambda a, b: b > a, "a higher fret"),
+    "pull_off": (lambda a, b: b < a, "a lower fret"),
+    "slide": (lambda a, b: b != a, "a different fret"),
+}
+
+# --- §6 Technique and effects — two fields, deliberately ------------------
+# They cannot be one field: a palm-muted, accented hammer-on into a bent note
+# with vibrato is a SINGLE note in Comfortably Numb, and a
+# one-articulation-per-note model is the same kind of lossy as the v1 schema
+# this replaces.
+Technique = Literal[
+    "tap", "slap", "pop", "rake",
+    "natural_harmonic", "pinch_harmonic", "artificial_harmonic",
+]
+Effect = Literal[
+    "vibrato", "wide_vibrato", "palm_mute", "staccato", "accent", "let_ring", "dead",
+]
+
+
+# --- §7.2 chord-name transposition ----------------------------------------
+# Flat-preferring spelling, matching app/ai/tab_verification.py's CHROM so the
+# two modules name the same pitch the same way.
+_CHROM = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
+_NOTE_PC = {
+    "C": 0, "C#": 1, "DB": 1, "D": 2, "D#": 3, "EB": 3, "E": 4, "FB": 4,
+    "F": 5, "E#": 5, "F#": 6, "GB": 6, "G": 7, "G#": 8, "AB": 8, "A": 9,
+    "A#": 10, "BB": 10, "B": 11, "CB": 11,
+}
+
+
+def _split_root(name: str) -> Optional[tuple[int, str]]:
+    """('Em7') -> (4, 'm7'); None when the leading token is not a note name."""
+    s = (name or "").strip()
+    if not s or s[0].upper() not in "ABCDEFG":
+        return None
+    root, i = s[0].upper(), 1
+    if i < len(s) and s[i] in "#b":
+        root, i = root + s[i], i + 1
+    pc = _NOTE_PC.get(root.upper())
+    if pc is None:
+        return None
+    return pc, s[i:]
+
+
+def transpose_chord_name(name: str, semitones: int) -> Optional[str]:
+    """§7.2 — 'Em7' up 2 -> 'F#m7'. Quality unchanged; slash bass moves too.
+
+    Returns None when the name cannot be parsed as root + suffix, so callers can
+    tell "could not transpose" from "transposes to itself".
+    """
+    out = []
+    for part in (name or "").split("/"):
+        split = _split_root(part)
+        if split is None:
+            return None
+        pc, suffix = split
+        out.append(_CHROM[(pc + semitones) % 12] + suffix)
+    return "/".join(out)
+
+
+def _is_transposition(name: str, sounding: str, semitones: int) -> Optional[bool]:
+    """True/False when both names parse, None when either does not.
+
+    Compares the root by PITCH CLASS, not spelling — F#m7 and Gbm7 are the same
+    chord and either is an acceptable `sounding_name`.
+    """
+    want, got = (name or "").split("/"), (sounding or "").split("/")
+    if len(want) != len(got):
+        return False
+    for w, g in zip(want, got):
+        a, b = _split_root(w), _split_root(g)
+        if a is None or b is None:
+            return None
+        if (a[0] + semitones) % 12 != b[0] % 12 or a[1].strip() != b[1].strip():
+            return False
+    return True
+
+
+class Bend(BaseModel):
+    """§5 — where the pitch goes from the fingered fret.
+
+    `Note.fret` stays the FINGERED fret. The four `kind` values are the four
+    standard forms and are complete for single-target bends.
+
+    `0.25` is in the schema on purpose (§5.1): the quarter-tone curl is a pitch,
+    not an ornament — in a blues in E the b3 curled toward the major 3rd is
+    deliberately neither, and rounding it either way is a PITCH ERROR. The
+    scatter risk is handled in the FLE-118 generator prompt, which must not teach
+    `0.25` in v1; the schema stays able to express ground truth. Render it `b¼`
+    and call it a "curl", never a "quarter-tone bend".
+
+    The sounding pitch of a bent note is not an integer fret: any consumer
+    deriving pitch (the FLE-103 verifier's V1/V2/V3 chord checks) must SKIP a
+    bent note rather than score the fingered pitch, or every correct bend reads
+    as a foreign note.
+    """
+    semitones: Literal[0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    kind: Literal["bend", "pre_bend", "bend_release", "pre_bend_release"] = "bend"
+
+    @field_validator("semitones", mode="before")
+    @classmethod
+    def _as_float(cls, v: object) -> object:
+        """Accept `1` for `1.0` — JSON drops a trailing `.0` on whole numbers."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, str):
+            try:
+                return float(v.strip())
+            except ValueError:
+                return v
+        return v
+
+
 class Note(BaseModel):
-    """A single picked note on the guitar."""
+    """A single note on the guitar.
+
+    v1 was exactly {string, fret, duration} — FLE-102 measured all 532 notes of
+    the cached corpus and found that key-set with no exceptions, which is why
+    six of ten audited songs had no correct representation at any prompt quality.
+    Everything v2 adds below is optional with a default, so the common case (a
+    plain picked note) costs the model nothing extra to emit.
+    """
     string: int     # 1 = high e ... 6 = low E
-    fret: int       # 0 = open
-    duration: str   # "quarter" | "eighth" | "half" | "whole" | "sixteenth"
+    # §6.1 — `fret` is >= 0, ALWAYS. This resolves a live contradiction:
+    # TabNotation.tsx:94 renders `fret === -1` as a dead note while
+    # fle103_verify_pilot_tabs.py:143 rejects `fret < 0`. A dead/ghost note is
+    # now the fret it is fingered at plus effects:["dead"]; `fret = -1` keeps its
+    # meaning only on ChordPosition, where it means "string not played" in a
+    # diagram and is a different concept.
+    fret: int = Field(..., ge=0)
+    duration: Duration
+    # §4 — the next note on this string is reached without a fresh pick.
+    link_to_next: Optional[Link] = None
+    bend: Optional[Bend] = None
+    # §6 — how the note is STRUCK. Exclusive: a note cannot be both tapped and
+    # slapped. None means an ordinary pick.
+    technique: Optional[Technique] = None
+    # §6 — what happens to it WHILE IT RINGS, and how hard. Stackable.
+    effects: list[Effect] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_negative_fret(cls, data: object) -> object:
+        """§6.1 — carry a cached `fret: -1` forward as effects:["dead"].
+
+        A clamp, not a raise (see the repair-policy block): the renderer has
+        emitted and drawn `-1` since v1, so a cached breakdown may hold one, and
+        rejecting it would take the whole song down. `-1` never named a fret —
+        it named "this string is muted" — so fret 0 plus the `dead` effect is
+        the faithful reading, and the renderer draws the same `x` it drew before.
+        """
+        if not isinstance(data, dict):
+            return data
+        fret = data.get("fret")
+        if not isinstance(fret, int) or isinstance(fret, bool) or fret >= 0:
+            return data
+        effects = list(data.get("effects") or [])
+        if fret == -1 and "dead" not in effects:
+            effects.append("dead")
+        logger.warning(
+            "Note.fret %d is negative — coerced to 0%s (FLE-115 §6.1).",
+            fret, " with effects:['dead']" if fret == -1 else "",
+        )
+        return {**data, "fret": 0, "effects": effects}
+
+    @field_validator("duration", mode="before")
+    @classmethod
+    def _canonicalise_duration(cls, v: object) -> object:
+        return canonical_duration(v)
+
+    @field_validator("effects")
+    @classmethod
+    def _dedupe_effects(cls, v: list) -> list:
+        """§6 — duplicates are de-duplicated on parse, first occurrence wins."""
+        seen: list = []
+        for e in v:
+            if e not in seen:
+                seen.append(e)
+        return seen
 
 
 class Beat(BaseModel):
-    """A rhythmic beat holding one or more simultaneous notes (chord within a beat)."""
-    notes: list[Note]
+    """One rhythmic column: either a sounding voicing or a silence, never both.
+
+    §3 — `rest` lives here and not on `Note` because a rest has no string and no
+    fret; putting it on `Note` forces a sentinel on an object that has neither
+    and every consumer then has to know the sentinel. At the beat level the
+    meter arithmetic stays one branch (see `beat_beats`).
+    """
+    notes: list[Note] = Field(default_factory=list)
+    rest: Optional[Duration] = None   # set iff notes == []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _repair_empty_beat(cls, data: object) -> object:
+        """A beat with no notes and no rest is silence of unstated length.
+
+        Clamped to a quarter rest rather than rejected: an empty `notes` list is
+        reachable from a cached row (nothing ever forbade it), and the repair is
+        the one the data already implies — a column with nothing sounding IS a
+        rest. The length is a guess, which is why it warns; the meter check in
+        app/ai/tab_verification.py is what reports the bar if the guess is wrong.
+        """
+        if not isinstance(data, dict):
+            return data
+        if data.get("notes") or data.get("rest") is not None:
+            return data
+        logger.warning(
+            "Beat has neither notes nor a rest — coerced to a quarter rest "
+            "(FLE-115 §3)."
+        )
+        return {**data, "rest": _FALLBACK_DURATION}
+
+    @field_validator("rest", mode="before")
+    @classmethod
+    def _canonicalise_rest(cls, v: object) -> object:
+        return v if v is None else canonical_duration(v)
+
+    @model_validator(mode="after")
+    def _one_column_one_duration(self) -> "Beat":
+        """§3 exactly-one-of, and §2.4 one duration per beat.
+
+        §2.4 is the rule that survives from v1 — fle103_verify_pilot_tabs.py:88
+        already fails a beat whose notes disagree ("simultaneous notes of one
+        voicing must agree"), and v2 promotes it here. It COERCES to the longest
+        value rather than raising, which is the same fallback that verifier
+        already takes, because a disagreeing beat is reachable from cached data.
+
+        The consequence has to be stated rather than discovered: independent
+        polyphonic voices remain inexpressible. Expressing them needs a
+        `voices: list[Voice]` layer above Beat — confirmed out of scope by Fret
+        (Q3). A note held under later motion is written `effects: ["let_ring"]`
+        at the nominal duration of its own beat (§2.4.1).
+        """
+        if self.notes and self.rest is not None:
+            raise ValueError(
+                "a beat is either a sounding column or a rest, never both — "
+                f"got {len(self.notes)} note(s) and rest={self.rest!r} (§3)"
+            )
+        if not self.notes and self.rest is None:
+            raise ValueError("a beat must hold notes or a rest (§3)")
+        durations = {n.duration for n in self.notes}
+        if len(durations) > 1:
+            longest = max(durations, key=lambda d: DURATION_BEATS[d])
+            logger.warning(
+                "Beat mixes durations %s — simultaneous notes of one voicing "
+                "must agree; coerced to %r (FLE-115 §2.4).",
+                sorted(durations), longest,
+            )
+            for n in self.notes:
+                n.duration = longest
+        return self
 
 
 class Measure(BaseModel):
@@ -52,22 +459,177 @@ class Measure(BaseModel):
     time_signature: str = "4/4"  # e.g. "4/4", "3/4", "6/8"
 
 
+def beat_beats(beat: Beat) -> Fraction:
+    """§2.2/§3 — the beat-value of one column. One branch, exact.
+
+    A rest column contributes its own value; a sounding column contributes its
+    notes' (single, per §2.4) duration. An exported helper so no consumer has to
+    re-derive the rest branch — the one that is silently skipped by default.
+    """
+    if beat.rest is not None:
+        return DURATION_BEATS[beat.rest]
+    if not beat.notes:
+        return Fraction(0)
+    return max(DURATION_BEATS[n.duration] for n in beat.notes)
+
+
+def measure_beats(measure: Measure) -> Fraction:
+    """Exact sum of a measure's columns, in quarter-note beats."""
+    return sum((beat_beats(b) for b in measure.beats), Fraction(0))
+
+
+def time_signature_beats(time_signature: str) -> Fraction:
+    """'6/8' -> Fraction(3) quarter-note beats. Falls back to 4/4."""
+    try:
+        num, den = (int(x) for x in (time_signature or "4/4").split("/"))
+        if num <= 0 or den <= 0:
+            raise ValueError
+        return Fraction(num * 4, den)
+    except Exception:
+        return Fraction(4)
+
+
 class Tab(BaseModel):
-    """Full tab notation as a sequence of measures."""
+    """Full tab notation as a sequence of measures.
+
+    §7 capo. Wonderwall (catalog difficulty 0.20, tagged `standard`) is played in
+    standard tuning with a capo at 2. With `tuning` as the only setup field,
+    emitting the shapes makes every sounding pitch two semitones wrong and
+    emitting the pitches hands the player unidiomatic barres instead of the open
+    shapes the song is actually played with — `tuning: standard` is true and
+    actively misleading. Wagon Wheel and Street Fighting Man have it too.
+
+    FRET NUMBERS ARE RELATIVE TO THE CAPO; the capoed string is fret 0, and
+    `tuning` continues to mean the pitch of the open strings BEFORE the capo:
+
+        sounding_pitch(note) = open_pitch(tuning[note.string]) + capo + note.fret
+
+    Uniform — no special case for fret == 0. Absolute-frets-plus-a-label makes
+    every open-position shape unreadable, which defeats the point of the field.
+    Chord diagrams share this origin (ChordPosition.fret, Chord.base_fret) or the
+    diagrams contradict the tab.
+
+    `capo` means a FULL six-string capo. Partial and cut capos are not
+    expressible and MUST NOT be faked with a doctored `tuning` array — that puts
+    a lie in the one field pitch derivation trusts.
+    """
     measures: list[Measure]
     tuning: list[str] = ["E", "A", "D", "G", "B", "e"]  # standard low-to-high
+    capo: int = Field(0, ge=0, le=12)
+    # §2.5 — swing and shuffle are MARKED, not notated. Writing swing as literal
+    # triplet pairs hard-codes a 2:1 ratio that real swing does not have: Autumn
+    # Leaves at 120 is near 2:1, Giant Steps at 240 is played almost dead even,
+    # and notating both identically teaches a player to bounce Giant Steps like a
+    # shuffle. `swing` and `shuffle` stay distinct — shuffle is a hard triplet
+    # subdivision whose omitted middle triplet IS the groove. No `bossa`/`latin`
+    # value: it would let the model emit a label in place of the pattern, which
+    # is the substitution that produced this schema change in the first place.
+    feel: Literal["straight", "swing", "shuffle"] = "straight"
+
+    @model_validator(mode="after")
+    def _clamp_frets_to_capo(self) -> "Tab":
+        """§7.1 — 0 <= fret <= 24 - capo.
+
+        Clamped, not raised (repair policy): a fret number has a nearest-legal
+        answer, and the write gate in app/ai/tab_verification.py is where a tab
+        with impossible frets should be refused. A note behind the capo cannot
+        be expressed because physically there isn't one.
+        """
+        ceiling = MAX_FRET - self.capo
+        for mi, m in enumerate(self.measures, 1):
+            for bi, b in enumerate(m.beats, 1):
+                for n in b.notes:
+                    if n.fret > ceiling:
+                        logger.warning(
+                            "m%d b%d: fret %d exceeds %d (24 - capo %d) — clamped "
+                            "(FLE-115 §7.1).", mi, bi, n.fret, ceiling, self.capo,
+                        )
+                        n.fret = ceiling
+        return self
+
+    @model_validator(mode="after")
+    def _validate_legato_links(self) -> "Tab":
+        """§4 — each link's target is checked against the fret it reaches.
+
+        The target is implicit: the next note on the SAME STRING in beat order,
+        crossing the barline if necessary (a tie over a barline is how sustain
+        past the bar is written; Comfortably Numb needs it). Slide direction is
+        derived from the target fret, never declared — a declared direction is
+        one more thing that can contradict the notes.
+
+        Raises, because a link that contradicts its target has no honest repair:
+        dropping it silently discards an articulation the model meant, and
+        rewriting the target would be inventing a note. `link_to_next` is a
+        v2-only field, so no cached breakdown can trip this.
+
+        Durations are unaffected by a tie: each note keeps its own value and the
+        bar sums the same. A tie means "do not re-pick", not "merge".
+        """
+        flat: list[tuple[int, int, int, Note]] = []
+        column = 0
+        for mi, m in enumerate(self.measures, 1):
+            for bi, b in enumerate(m.beats, 1):
+                column += 1
+                for n in b.notes:
+                    flat.append((column, mi, bi, n))
+
+        problems: list[str] = []
+        for idx, (col, mi, bi, n) in enumerate(flat):
+            if n.link_to_next is None:
+                continue
+            nxt = next(
+                (o for (c, _, _, o) in flat[idx + 1:] if c > col and o.string == n.string),
+                None,
+            )
+            if nxt is None:
+                problems.append(
+                    f"m{mi} b{bi}: {n.link_to_next} on string {n.string} has no "
+                    f"next note on that string to reach"
+                )
+                continue
+            predicate, want = _LINK_RULES[n.link_to_next]
+            if not predicate(n.fret, nxt.fret):
+                problems.append(
+                    f"m{mi} b{bi}: {n.link_to_next} from fret {n.fret} on string "
+                    f"{n.string} needs {want} next, got {nxt.fret}"
+                )
+        if problems:
+            raise ValueError("; ".join(problems) + " (§4)")
+        return self
 
 
 class ChordPosition(BaseModel):
-    """Finger placement for a single string in a chord diagram."""
+    """Finger placement for a single string in a chord diagram.
+
+    §7.1.3 — `fret` shares the tab's origin: capo-relative, capoed string = 0.
+    `fret: -1` keeps its v1 meaning HERE and only here — "this string is not
+    played" in a diagram, which is a different concept from a dead note (§6.1).
+    """
     string: int             # 1 = high e ... 6 = low E
     fret: int               # 0 = open, -1 = muted
     finger: Optional[int] = None  # 1=index, 2=middle, 3=ring, 4=pinky; None=open/muted
 
 
 class Chord(BaseModel):
-    """A chord diagram with all string positions."""
+    """A chord diagram with all string positions.
+
+    §7.2 — under a capo the shape and the sound have different names, and both
+    are needed. `name` is THE SHAPE AS FINGERED: under a capo at 2 Wonderwall's
+    first chord is fingered Em7 and sounds F#m7. The shape is what the hand does,
+    it is what the diagram beside it depicts, and it is the transferable unit —
+    "Em7 shape" works on fifty songs, "F#m7 at capo 2" is knowledge about one.
+
+    `sounding_name` is set iff `capo > 0` — anyone playing along with the record
+    needs it, but at capo 0 it is a redundant duplicate, and a redundant
+    duplicate is where a contradiction lives. Both are validated against the
+    parent Tab's capo by `Breakdown._resolve_sounding_names`, because that is the
+    first object that holds the chords and the capo at once.
+
+    Song-level `key` stays ABSOLUTE: Wonderwall is in F# minor even though every
+    shape on screen comes from E minor.
+    """
     name: str
+    sounding_name: Optional[str] = None  # absolute — "F#m7"; set iff capo > 0
     positions: list[ChordPosition]
     barre_fret: Optional[int] = None   # fret number for full/partial barre
     base_fret: int = 1                 # starting fret of diagram window (needed for SVG y-offset)
@@ -307,6 +869,128 @@ class Breakdown(BaseModel):
     # output path). Default-factory-produced [] bypasses these checks — that's the
     # intended backward-compat behavior for pre-4.1 cached rows.
     drills: list[Drill] = Field(default_factory=list, min_length=2, max_length=4)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inherit_tab_setup(cls, data: object) -> object:
+        """§7.1.4 — a drill snippet INHERITS capo/tuning; it never defaults them.
+
+        The highest-value catch of Fret's review, and neither of us named it in
+        the first draft. `Tab` is embedded in `Drill.tab_snippet`, and `capo`
+        defaults to 0. A drill lifted from a capo-2 song whose snippet takes that
+        default is two semitones wrong WITH NO ERROR ANYWHERE — the notes are
+        well-formed, the meter sums, and the verifier derives a pitch that is
+        simply the wrong one. FLE-102's T8 with a new cause, and the DEFAULT is
+        what makes it invisible. `tuning` has the same shape and the same
+        exposure today.
+
+        Inheritance happens here, before field validation, so it covers both
+        inbound paths that matter: a Sonnet tool-call payload and a cached JSONB
+        row. A snippet that states its own capo/tuning is left alone and then has
+        to match — see `_assert_drill_setup_matches`. Cached rows carry neither
+        key on either tab, so both sides default to 0/standard and agree.
+        """
+        if not isinstance(data, dict):
+            return data
+        tab = data.get("tab")
+        drills = data.get("drills")
+        if not isinstance(tab, dict) or not isinstance(drills, list):
+            return data
+        inheritable = {k: tab[k] for k in ("capo", "tuning") if k in tab}
+        if not inheritable:
+            return data
+        patched, changed = [], False
+        for d in drills:
+            snippet = d.get("tab_snippet") if isinstance(d, dict) else None
+            if isinstance(snippet, dict):
+                missing = {k: v for k, v in inheritable.items() if k not in snippet}
+                if missing:
+                    d = {**d, "tab_snippet": {**snippet, **missing}}
+                    changed = True
+            patched.append(d)
+        return {**data, "drills": patched} if changed else data
+
+    @model_validator(mode="after")
+    def _assert_drill_setup_matches(self) -> "Breakdown":
+        """§7.1.4 — every drill snippet's capo/tuning equals the parent tab's.
+
+        Raises: a snippet that disagrees with its own song's setup is a
+        contradiction with no honest repair — silently overwriting it would hide
+        exactly the two-semitone error this check exists to surface. Under
+        `drills` the cost is bounded: breakdown.py's Landmine #3 soft-fail strips
+        the drills key and re-parses, so the user still gets tab/chords/notes.
+        """
+        for i, d in enumerate(self.drills):
+            if d.tab_snippet.capo != self.tab.capo:
+                raise ValueError(
+                    f"drill {i} ({d.name!r}): tab_snippet.capo {d.tab_snippet.capo} "
+                    f"!= song tab capo {self.tab.capo} — a snippet inherits its "
+                    f"parent's capo, it never defaults one (§7.1.4)"
+                )
+            if d.tab_snippet.tuning != self.tab.tuning:
+                raise ValueError(
+                    f"drill {i} ({d.name!r}): tab_snippet.tuning "
+                    f"{d.tab_snippet.tuning} != song tab tuning {self.tab.tuning} "
+                    f"(§7.1.4)"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _resolve_sounding_names(self) -> "Breakdown":
+        """§7.2 — `sounding_name` is set iff capo > 0, and it must be the truth.
+
+        Three behaviours, in the order they are hit:
+
+        - capo == 0 and a sounding_name is set -> RAISE. At capo 0 the shape and
+          the sound are the same chord, so a second name is either a duplicate or
+          a contradiction, and there is no way to tell which.
+        - capo > 0 and no sounding_name -> DERIVE it. The value is mechanically
+          determined (`name` transposed up `capo`, quality unchanged), so filling
+          it is not a guess, and leaving it empty is what strands the player who
+          is trying to play along with the record.
+        - capo > 0 and set -> check it. Compared by PITCH CLASS, so F#m7 and Gbm7
+          both pass. Wonderwall checks out: Em7/G/D/A7sus4 -> F#m7/A/E/B7sus4.
+
+        A name this module cannot parse as root+suffix (a slash-less oddity, a
+        nickname) is left alone with a warning rather than rejected — chord
+        naming is open vocabulary and refusing to serve a song over it would be
+        the §8.2 mistake.
+        """
+        capo = self.tab.capo
+        for ch in self.chords:
+            if capo == 0:
+                if ch.sounding_name:
+                    raise ValueError(
+                        f"chord {ch.name!r}: sounding_name {ch.sounding_name!r} is "
+                        f"set at capo 0, where the shape and the sound are the "
+                        f"same chord (§7.2)"
+                    )
+                continue
+            if ch.sounding_name is None:
+                derived = transpose_chord_name(ch.name, capo)
+                if derived is None:
+                    logger.warning(
+                        "Chord %r cannot be transposed — leaving sounding_name "
+                        "unset at capo %d (FLE-115 §7.2).", ch.name, capo,
+                    )
+                else:
+                    ch.sounding_name = derived
+                continue
+            verdict = _is_transposition(ch.name, ch.sounding_name, capo)
+            if verdict is None:
+                logger.warning(
+                    "Chord %r / sounding_name %r cannot both be parsed — "
+                    "transposition unchecked at capo %d (FLE-115 §7.2).",
+                    ch.name, ch.sounding_name, capo,
+                )
+            elif not verdict:
+                raise ValueError(
+                    f"chord {ch.name!r}: sounding_name {ch.sounding_name!r} is not "
+                    f"{ch.name!r} transposed up {capo} semitones with the quality "
+                    f"unchanged (expected {transpose_chord_name(ch.name, capo)!r}) "
+                    f"(§7.2)"
+                )
+        return self
 
 
 # The keys a persisted JSONB snapshot must carry to be a renderable Breakdown.

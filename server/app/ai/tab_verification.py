@@ -47,7 +47,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
-from app.models.song import Breakdown, Tab
+from app.models.song import Breakdown, Tab, measure_beats, time_signature_beats
 
 # --- pitch model (mirrors fle102_tab_audit.py) -----------------------------
 CHROM = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
@@ -58,13 +58,10 @@ NOTE_PC = {
     "BB": 10, "B": 11,
 }
 
-DUR = {
-    "whole": 4.0, "half": 2.0, "dotted-half": 3.0, "dotted_half": 3.0,
-    "quarter": 1.0, "dotted-quarter": 1.5, "dotted_quarter": 1.5,
-    "eighth": 0.5, "dotted-eighth": 0.75, "dotted_eighth": 0.75,
-    "sixteenth": 0.25, "thirty-second": 0.125, "triplet-eighth": 1 / 3,
-    "eighth-triplet": 1 / 3, "quarter-triplet": 2 / 3, "sixteenth-triplet": 1 / 6,
-}
+# FLE-115: the private float `DUR` table that used to live here is gone — it was
+# one of three disagreeing copies. app.models.song.DURATION_BEATS is now the one
+# table, in exact `Fraction`, and `beat_beats` carries the rest branch (§2.2,
+# §3) so this module cannot silently skip a rest column.
 
 # Renderer constant mirrored from mobile/src/components/TabNotation.tsx —
 # MEASURE_WIDTH assumes 4 beats per measure. Keep in sync if that ever changes.
@@ -154,24 +151,31 @@ class VerificationResult:
 
 
 def _check_meter(tab: Tab) -> list[str]:
+    """C1 — exact, under FLE-115 §2.2. No tolerance, because there is no error.
+
+    The dropped `abs(total - want) > 1e-6` was not fixing a live defect — see
+    the note on DURATION_BEATS in app/models/song.py; the float sums it existed
+    to absorb were measured to be exact, and 1e-6 was far too small to hide any
+    expressible shortfall. It goes because with `Fraction` there is nothing left
+    for it to do, and a tolerance nobody can state the purpose of is a liability.
+
+    The behaviour change that DOES matter here is the rest branch: a rest column
+    counts toward the bar (`beat_beats`), where the old code saw a beat with no
+    notes, set `unknown`, and skipped the measure's check entirely — so a bar of
+    rests was never metered at all.
+    """
     bad = []
     for mi, m in enumerate(tab.measures, 1):
         ts = m.time_signature or "4/4"
-        try:
-            num, den = (int(x) for x in ts.split("/"))
-            want = num * 4.0 / den
-        except Exception:
-            want = 4.0
-        total, unknown = 0.0, False
-        for bt in m.beats:
-            ds = [DUR.get(n.duration.lower()) for n in bt.notes]
-            ds = [d for d in ds if d]
-            if not ds:
-                unknown = True
-                continue
-            total += max(ds)
-        if not unknown and abs(total - want) > 1e-6:
-            bad.append(f"m{mi}: durations sum to {total:g} beats, bar is {ts} ({want:g})")
+        want = time_signature_beats(ts)
+        if any(not bt.notes and bt.rest is None for bt in m.beats):
+            continue  # nothing sounding and nothing silent — no length to sum
+        total = measure_beats(m)
+        if total != want:
+            bad.append(
+                f"m{mi}: durations sum to {float(total):g} beats, bar is {ts} "
+                f"({float(want):g})"
+            )
     return bad
 
 
@@ -231,10 +235,24 @@ def _check_own_chords(breakdown: Breakdown) -> list[str]:
         return []
     off = _tuning_offset(breakdown.tab.tuning)
     frames = [0] if not off else [0, -off]
+    # FLE-115 §7.1/§7.2 — the capo term is DELIBERATELY ABSENT here, and that is
+    # not the defect §7.1.2 warns about. The absolute sounding pitch is
+    # open + capo + fret, but this check scores notes against `Chord.name`,
+    # which in v2 is THE SHAPE AS FINGERED (Wonderwall's first chord is `Em7`,
+    # sounding F#m7). Both sides of the comparison are therefore in the
+    # capo-relative frame and the capo cancels; adding it would score the notes
+    # absolute against shape names and fail every capo song. A verifier that
+    # scores against an ABSOLUTE chord name — fle103_verify_pilot_tabs.py, whose
+    # hand-authored ground truth predates `sounding_name` — does need the term.
     bad: dict[int, list[str]] = {}
     for mi, m in enumerate(breakdown.tab.measures, 1):
         for bi, bt in enumerate(m.beats, 1):
             for n in bt.notes:
+                # FLE-115 §5: a bent note does not sound at an integer fret.
+                # Scoring the fingered pitch flags every correct bend as a
+                # foreign note, so skip it rather than score it wrong.
+                if n.bend is not None:
+                    continue
                 nm, midi = _pitch(n.string, n.fret, om)
                 if all((midi + f) % 12 not in allowed for f in frames):
                     bad.setdefault(mi, []).append(f"b{bi} {nm}")

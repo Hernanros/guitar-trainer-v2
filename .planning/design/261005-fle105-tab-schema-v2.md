@@ -86,17 +86,42 @@ DURATION_BEATS: dict[str, Fraction] = {
 One quarter note = 1 beat, independent of the time signature's denominator (the existing V5 check
 already converts: `want = num * (4/den)`).
 
-`Fraction` is not fastidiousness. Measured:
+> **CORRECTION — 2026-10-05, FLE-115 implementation (Ripley).** The struck-through claim below is
+> wrong, and the word "Measured" in front of it was not earned — those two numbers were asserted,
+> not run. Actually measured, before relying on them:
+>
+> ```
+> sum([1/6] * 6) == 1.0                     ->  True
+> sum([1/3]*3 + [1/6]*6 + [0.5]*2) == 3.0   ->  True
+> ```
+>
+> Both are exact, because IEEE754 rounding on these particular denominators is symmetric and
+> cancels. Searched rather than spot-checked: every bar of ≤ 7 columns for 4/4, 3/4, 7/8 and 3/8
+> exhaustively, plus 400k sampled bars up to 40 columns — **zero** float false verdicts, no correct
+> bar flagged and no wrong bar passed. The `1e-6` tolerance was not hiding a short bar either: the
+> smallest expressible shortfall is a thirty-second, `0.125`, five orders of magnitude above it.
+>
+> **`Fraction` is still the right call**, so the implementation follows the spec unchanged — but for
+> the weaker and true reason, which is now the one carried in the `DURATION_BEATS` comment and in
+> `test_float_residue_appears_on_a_partial_sum_not_a_complete_bar`: float exactness here is a
+> *coincidence* of these 14 denominators rather than a property, and it stops holding as soon as a
+> sum does not complete a bar — `sum([1/3] * 5) != float(Fraction(5, 3))` is real. A partial sum is
+> what a consumer compares the moment it measures anything but a full measure (a snippet's length, a
+> click offset, a tie group). Exactness becomes structural and the meter check drops a tolerance
+> instead of picking one. What `Fraction` does *not* do is repair a live defect, and nothing
+> downstream should be justified as if it did.
+
+~~`Fraction` is not fastidiousness. Measured:~~
 
 ```
-sum([1/6] * 6) == 1.0   ->  False      (0.9999999999999999)
-sum([1/3]*3 + [1/6]*6 + [0.5]*2) == 3.0  ->  False  (3.0000000000000004)
+sum([1/6] * 6) == 1.0   ->  False      (0.9999999999999999)   # WRONG — see correction above
+sum([1/3]*3 + [1/6]*6 + [0.5]*2) == 3.0  ->  False  (3.0000000000000004)   # WRONG
 ```
 
-The existing V5 check survives this only because of its `1e-6` tolerance. Once meter validation
+~~The existing V5 check survives this only because of its `1e-6` tolerance. Once meter validation
 becomes a **write gate** rather than a report, an exact zero is the only honest comparison, and a
-tolerance is a place for a real half-beat-off bar to hide behind rounding. Costs nothing: `Fraction`
-arithmetic on 14 fixed denominators is exact and fast.
+tolerance is a place for a real half-beat-off bar to hide behind rounding.~~ Costs nothing:
+`Fraction` arithmetic on 14 fixed denominators is exact and fast.
 
 ### 2.3 Sextuplets are expressible; quintuplets are not
 

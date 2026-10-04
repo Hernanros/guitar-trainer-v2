@@ -33,8 +33,14 @@ Two kinds of output, deliberately kept apart:
 
 Each check is counted per measure so the accuracy number has a stated unit.
 """
-import os, json, psycopg2
+import os, json, pathlib, sys, psycopg2
 from collections import Counter
+from fractions import Fraction
+
+# This script is invoked from the repo root (see the usage line above), so
+# server/ is not on the path and `app` is not importable without this.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from app.models.song import duration_beats  # noqa: E402  (needs the path fix)
 
 # --- pitch model ----------------------------------------------------------
 CHROM = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
@@ -44,11 +50,10 @@ NOTE_PC = {"C": 0, "C#": 1, "DB": 1, "D": 2, "D#": 3, "EB": 3, "E": 4, "F": 5,
            "F#": 6, "GB": 6, "G": 7, "G#": 8, "AB": 8, "A": 9, "A#": 10,
            "BB": 10, "B": 11}
 
-DUR = {"whole": 4.0, "half": 2.0, "dotted-half": 3.0, "dotted_half": 3.0,
-       "quarter": 1.0, "dotted-quarter": 1.5, "dotted_quarter": 1.5,
-       "eighth": 0.5, "dotted-eighth": 0.75, "dotted_eighth": 0.75,
-       "sixteenth": 0.25, "thirty-second": 0.125, "triplet-eighth": 1/3,
-       "eighth-triplet": 1/3, "quarter-triplet": 2/3, "sixteenth-triplet": 1/6}
+# FLE-115: the private float duration table that used to live here is gone — it
+# was one of three disagreeing copies. app.models.song.DURATION_BEATS is now the
+# one table, in exact `Fraction`, reached through `duration_beats()` which still
+# reports None for an unknown value so C1 can count it instead of coercing it.
 
 
 def open_midi(tuning):
@@ -129,23 +134,32 @@ def check_measure(m):
     ts = m.get("time_signature") or "4/4"
     try:
         num, den = (int(x) for x in ts.split("/"))
-        want = num * 4.0 / den
+        want = Fraction(num * 4, den)
     except Exception:
-        want = 4.0
+        want = Fraction(4)
 
     # C1 — do durations sum to the bar? one duration per beat (the longest note
     # in it) is the generous reading; use max so a chord isn't counted 6x.
-    total = 0.0
+    # FLE-115: exact `Fraction` arithmetic, so the old 1e-6 tolerance is gone —
+    # a correct bar sums to the bar exactly and there is nothing left to absorb.
+    # (The tolerance was not hiding short bars; see the DURATION_BEATS note in
+    # app/models/song.py.) A `rest` column now counts toward the bar.
+    total = Fraction(0)
     unknown = False
     for bt in beats:
-        ds = [DUR.get((n.get("duration") or "").lower()) for n in (bt.get("notes") or [])]
-        ds = [d for d in ds if d]
+        ds = [duration_beats(n.get("duration")) for n in (bt.get("notes") or [])]
+        ds = [d for d in ds if d is not None]
         if not ds:
-            unknown = True
+            rest = duration_beats(bt.get("rest"))
+            if rest is None:
+                unknown = True
+                continue
+            total += rest
             continue
         total += max(ds)
-    if not unknown and abs(total - want) > 1e-6:
-        bad.append(("C1", f"durations sum to {total:g} beats, bar is {ts} ({want:g})"))
+    if not unknown and total != want:
+        bad.append(("C1", f"durations sum to {float(total):g} beats, "
+                          f"bar is {ts} ({float(want):g})"))
 
     # C2 — same string twice in one beat
     for bi, bt in enumerate(beats, 1):

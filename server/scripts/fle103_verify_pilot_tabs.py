@@ -34,14 +34,19 @@ import json
 import pathlib
 import sys
 from collections import defaultdict
+from fractions import Fraction
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from app.models.song import duration_beats  # noqa: E402  (needs the path fix)
 
 CHROM = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 PC = {"C": 0, "C#": 1, "DB": 1, "D": 2, "D#": 3, "EB": 3, "E": 4, "F": 5,
       "F#": 6, "GB": 6, "G": 7, "G#": 8, "AB": 8, "A": 9, "A#": 10, "BB": 10,
       "B": 11}
-DUR = {"whole": 4.0, "half": 2.0, "dotted-half": 3.0, "quarter": 1.0,
-       "dotted-quarter": 1.5, "eighth": 0.5, "dotted-eighth": 0.75,
-       "sixteenth": 0.25, "triplet-eighth": 1 / 3, "eighth-triplet": 1 / 3}
+# FLE-115: the private float duration table that used to live here is gone — it
+# was the narrowest of three disagreeing copies (10 values; it rejected
+# `sixteenth-triplet` and `thirty-second` as unknown). The one table is
+# app.models.song.DURATION_BEATS, reached through `duration_beats()`.
 
 # interval sets from the root. `third` names which interval must be present for
 # V2; `char` is the quality-defining tone for V3.
@@ -85,16 +90,26 @@ def open_pcs(tuning):
 
 
 def beat_duration(beat, where, fails):
+    """Beat-value of one column as an exact `Fraction` (FLE-115 §2.2/§3)."""
     ds = {n["duration"] for n in beat["notes"]}
+    if not ds:
+        # §3 — a rest column has a length and contributes it to the bar. Under
+        # the pre-v2 code this raised KeyError on `ds.pop()`.
+        rest = duration_beats(beat.get("rest"))
+        if rest is None:
+            fails.append(f"{where}: beat has neither notes nor a rest")
+            return Fraction(0)
+        return rest
     if len(ds) > 1:
         fails.append(f"{where}: beat mixes durations {sorted(ds)} — "
                      f"simultaneous notes of one voicing must agree")
-        return max(DUR.get(d, 0.0) for d in ds)
+        return max(duration_beats(d) or Fraction(0) for d in ds)
     d = ds.pop()
-    if d not in DUR:
+    beats = duration_beats(d)
+    if beats is None:
         fails.append(f"{where}: unknown duration {d!r}")
-        return 0.0
-    return DUR[d]
+        return Fraction(0)
+    return beats
 
 
 def main():
@@ -125,12 +140,16 @@ def main():
                              f"TabNotation MEASURE_WIDTH")
 
             # V5 meter
+            # FLE-115 §2.2 — exact, so the 1e-6 tolerance is gone. It was not
+            # hiding anything (see the DURATION_BEATS note in app/models/song.py
+            # for the measurement); under `Fraction` there is simply nothing for
+            # it to absorb.
             num, den = (int(x) for x in meas["time_signature"].split("/"))
-            want = num * (4.0 / den)
-            got = sum(beat_duration(b, where, fails) for b in beats)
-            if abs(got - want) > 1e-6:
-                fails.append(f"{where}: durations sum to {got} beats, "
-                             f"{meas['time_signature']} wants {want}")
+            want = Fraction(num * 4, den)
+            got = sum((beat_duration(b, where, fails) for b in beats), Fraction(0))
+            if got != want:
+                fails.append(f"{where}: durations sum to {float(got):g} beats, "
+                             f"{meas['time_signature']} wants {float(want):g}")
 
             for bi, beat in enumerate(beats):
                 strings = [n["string"] for n in beat["notes"]]
@@ -141,8 +160,14 @@ def main():
                     if not 1 <= n["string"] <= 6:
                         fails.append(f"{where} b{bi + 1}: string {n['string']}")
                     if n["fret"] < 0:
-                        fails.append(f"{where} b{bi + 1}: fret {n['fret']} — "
-                                     f"muted strings must be omitted, not -1")
+                        # FLE-115 §6.1 — this check and TabNotation.tsx used to
+                        # contradict each other: the renderer DREW `fret: -1` as
+                        # a dead note while this rejected it. v2 settles it in
+                        # this direction — fret is >= 0 always — and now names
+                        # the representation that replaces -1.
+                        fails.append(f"{where} b{bi + 1}: fret {n['fret']} — a "
+                                     f"dead note is its fingered fret plus "
+                                     f"effects:['dead'], never -1 (§6.1)")
                 # V8 fret span
                 fr = [n["fret"] for n in beat["notes"] if n["fret"] > 0]
                 if fr and max(fr) - min(fr) > 5:
