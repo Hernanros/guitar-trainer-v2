@@ -869,6 +869,10 @@ class Breakdown(BaseModel):
     # output path). Default-factory-produced [] bypasses these checks — that's the
     # intended backward-compat behavior for pre-4.1 cached rows.
     drills: list[Drill] = Field(default_factory=list, min_length=2, max_length=4)
+    # FLE-128: provenance of the tuning used when generating this breakdown.
+    # "catalog" = matched a song_catalog row; "default" = no row, used standard.
+    # None for cached rows generated before this field was added.
+    tuning_source: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -1046,8 +1050,13 @@ def is_renderable_breakdown(v: object) -> bool:
 def _names_song(text: str, song_title: str, song_artist: str) -> bool:
     """True if `text` mentions the song title or the artist, case-insensitively.
 
-    Plain substring test in both fields — the same test `scripts/grade_eval.py`
-    applies for gate L4, so the enforced value and the graded value cannot drift.
+    Plain substring test in both fields. This USED to be the same test gate L4
+    applied, so that the enforced value and the graded value could not drift;
+    FLE-123 retired L4's substring IFF because the prompt forbids it in as many
+    words ("Do not scan `what` for that text"). The test survives HERE on purpose:
+    it is a one-way correctness backstop (see `enforce_song_specific`), not a
+    judgement about what the flag means, and a drill naming the song in `what` is
+    song-specific whatever else is true. It is no longer mirrored by any gate.
 
     Empty/whitespace-only title or artist is ignored rather than matched: "" is a
     substring of every string, and a song row with a blank artist would otherwise
@@ -1069,12 +1078,20 @@ def enforce_song_specific(
     chaining.
 
     ONE-WAY ONLY. A drill that claims song_specific=True without naming the song is
-    left alone. Gate L4 grades the flag as an IFF, so that direction can still fail
-    the eval — deliberately. Clearing the flag would mean deciding that a drill
-    saying "the opening riff" or "the turnaround in the outro" is not about the song,
-    which is exactly the kind of semantic judgement this function exists to avoid
-    making. The true→false direction is a copy-quality signal for the eval to report;
-    the false→true direction is a correctness guarantee, and only it belongs in code.
+    left alone. Clearing the flag would mean deciding that a drill saying "the
+    opening riff" or "the turnaround in the outro" is not about the song, which is
+    exactly the kind of semantic judgement this function exists to avoid making.
+    The false→true direction is a correctness guarantee, and only it belongs in code.
+
+    FLE-123: this docstring used to add "Gate L4 grades the flag as an IFF, so that
+    direction can still fail the eval — deliberately." That is no longer true, and
+    it was never a good deal. Because this function forces the flag true whenever
+    `what` names the song, L4's false→true half could never fail; its only live half
+    punished the true→false case, which NAME THE PASSAGE now produces routinely (a
+    drill correctly flagged true for "the intro's hammer-on lick" contains no
+    title). L4 is now a notes-based derivation check and does not grade the
+    true→false direction at all — so nothing downstream reports it. That direction
+    is unenforced by design, here and in the eval.
 
     Args:
         breakdown: A parsed Breakdown. Pre-4.1 cached rows (drills=[]) are a no-op.

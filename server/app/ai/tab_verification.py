@@ -129,6 +129,13 @@ from dataclasses import dataclass, field
 
 from app.models.song import Breakdown, Drill, Tab, measure_beats, time_signature_beats
 
+# FLE-128: coherence check imported lazily to avoid circular import risk.
+# The function exists in scripts/ but carries no app dependency — pure logic.
+try:
+    from scripts.fle125_tuning_coherence import check as _coherence_check
+except ImportError:
+    _coherence_check = None  # type: ignore[assignment]
+
 # --- pitch model (mirrors fle102_tab_audit.py) -----------------------------
 CHROM = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 STD_MIDI = {6: 40, 5: 45, 4: 50, 3: 55, 2: 59, 1: 64}
@@ -157,7 +164,7 @@ QUAL = {
     "maj7": (0, 4, 7, 11), "m7b5": (0, 3, 6, 10), "m7": (0, 3, 7, 10),
     "7#9": (0, 4, 7, 10, 3), "7b9": (0, 4, 7, 10, 1), "7#11": (0, 4, 6, 7, 10),
     "9": (0, 4, 7, 10, 2), "6/9": (0, 2, 4, 7, 9),
-    "6": (0, 4, 7, 9), "m6": (0, 3, 7, 9), "sus4": (0, 5, 7),
+    "6": (0, 4, 7, 9), "m6": (0, 3, 7, 9), "7sus4": (0, 5, 7, 10), "sus4": (0, 5, 7),
     "sus2": (0, 2, 7), "5": (0, 7), "dim": (0, 3, 6), "aug": (0, 4, 8),
     "7": (0, 4, 7, 10), "m": (0, 3, 7), "": (0, 4, 7),
 }
@@ -216,7 +223,7 @@ def _chord_pcs(name: str) -> set[int] | None:
         key = "m7" if "7" in suf else ("m6" if "6" in suf else "m")
     else:
         key = next(
-            (k for k in ("maj7", "m7b5", "7#9", "7b9", "7#11", "sus4", "sus2",
+            (k for k in ("maj7", "m7b5", "7#9", "7b9", "7#11", "7sus4", "sus4", "sus2",
                          "dim", "aug", "9", "6/9", "7", "6", "5") if k in suf.lower()),
             "",
         )
@@ -570,6 +577,40 @@ def _check_double_applied_swing(tab: Tab) -> list[str]:
     return warn
 
 
+def _check_tuning_coherence(breakdown: Breakdown) -> list[str]:
+    """FLE-128 — review flag, never blocking (see fle125_tuning_coherence.py).
+
+    Detects self-contradiction: tab notes and chord names cannot all be right
+    under any uniform reading of the declared tuning. It does NOT verify whether
+    the tuning is correct — a globally-transposed-but-internally-consistent row
+    passes here with a perfect score. One true positive and zero false positives
+    over the nine-row corpus is not a validated precision, so this is a warning,
+    never a block. The check is VACUOUS (inconclusive=True) when there are no
+    parseable chords or no notes — that case is reported separately; it must
+    never silently read as a pass.
+    """
+    if _coherence_check is None:
+        return []
+    try:
+        result = _coherence_check(breakdown.model_dump())
+    except Exception:
+        return []
+    if result.get("inconclusive"):
+        return [
+            f"TUNING_COHERENCE: inconclusive (no parseable chords or no notes) "
+            f"— cannot assess self-consistency"
+        ]
+    if result.get("review_flag"):
+        pct = result.get("outside_pct", 0.0)
+        t_star = result.get("t_star", 0)
+        return [
+            f"TUNING_COHERENCE: {pct:.1f}% of notes fall outside the declared "
+            f"chords at T*={t_star:+d} — row may be self-contradictory; "
+            f"check tuning, chord names, and melody against a recording"
+        ]
+    return []
+
+
 def verify(breakdown: Breakdown) -> VerificationResult:
     """Run every recording-free check against one freshly-generated breakdown."""
     tab = breakdown.tab
@@ -596,5 +637,6 @@ def verify(breakdown: Breakdown) -> VerificationResult:
     warnings += [f"DOUBLE_SWING: {d}" for d in _check_double_applied_swing(tab)]
     warnings += [f"RENDERER_WIDTH: {d}" for d in _check_renderer_width(tab)]
     warnings += [f"PITCH_DEGENERACY: {d}" for d in _check_pitch_degeneracy(tab)]
+    warnings += _check_tuning_coherence(breakdown)
 
     return VerificationResult(blocking=blocking, warnings=warnings)

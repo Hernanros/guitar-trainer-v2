@@ -198,14 +198,22 @@ class BreakdownTruncatedError(AIBreakdownError):
 # The live baseline is 04.1-07's confirming run, 2026-09-24 — 34/40, 5 songs,
 # $0.61 (04.1-07-EVAL-RERUN-RESULTS.md addendum 2). Editing this string
 # invalidates gate-by-gate comparison against it, so FLE-118 invalidates it. But
-# FLE-99 (commit e4cbc0e) already had, and it left a worse problem behind:
-# scripts/grade_eval.py's L1 and L4 now CONTRADICT the shipped prompt. L1 fails a
-# snippet reproducing 3+ consecutive beats of a main-tab measure, which SIMPLIFY
-# above now requires; L4 asserts song_specific iff the title/artist appears in
-# `what`, which SONG_SPECIFIC below explicitly tells the model not to key off.
-# A re-run before those two gates are fixed buys a number nobody can read — the
-# same "half the failures were the rule's, not the model's" trap grade_eval.py's
-# own docstring records from the L5 dominance era. See FLE-123.
+# FLE-99 (commit e4cbc0e) already had, and it left a worse problem behind, which
+# FLE-123 has now FIXED: scripts/grade_eval.py's L1 and L4 contradicted this
+# prompt. L1 failed a snippet reproducing 3+ consecutive beats of a main-tab
+# measure, which SIMPLIFY below requires; L4 asserted song_specific iff the
+# title/artist appears in `what`, which SONG_SPECIFIC below explicitly tells the
+# model not to key off. The harness is no longer the blocker.
+#
+# WHAT THE OLD NUMBER IS WORTH NOW. Re-grading the 2026-09-24 transcript under
+# the fixed gates gives 31/35 (5 L4 N/A, excluded) against the recorded 34/40:
+# all 3 L1 failures were the rule's fault and clear, and L4 turns out to have
+# been vacuous — all 16 drills that run declared song_specific=false, so it
+# tested nothing in either direction. The 4 real failures (L5 x2, A1 x2) stand.
+# 31/35 is a RE-GRADE, not a baseline: it still describes the pre-FLE-99 prompt's
+# output. A fresh run is what re-baselines, and it needs Hernan's go-ahead on
+# spend (~$0.19/song, and this string roughly doubled in FLE-118, so input cost
+# per song is higher than the 2026-09-24 run's).
 
 SYSTEM_PROMPT = """You are Fletcher — a demanding but constructive guitar teacher (Terence Fletcher from Whiplash, but the version who actually wanted his students to succeed).
 
@@ -720,9 +728,14 @@ def _format_user_message(
     else:
         skills_str = "(no target skills specified — use idiomatic voicings for the genre)"
 
-    if known_tuning is not None:
-        info = TUNING_NOTE_MAP.get(known_tuning)
-        if info is not None:
+    # FLE-128: always pass a tuning. On a catalog miss use "standard" — the harm
+    # asymmetry (wrong non-standard forces a retune; wrong standard leaves a
+    # playable tab a semitone sharp) means defaulting to standard is safer than
+    # letting Sonnet infer (which produced the only wrong tuning in the corpus).
+    effective_tuning = known_tuning if known_tuning is not None else "standard"
+    info = TUNING_NOTE_MAP.get(effective_tuning)
+    if info is not None:
+        if known_tuning is not None:
             retune_line = f" {info['retune']}" if info["retune"] else ""
             tuning_str = (
                 f"KNOWN TUNING (verified ground truth from the catalog — this is "
@@ -733,7 +746,14 @@ def _format_user_message(
                 f"technique note.\n\n"
             )
         else:
-            tuning_str = ""
+            # Default — we chose standard because there is no catalog row.
+            # Do NOT tell Sonnet to "infer" or write non-standard instructions.
+            tuning_str = (
+                f"TUNING DEFAULT (no catalog row — defaulting to standard; "
+                f"do not infer a different one): {info['label']} "
+                f"({', '.join(info['notes'])}, low to high).\n"
+                f"Emit tab.tuning as exactly {info['notes']!r}.\n\n"
+            )
     else:
         tuning_str = ""
 
@@ -943,27 +963,31 @@ async def run_technique_breakdown(
             # wraps it as AIBreakdownError (real structural failure, not a drills problem).
             parsed = Breakdown.model_validate(raw_input_no_drills)
 
-        # FLE-33: catch a silently re-voiced tab HERE, where we still know what
-        # the catalog claims. known_tuning is None for songs with no catalog row
-        # (user-onboarded) — that path is unchanged, Sonnet's inference stands.
-        if known_tuning is not None:
-            expected = TUNING_NOTE_MAP.get(known_tuning)
-            if expected is not None:
-                emitted_norm = _normalize_tuning_notes(parsed.tab.tuning)
-                expected_norm = _normalize_tuning_notes(expected["notes"])
-                if emitted_norm != expected_norm:
-                    logger.error(
-                        "Tuning mismatch for song %r by %r: catalog says %r (%s) "
-                        "but Sonnet emitted tab.tuning=%r.",
-                        song_title, song_artist, known_tuning, expected["notes"],
-                        parsed.tab.tuning,
-                    )
-                    raise TuningMismatchError(
-                        f"Sonnet emitted tab.tuning={parsed.tab.tuning!r} for "
-                        f"{song_title!r}, but the catalog's verified tuning is "
-                        f"{known_tuning!r} ({expected['notes']!r}). Not serving a "
-                        f"silently re-voiced tab."
-                    )
+        # FLE-128: always validate against the effective tuning (catalog or default
+        # "standard"). Before this change only catalog songs were validated;
+        # off-catalog songs let Sonnet infer freely, which produced the one wrong
+        # tuning in the corpus. Now we always pass a tuning in the prompt and
+        # always check the emitted value matches.
+        effective_tuning = known_tuning if known_tuning is not None else "standard"
+        tuning_source = "catalog" if known_tuning is not None else "default"
+        expected = TUNING_NOTE_MAP.get(effective_tuning)
+        if expected is not None:
+            emitted_norm = _normalize_tuning_notes(parsed.tab.tuning)
+            expected_norm = _normalize_tuning_notes(expected["notes"])
+            if emitted_norm != expected_norm:
+                logger.error(
+                    "Tuning mismatch for song %r by %r: %s says %r (%s) "
+                    "but Sonnet emitted tab.tuning=%r.",
+                    song_title, song_artist, tuning_source, effective_tuning,
+                    expected["notes"], parsed.tab.tuning,
+                )
+                raise TuningMismatchError(
+                    f"Sonnet emitted tab.tuning={parsed.tab.tuning!r} for "
+                    f"{song_title!r}, but the {tuning_source} tuning is "
+                    f"{effective_tuning!r} ({expected['notes']!r}). Not serving a "
+                    f"silently re-voiced tab."
+                )
+        parsed.tuning_source = tuning_source
 
         # FLE-44: song_specific is enforced in code, not asked for in the prompt.
         # The SYSTEM_PROMPT DRILLS block still states the rule as a hint, but the
