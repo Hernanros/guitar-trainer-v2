@@ -37,6 +37,14 @@ change — spec'd out in §6, not made here.
 
 ### 1b. The renderer drops rhythm, and corrupts any measure wider than four beats
 
+> **FIXED 2026-10-05 — read this section as history, not as current state.** Filed as FLE-111 and
+> closed by `0b8f2ee` (FLE-116): `MEASURE_WIDTH` no longer exists, `columnWidth()` sizes each column
+> from its own duration, and `measureWidth()` sums the real content. The measurement below was right;
+> the diagnosis finished with FLE-116 and FLE-117 lifting the four-beat convention out of ground truth.
+> **Everything this section was used to justify needs rechecking, and two things did not survive it:**
+> filter F1 in §2 (expired — see the note there) and the feel caveat in §4 (its premise is now false,
+> and retiring it uncovered three swing tunes in this set carrying no marking at all).
+
 `mobile/src/components/TabNotation.tsx` **never reads `note.duration`.** Not once in 236 lines. Every
 beat is a fixed 48px column. So:
 
@@ -108,6 +116,17 @@ bends (*Comfortably Numb*, *Europa*, *Sultans of Swing*, *Crazy Train*), slide (
 shuffle (*Pride and Joy*, *Sweet Home Chicago*, *Folsom Prison Blues*) — a shuffle rendered on a
 straight grid is a different rhythm, and the renderer shows no rhythm to correct.
 
+> **F1 EXPIRED 2026-10-05.** This filter was a statement about the renderer of 2026-10-04, and
+> FLE-111/FLE-116/FLE-117 have since answered every clause of it: durations size the columns (§9.1),
+> the v2 glyphs cover articulation, `capo` exists (§7), and `feel` is marked and drawn (§2.5/§9.2).
+> The shuffle exclusion in particular is now wrong on its own terms — `tab_feel: "shuffle"` is a legal
+> marking that renders. **So the selection this document defends is narrower than today's product
+> requires, and §5's "the top of this catalog is unteachable" is the part of this writeup most likely
+> to be out of date.** Re-running F1 against the current renderer is the obvious way to widen the set
+> past ten and past six-of-ten jazz and classical; it is not in this issue's scope and is the first
+> thing to pick up if Hernan's answer on §5 is "widen it". What has NOT changed is F2: a renderer that
+> can draw a bend does not make me able to certify one cold.
+
 **F2 — I must be able to certify it cold.** No song where I would need the record to publish a
 bar-by-bar reading. This is why *Everlong* is out despite being renderer-safe and drop-D (I am not
 confident of its chart without hearing it), and why *Kashmir* is out (I know the riff is a chromatic
@@ -166,12 +185,15 @@ the verifier does not. Do not merge the two files — that separation is the who
 | V2 third present | FLE-102 T2 — the defect in 6 of 10 cached tabs |
 | V3 characteristic tone | the b5 of a m7b5, #11 of a 7#11, b9 of a 7b9, maj7 of a maj7 |
 | V4 root present | — |
-| V5 meter | beat durations sum to the time signature (T10) |
-| V6 renderer width | ≤ 4 beats per measure (§1b) |
+| V5 meter | beat durations sum to the time signature (T10), exactly, under `Fraction` |
+| V6 renderer parity | ~~≤ 4 beats per measure (§1b)~~ → the renderer's duration table matches §2.2, and the rhythm §9.1 draws is distinguishable (rewritten by FLE-117 once §1b was fixed) |
 | V7 one note per string | two notes on one string in one beat is unplayable |
 | V8 fret span | fretted span ≤ 5 within a beat — one hand position |
+| V9 feel marking | **added 2026-10-05** — `tab.feel` present, legal, agreeing with the prose, and not double-applied as triplet pairs (C8). Unit: the song. It fails all ten songs on the pre-V9 file; see §4. |
 
-**Result: 80 measures, 80 carrying a declared chord, all checks pass.**
+**Result: 80 measures, 80 carrying a declared chord, all checks pass** — including V9 as of `10a1fe1`.
+V1–V8 were green before the feel fix and are byte-for-byte unaffected by it: that commit touched no
+measure data, so the pitch verification below stands exactly as first recorded.
 
 ### What I corrected
 
@@ -180,10 +202,18 @@ as `5:5 4:4 3:5 2:6` and recorded in my notes that `2:6` was the G# — it is **
 is F; G# is fret 9. The voicing I was about to publish had no #11 at all and a foreign F, i.e. it
 was a D7#9. Corrected to `5:5 4:6 3:5 2:7` — root, #11, b7, third from the bottom, span 2 frets.
 
-I am recording this prominently rather than quietly fixing it. It is the same class of error as
+**Second entry, 2026-10-05: three swing tunes carrying no feel marking.** Not an arithmetic slip this
+time but an omission, and a worse class for it — the D7#11 was caught before publication by a check
+that existed, while this one *was* published and sat in ground truth until an unrelated renderer fix
+made it visible. Nothing was red, because `Tab.feel` defaults to `straight` and a default is not a
+disagreement. V9 now exists so that silence is no longer available: see the §4 revision.
+
+I am recording these prominently rather than quietly fixing them. The first is the same class as
 FLE-102's T1/T4 — a confident hand writing a shape whose arithmetic it did not check — produced by
-the person hired to catch that error, on the fourth chord of ten songs. **No ground truth should be
-committed on anybody's ear alone, mine included.** That is the argument for the verifier existing,
+the person hired to catch that error, on the fourth chord of ten songs. The second is the class
+FLE-102 never had a name for: **a field that is true as data and misleading as instruction**, which is
+also what `tuning: standard` does to a capo song. **No ground truth should be committed on anybody's
+ear alone, mine included — and no field that reaches a player should be allowed to default.** That is the argument for the verifier existing,
 and for FLE-107 scoring by diff rather than by judgement.
 
 No other corrections were needed: the remaining nine songs' voicings passed as first written.
@@ -206,12 +236,38 @@ No other corrections were needed: the remaining nine songs' voicings passed as f
 
 Per the honesty requirement, stated rather than folded into the pass rate.
 
-**Set-level, and the most important one: I verified pitch, not feel.** Four of the ten are swing or
-bossa (*Autumn Leaves*, *Take the 'A' Train*, *Blue Bossa*, *Ipanema*). I committed them as
-quarter-note chord stabs, which is correct as **pitch** and wrong as **feel**. Because the renderer
-displays no rhythm (§1b), the feel cannot be delivered to the player or scored against the
-generator today. I did not count this against the generator; it is a product gap. **A player
-practising these four from the screen alone is not being taught the groove.**
+**Set-level, and the most important one: I verified pitch, not feel.** Five of the ten are swing or
+bossa (*Autumn Leaves*, *Take the 'A' Train*, *Giant Steps*, *Blue Bossa*, *Ipanema*). I committed
+them as quarter-note chord stabs, which is correct as **pitch** and wrong as **feel**.
+
+> **REVISED 2026-10-05, after FLE-111/FLE-116 — and the revision found a defect in this set.**
+> This paragraph used to continue: *"Because the renderer displays no rhythm (§1b), the feel cannot
+> be delivered to the player or scored against the generator today."* That was true when written and
+> is now **false**. §9.1 sizes columns from `note.duration` and §9.2 draws a feel badge on the setup
+> line, so the product gap closed — and closing it exposed that **this file's ten tabs were not
+> carrying a feel at all.** `Tab.feel` defaults to `straight`, this set declared feel only as a
+> per-song prose string nothing downstream reads, and so *Autumn Leaves*, *Take the 'A' Train* and
+> *Giant Steps* validated clean, loaded clean, and would have been drawn for a pilot player with no
+> swing marking: told, in the only language the product speaks, to play Coltrane's changes dead even.
+> Nothing was red, because a default is not a disagreement. Same shape as `tuning: standard` on a
+> capo song (§7) — true as data, misleading as instruction, and produced here by the person hired to
+> catch it. Second entry in this document's "no ground truth on anybody's ear alone" column.
+>
+> Fixed in `10a1fe1`: `tab_feel` is declared per song and emitted into `tab.feel`, and **V9** fails
+> the run if it is absent, illegal, contradicts the prose, or is double-applied as triplet pairs. V9
+> fails all ten songs on the pre-fix file. Each song's provenance `sha256` moved, so FLE-124's prod
+> load must run against the current file.
+>
+> *Giant Steps* was also missing from this paragraph's own count — the same four-vs-five slip
+> corrected on FLE-105 Q1.
+
+What remains after that fix is narrower and real: the **ratio** is now marked (`swing`, with the
+player supplying the degree from the tempo — FLE-105 Q1), but the **comping rhythm** is not. These
+are quarter-note stabs on all four beats, where a medium-swing comp anticipates and leaves holes.
+Bossa is worse off: it is correctly marked `straight` because it is even-eighth music, but its groove
+*is* the syncopation, and the syncopation is not here. FLE-107 re-notates these. I did not count any
+of it against the generator. **A player practising these five from the screen alone gets the changes
+and not the groove.**
 
 **I did not hear any of the ten against a recording in this pass.** These readings come from
 knowing the tunes. For these ten that is a defensible basis — nine are standard repertoire whose
@@ -278,6 +334,17 @@ what v1 feels like, so it goes to Hernan through Miagi rather than being settled
 ---
 
 ## 6. Specs out, and why the pilot set is not the regression set
+
+> **ALL THREE SPECS BELOW ARE CLOSED as of 2026-10-05.** FLE-110 (serve the verified tab, `26428d2`),
+> FLE-111 (renderer width, fixed by `0b8f2ee`/FLE-116), FLE-112 (prod drift — only 0015 was actually
+> missing). The capo note went into FLE-105 and shipped as `Tab.capo` in FLE-117. Everything this
+> issue delegated has landed in the repo; what has **not** happened is the prod rollout, which is a
+> deploy behind the closed FLE-88/FLE-89 beta gate and is filed as **FLE-124** (`backlog`, human-only).
+> FLE-124 must load the *current* file: every song's provenance `sha256` changed with the feel fix.
+>
+> One consequence worth stating plainly, because it is the thing this section was written to prevent:
+> **the ten are now genuinely servable, so "checked but still served generator output" is no longer
+> true in code — only in prod.**
 
 **To Ripley/Kaya — serve committed tab (the actual "done when" of this issue).** Marking ten songs
 verified is only half of it; something must *serve* the verified tab instead of generating one. A
