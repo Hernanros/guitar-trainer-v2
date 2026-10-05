@@ -63,14 +63,6 @@ GROUND_TRUTH = (
 # tables and the same argument applies here. What QUAL does not carry is which
 # interval is the THIRD and which is the quality-defining tone, because a live
 # write gate does not need them. Declared here, keyed on QUAL's own keys.
-#
-# `7sus4` is the one interval set QUAL is missing: its suffix matcher reaches
-# `sus4` first and returns (0,5,7), dropping the b7, so A7sus4 would be scored
-# as a triad. A subset, not a wrong answer, but it would not catch a missing b7.
-# Folding 7sus4 into QUAL is a one-line production change and belongs to
-# Ripley/Kaya — spec'd out in the FLE-107 writeup, not made here.
-QUAL_EXT = dict(QUAL)
-QUAL_EXT["7sus4"] = (0, 5, 7, 10)
 
 THIRD = {"": 4, "m": 3, "m7": 3, "m6": 3, "m7b5": 3, "7": 4, "maj7": 4, "9": 4,
          "7#9": 4, "7b9": 4, "7#11": 4, "6": 4, "6/9": 4, "dim": 3, "aug": 4,
@@ -368,7 +360,7 @@ def check_chord(bar, measure, om, capo, shift):
         return [], ["tuning is not a uniform shift; chord frame undefined"]
     root, qual = parse_chord(bar["chord"])
     root = (root + shift) % 12
-    want = {(root + iv) % 12 for iv in QUAL_EXT[qual]}
+    want = {(root + iv) % 12 for iv in QUAL[qual]}
     third = THIRD[qual]
     char = CHAR[qual]
     fails, notes_ = [], []

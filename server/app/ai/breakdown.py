@@ -301,8 +301,10 @@ Three consequences, all mandatory:
   songs. When `capo > 0`, ALSO set `chord.sounding_name` to the absolute chord
   ("F#m7" for an Em7 shape at capo 2) — anyone playing along with the record
   needs it. At capo 0 leave `sounding_name` unset; it would be a duplicate, and
-  a duplicate is where a contradiction lives. Song-level `key` stays absolute:
-  Wonderwall is in F# minor even though every shape on screen comes from E minor.
+  a duplicate is where a contradiction lives. There is no song-level `key` in
+  this schema to reconcile with: `key` is a column on `songs`, it names the
+  SHAPES like `chord.name` does (song.py §7.3), and the sounding key is derived
+  from your `tuning` and `capo` rather than written by you.
 
 `capo` means a FULL six-string capo. Do NOT fake a partial or cut capo with a
 doctored `tuning` array — that puts a lie in the one field pitch derivation

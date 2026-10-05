@@ -180,8 +180,10 @@ def _render_measures(measures) -> list[str]:
     """Render measures as compact 'm1: [6/3 5/5] [4/7]' lines.
 
     Each beat becomes a bracket group; each note inside is string/fret.
-    Used to make L1 (snippet must NOT be a slice of the main tab) gradeable
-    by eye — you can only judge "is this a slice" if you can see BOTH.
+    Used to make L1 gradeable by eye — you can only judge whether the snippet
+    SIMPLIFIED its passage if you can see both it and the main tab. (Pre-FLE-123
+    this line read "snippet must NOT be a slice of the main tab"; the prompt now
+    requires the quote, so what you are looking for is removal, not absence.)
     """
     lines = []
     for m_idx, measure in enumerate(measures):
@@ -197,10 +199,10 @@ def _print_main_tab(breakdown) -> None:
     """Print the MAIN song tab.
 
     EVAL FIX (2026-09-15): the original script printed only drill tab_snippets.
-    L1 — 'tab_snippet is a canonical isolated shape, NOT a slice of the main
-    song tab' — is the single most likely quality gap per RESEARCH.md, and it
-    is impossible to grade honestly without seeing the main tab to compare
-    against. Printing it here makes L1 a real gate instead of a guess.
+    L1 is impossible to grade honestly without seeing the main tab to compare
+    against, so printing it here makes L1 a real gate instead of a guess. That
+    still holds under FLE-123's rewrite — more so, since the gate now asks what
+    the snippet REMOVED from the main tab rather than whether it touched it.
     """
     tab = breakdown.tab
     print(f"\n  MAIN SONG TAB — {len(tab.measures)} measure(s), tuning={tab.tuning}")
@@ -262,10 +264,13 @@ def _print_landmine_checklist(song: dict, target_skills: list[dict]) -> None:
     print(f"  NOTE (N1 caveat): L2 coverage is LIMITED — eval uses fake UUIDs.")
     print(f"  Full L2 coverage requires Task 3 device step o (real user breakdown).")
     print()
-    print(f"  [ ] L1: tab_snippet is a canonical isolated shape (NOT a slice of the main song tab)?")
+    # FLE-123: L1 and L4 reworded. Quoting the song is now REQUIRED by the prompt,
+    # so grade neither the old anti-slice rule nor the old title-substring test —
+    # both were retired for contradicting SYSTEM_PROMPT.
+    print(f"  [ ] L1: tab_snippet SIMPLIFIES its passage? (quoting is EXPECTED; fails only if a whole main measure is copied verbatim)")
     print(f"  [ ] L2: all target_skill_temp_ids match IDs in the provided list?  (LIMITED per N1)")
     print(f"  [ ] L3: drill count in [2, 4]? (drills=[] means Landmine #3 soft-fail fired)")
-    print(f"  [ ] L4: song_specific=true iff `what` explicitly names the song?")
+    print(f"  [ ] L4: each song_specific=true drill plays only notes the main tab plays? (N/A if none declare true; do NOT scan `what` for the title)")
     print(f"  [ ] L5: mechanic_tier non-decreasing down the drill list? (equal tiers are OK)")
     print(f"  [ ] L6: tab_snippet.measures.length in {{1, 2}}?")
     print(f"  [ ] A1: does each `what` describe the exercise its tab_snippet actually produces?")

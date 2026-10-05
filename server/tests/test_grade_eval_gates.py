@@ -242,10 +242,18 @@ class TestA1IsARealGate:
         grade_eval.main()
         out = capsys.readouterr().out
 
-        # 8 gates counted for the one song — A1 among them, so the denominator is
-        # 8 and not the pre-FLE-45 7.
-        assert "TOTAL: 7/8 gates passed" in out, out
+        # A1 is counted, which is this test's point: the single FAIL in the table is
+        # A1's and it lands in the denominator.
+        #
+        # FLE-123: the denominator is 7, not the pre-FLE-123 8. Both fixture drills
+        # declare song_specific=False, so L4 has nothing to grade and reports N/A —
+        # which scores in neither half. The alternative readings are both wrong: as
+        # a FAIL it would punish the model for a case that never arose, and as a
+        # PASS it would bank a gate that never ran. All 16 drills of the 2026-09-24
+        # baseline were False, so this is the common case, not a corner.
+        assert "TOTAL: 6/7 gates passed (1 N/A, excluded)" in out, out
         assert "A1: FAIL" in out, out
+        assert "L4: N/A" in out, out
         # The declared tiers parsed off the renderer's line and reached L5.
         assert "tiers non-decreasing: [1, 4]" in out, out
         assert "D1 T1 " in out and "D2 T4 " in out, out
@@ -285,15 +293,123 @@ class TestL1ComparesBeatsNotNotes:
         )
         assert grade(song)["L1"][0] == "PASS", grade(song)["L1"][1]
 
-    def test_three_consecutive_song_beats_is_still_a_slice(self):
+
+class TestL1GradesSimplificationNotQuoting:
+    """FLE-123: L1 fires on an UNSIMPLIFIED lift, never on quoting as such.
+
+    The prompt deliberately dropped the anti-slice rule and now requires the
+    quote — "the tab_snippet IS that passage, simplified". The three cases below
+    are the real drills from the 2026-09-24 baseline that the old rule failed; all
+    three are textbook simplifications and all three must pass. The fixtures are
+    their actual beats, because a test that invented friendlier ones would prove
+    nothing about the run that motivated the change.
+    """
+
+    # Beat It main m3 and its drills, verbatim from 04.1-07-EVAL-CONFIRM-RAW.txt.
+    _BEAT_IT_M3 = [
+        [(6, 2), (5, 4)], [(6, 2), (5, 4)], [(6, 2), (5, 4)],
+        [(6, 0), (5, 2)], [(6, 0), (5, 2)], [(6, 0), (5, 2)],
+        [(5, 3), (4, 5)], [(5, 3), (4, 5)],
+    ]
+
+    def test_holding_one_song_chord_for_a_bar_passes(self):
+        """Beat It D2: the song's F#5 held for 8 beats, every harmonic move removed.
+
+        The old L1 failed this for sharing a 3-beat run with m3. It is the
+        maximal simplification the prompt asks for, not a slice.
+        """
+        song = _song(
+            [_drill(1, "3-3-2 Eighth Grouping on a Single Power Chord", 3,
+                    [[(6, 2), (5, 4)]] * 8)],
+            main_beats=self._BEAT_IT_M3,
+        )
+        assert grade(song)["L1"][0] == "PASS", grade(song)["L1"][1]
+
+    def test_reducing_eight_song_beats_to_four_passes(self):
+        """Beat It D3: m3's three shapes, one hit each — 8 beats dropped to 4."""
+        song = _song(
+            [_drill(1, "F#5 → E5 → C5 Power Chord Switch Cycle", 4,
+                    [[(6, 2), (5, 4)], [(6, 2), (5, 4)], [(6, 0), (5, 2)], [(5, 3), (4, 5)]])],
+            main_beats=self._BEAT_IT_M3,
+        )
+        assert grade(song)["L1"][0] == "PASS", grade(song)["L1"][1]
+
+    def test_repeating_half_a_song_measure_renotated_passes(self):
+        """Little Wing D2: m3's second half twice, renotated 12/8 -> 4/4.
+
+        Same beats as the source's tail, so the old rule failed it. Half the
+        measure was dropped and the subdivision slowed — two removals.
+        """
+        main = [[(4, 0)], [(2, 1)], [(1, 3)], [(4, 2)], [(2, 1)], [(1, 3)]]
+        song = _song(
+            [_drill(1, "Three-String Ascending Arpeggio Roll", 2,
+                    [[(4, 2)], [(2, 1)], [(1, 3)], [(4, 2)], [(2, 1)], [(1, 3)]])],
+            main_beats=main,
+        )
+        # The drill's snippet measure is 4/4 (see _drill) against a 12/8 source.
+        song.main[0].time_sig = "12/8"
+        assert grade(song)["L1"][0] == "PASS", grade(song)["L1"][1]
+
+    def test_a_verbatim_whole_measure_copy_still_fails(self):
+        """The one thing SIMPLIFY still forbids: a lift that removed nothing."""
         main = [[(6, 5)], [(5, 7)], [(4, 7)], [(3, 9)]]
         song = _song(
-            [_drill(1, "Quoted the song", 2, [[(6, 5)], [(5, 7)], [(4, 7)]])],
+            [_drill(1, "Copied the bar", 2, [list(b) for b in main])],
             main_beats=main,
         )
         status, evidence = grade(song)["L1"]
         assert status == "FAIL"
-        assert "reproduces 3 beats" in evidence, evidence
+        assert "verbatim copy of main m1" in evidence, evidence
+
+    def test_dropping_one_string_from_a_copied_measure_passes(self):
+        """Removal by one string is still a removal — the snippet is not the bar."""
+        main = [[(6, 5), (5, 7)], [(5, 7)], [(4, 7)], [(3, 9)]]
+        song = _song(
+            [_drill(1, "Dropped the low string", 2, [[(6, 5)], [(5, 7)], [(4, 7)], [(3, 9)]])],
+            main_beats=main,
+        )
+        assert grade(song)["L1"][0] == "PASS", grade(song)["L1"][1]
+
+
+class TestL4ReadsNotesNotProse:
+    """FLE-123: L4 grades the flag against the snippet's notes, never against `what`.
+
+    SONG_SPECIFIC states verbatim: "Do not scan `what` for that text, and do not
+    key song_specific off whether it appears there." The old gate was that scan.
+    """
+
+    _MAIN = [[(6, 5)], [(5, 7)], [(4, 6)], [(3, 9)]]
+
+    def _flagged(self, beats, *, flag, what=""):
+        d = _drill(1, "d", 3, beats, what=what)
+        song = _song([d], main_beats=self._MAIN)
+        d.song_specific = flag
+        return grade(song)["L4"]
+
+    def test_song_specific_drill_quoting_the_song_passes(self):
+        status, evidence = self._flagged([[(6, 5)], [(5, 7)]], flag=True)
+        assert status == "PASS", evidence
+
+    def test_song_specific_drill_playing_notes_the_song_never_plays_fails(self):
+        status, evidence = self._flagged([[(2, 12)], [(2, 13)]], flag=True)
+        assert status == "FAIL"
+        assert "2/12" in evidence and "song_specific" in evidence, evidence
+
+    def test_all_false_flags_is_not_applicable_rather_than_a_pass(self):
+        """The 2026-09-24 baseline was 16-for-16 false, so its 5/5 L4 was vacuous."""
+        status, evidence = self._flagged([[(2, 12)]], flag=False)
+        assert status == "N/A", evidence
+
+    def test_naming_the_passage_without_the_title_is_not_a_failure(self):
+        """The old gate's only live direction. NAME THE PASSAGE produces this."""
+        status, evidence = self._flagged(
+            [[(6, 5)], [(5, 7)]], flag=True, what="the intro's hammer-on lick"
+        )
+        assert status == "PASS", evidence
+
+    def test_open_strings_are_exempt_like_l7(self):
+        status, evidence = self._flagged([[(1, 0)], [(6, 5)]], flag=True)
+        assert status == "PASS", evidence
 
 
 if __name__ == "__main__":

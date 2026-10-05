@@ -158,6 +158,22 @@ class Song(Base):
     genre: Mapped[str] = mapped_column(String(100), nullable=True)
     difficulty: Mapped[str] = mapped_column(String(50), nullable=True)
     bpm: Mapped[int] = mapped_column(Integer, nullable=True)
+    # FLE-121. NAMES THE SHAPES THE PLAYER FINGERS — the same frame as a
+    # Breakdown chord's `name` (app.models.song §7.2). On Eb-tuned Little Wing
+    # this is 'Em' and the record sounds Eb minor. The sounding key is DERIVED,
+    # never stored: app.models.song.sounding_key(). Read §7.3 there before you
+    # gate anything on this column. It was frameless until FLE-121, and three
+    # places in this codebase used to assert opposite conventions for it.
+    #
+    # NULL is structural, not a glitch to defend against. Only the onboarding
+    # path writes it (SonnetSongProposal.key, required). The catalog-upsert path
+    # in app.selectors.today_song._ensure_catalog_song_as_user_song cannot —
+    # song_catalog has no `key` column to carry through, and no `bpm` either —
+    # so every catalog-sourced row lands with both NULL. Measured read-only
+    # against prod 2026-10-05: NULL on 19 of 48 rows, and on 2 of the 10 rows
+    # that carry a real tab (Chan Chan, Kashmir). `key IS NULL` and
+    # `bpm IS NULL` agree on all 48 rows with zero exceptions, which is the
+    # evidence that one omitted INSERT column list is the whole mechanism.
     key: Mapped[str] = mapped_column(String(10), nullable=True)
     # Canonical recorded tuning, copied from song_catalog.tuning (migration 0014,
     # FLE-33). NULL means no catalog ground truth exists for this song. One of the

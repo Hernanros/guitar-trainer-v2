@@ -10,9 +10,10 @@
 from typing import Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.session import RatingLiteral
+from app.models.song import sounding_key_from_breakdown
 
 SessionStateLiteral = Literal["planned", "in_progress", "completed", "abandoned"]
 TerminalReasonLiteral = Literal["user_completed", "day_rolled", "timeout"]
@@ -64,8 +65,20 @@ class EmbeddedSong(BaseModel):
     genre: Optional[str] = None
     difficulty: Optional[str] = None
     bpm: Optional[int] = None
-    key: Optional[str] = None
+    key: Optional[str] = None           # THE SHAPES — see db.Song.key and song.py §7.3
+    key_sounding: Optional[str] = None  # FLE-121, derived; None when the frames coincide
     breakdown: Any = None
+
+    @model_validator(mode="after")
+    def _derive_key_sounding(self) -> "EmbeddedSong":
+        """§7.3 — always recompute, discarding anything a caller passed in.
+
+        `breakdown` is the raw JSONB envelope here rather than a parsed
+        `Breakdown`, which `sounding_key_from_breakdown` handles.
+        """
+        derived, _reason = sounding_key_from_breakdown(self.key, self.breakdown)
+        self.key_sounding = derived
+        return self
 
 
 class PracticeSessionItemResponse(BaseModel):

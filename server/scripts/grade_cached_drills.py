@@ -23,11 +23,13 @@ SONG-LEVEL GATES, PER-DRILL DECISIONS
 `grade_eval.grade` reports one verdict per gate per song, which is right for
 judging a prompt but unusable as a filter — you cannot exclude "song 71's L5".
 So each failure is additionally attributed to the specific drill(s) that caused
-it, using the same primitives the gate itself uses (`_has_common_run`, the A1
-`poly_words` list, the L5 tier comparison) so the two views cannot drift.
+it, using the same primitives the gate itself uses (`l1_violations`,
+`l4_violations`, the A1 `poly_words` list, the L5 tier comparison) so the two
+views cannot drift. L1 and L4 were hand-rolled copies here until FLE-123, which
+is exactly how they drifted; they now call the gate's own predicates.
 
 Attribution rules, and why:
-  L1  the drill whose snippet reproduces the main tab. Per-drill already.
+  L1  the drill that lifted a whole main measure verbatim. Per-drill already.
   L5  the LATER drill of a descending pair. A drop at 3->4 is drill 4 being
       placed too late, so drill 4 is the one to hold back; dropping the earlier
       drill would leave the same gap.
@@ -63,22 +65,24 @@ coverage ratio (below). Two gates that look like obvious exclusions are not:
      mis-ordered, not that any drill is bad. The session planner orders drills
      itself at assembly time, so a tier-drop drill is still a usable drill.
 
-L1 IS RATIO-QUALIFIED, BECAUSE A FIXED 3-BEAT RUN CONFLATES TWO DEFECTS
-`grade_eval`'s L1 fires on any 3 consecutive shared beats. That absolute
-threshold means different things at different snippet lengths: on a 4-beat
-snippet a 3-run is 75% of the drill, but on an 8-beat snippet it is 38%. The
-production rows split cleanly along exactly that line:
+L1'S RATIO QUALIFICATION IS NOW INERT (FLE-123)
+This section used to argue that `grade_eval`'s L1 needed a coverage ratio on top,
+because firing on any 3 consecutive shared beats conflated two defects. The
+production rows split cleanly along that line:
 
     100% cover  song 71 D1, 71 D3, 76 D3   the snippet IS one bar of the song
      75% cover  song 76 D2
   38-50% cover  song 73 D1/D2/D3, 74 D3    a 3-note coincidence inside the
                                            same pentatonic box the song uses
 
-The second group is not "the drill is the song again" — a drill and a song that
-both walk the Bb minor box will share three notes by arithmetic, and L7 (neck
-region) *requires* the drill to sit in the song's own position. Excluding those
-is how you end up with an almost-empty bank for the wrong reason. So the
-exclusion test is `L1 failed AND cover >= --l1-cover-min` (default 0.75).
+That reasoning was right about the old gate and is now obsolete, because FLE-123
+fixed the gate instead of compensating for it: L1 no longer measures shared
+length at all, only whether a snippet measure is a verbatim copy of a whole main
+measure. The prompt now REQUIRES the quoting the old rule punished ("the
+tab_snippet IS that passage, simplified"), so the bottom group is not a defect in
+any degree. `--l1-cover-min` therefore defaults to 0.0 and the exclusion test is
+just `L1 failed`; see the constant for why a non-zero floor would now suppress
+true positives rather than filter false ones.
 
 Raw `grade_eval` verdicts are always reported unmodified — the ratio changes
 which failures become exclusions, never what the gate says.
@@ -103,7 +107,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal
 from app.models.db import SkillNode, Song as SongRow
-from scripts.grade_eval import Drill, Measure, Song, _has_common_run, grade
+from scripts.grade_eval import (
+    Drill,
+    Measure,
+    Song,
+    _has_common_run,
+    grade,
+    l1_violations,
+    l4_violations,
+)
 
 # The A1 detector's vocabulary, imported by value rather than re-typed so the
 # attribution pass and the gate agree by construction.
@@ -115,7 +127,17 @@ _DEFAULT_EXCLUDE = ("L1",)
 
 # Fraction of a drill's beats that must be a contiguous slice of one main-tab
 # measure before an L1 failure counts as "this drill is just the song again".
-_DEFAULT_L1_COVER_MIN = 0.75
+#
+# FLE-123 DROPPED THIS FROM 0.75 TO 0.0 — it is now inert by default, and that is
+# deliberate. The ratio existed to compensate for the OLD L1, which fired on any
+# 3 shared beats and so conflated "the snippet IS a bar of the song" with "three
+# notes of a shared pentatonic box coincide". The rewritten L1 fires only on a
+# verbatim whole-measure lift, so the defect the ratio was there to isolate is now
+# the only thing the gate reports — and a non-zero floor would actively SUPPRESS
+# true positives: a 2-measure drill whose first measure is a verbatim lift covers
+# only ~0.5 of its own beats and would escape the filter. The flag is kept so the
+# old behaviour is still reachable (`--l1-cover-min 0.75`).
+_DEFAULT_L1_COVER_MIN = 0.0
 
 _ALL_GATES = ("L1", "L2", "L3", "L4", "L5", "L6", "L7", "A1")
 
@@ -188,10 +210,13 @@ def song_from_row(row: SongRow, valid_skill_ids: set[str]) -> Song:
 def l1_cover(song: Song, drill: Drill) -> float:
     """Fraction of `drill`'s beats that form a contiguous run inside one main measure.
 
-    `grade_eval`'s L1 asks a yes/no question at a fixed run length of 3. This is
-    the same comparison expressed as a proportion of the drill, which is what
-    separates "the snippet IS a bar of the song" (1.0) from "three notes of a
-    shared scale box coincide" (~0.4). See the module docstring.
+    REPORTING ONLY as of FLE-123, and no longer the qualifier it was written to be
+    (`--l1-cover-min` now defaults to 0.0). It separates "the snippet IS a bar of
+    the song" (1.0) from "three notes of a shared scale box coincide" (~0.4), which
+    mattered when L1 fired on any 3 shared beats; the rewritten L1 reports only the
+    former. Still printed because quoting-as-a-proportion is the measurement
+    FLE-89 used, and it remains the fastest way to see how much of a drill is the
+    song. See the module docstring.
     """
     db = [tuple(b) for m in drill.measures for b in m.beats]
     if not db:
@@ -216,23 +241,20 @@ def attribute(song: Song) -> dict[int, list[str]]:
     """
     blame: dict[int, list[str]] = {d.index: [] for d in song.drills}
 
-    def _beats(ms: list[Measure]) -> list[tuple]:
-        return [tuple(b) for m in ms for b in m.beats]
-
     for d in song.drills:
-        db = _beats(d.measures)
-        for m in song.main:
-            if _has_common_run(db, [tuple(b) for b in m.beats]):
-                blame[d.index].append("L1")
-                break
+        w = d.what.lower()
+
+        # FLE-123: L1 and L4 call the gate's own per-drill predicates instead of
+        # re-implementing them. They used to be hand-rolled copies here, which is
+        # how both outlived the prompt change that retired them while this module's
+        # docstring promised the two views "cannot drift".
+        if l1_violations(song, d):
+            blame[d.index].append("L1")
 
         if d.skill_id not in set(song.skill_ids):
             blame[d.index].append("L2")
 
-        w = d.what.lower()
-        named = bool(song.title) and song.title.lower() in w
-        named = named or (bool(song.artist) and song.artist.lower() in w)
-        if named != bool(d.song_specific):
+        if l4_violations(song, d):
             blame[d.index].append("L4")
 
         if len(d.measures) not in (1, 2):
@@ -456,7 +478,9 @@ async def _main(argv: list[str]) -> int:
         default=_DEFAULT_L1_COVER_MIN,
         help=(
             "Fraction of a drill's beats that must be a contiguous slice of one main "
-            f"measure before an L1 failure excludes it. Default {_DEFAULT_L1_COVER_MIN}."
+            f"measure before an L1 failure excludes it. Default {_DEFAULT_L1_COVER_MIN} "
+            "— inert since FLE-123 rewrote L1 to fire only on verbatim whole-measure "
+            "lifts; a non-zero floor now suppresses true positives."
         ),
     )
     parser.add_argument("--user-id", metavar="UUID", help="Limit to one user.")

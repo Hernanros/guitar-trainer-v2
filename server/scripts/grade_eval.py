@@ -13,13 +13,16 @@ table. Parsing targets the compact render `_render_measures` already prints:
 
 Gates, and exactly how each is computed here:
 
-  L1  no 3+ consecutive (string, fret) pairs of a snippet appear in that
-      order inside any single main-tab measure. Durations and time signature
-      are deliberately ignored, matching the prompt's self-check wording.
+  L1  no snippet measure is a verbatim copy of a whole main-tab measure — same
+      time signature, same beat count, same notes in every beat. REWRITTEN by
+      FLE-123; the old "no 3+ shared consecutive beats" rule is retired, see
+      below.
   L2  every target_skill_temp_id is one of the ids handed to Sonnet.
   L3  2 <= drill count <= 4.
-  L4  song_specific is true IFF the song title or artist appears in `what`
-      (case-insensitive substring, both directions checked).
+  L4  every drill declaring song_specific=true plays only fretted notes the main
+      tab also plays. One-directional, and N/A on a song whose drills all declare
+      false. REWRITTEN by FLE-123; the old title/artist substring IFF is retired,
+      see below.
   L5  drills are emitted in non-decreasing `mechanic_tier` order (FLE-45).
       Tempo is NOT a difficulty signal (retired, FLE-17 checkbox
       `retire-l5-tempo-gate`).
@@ -54,6 +57,52 @@ checks only that the declarations are non-decreasing.
 The five dimensions are still COMPUTED and PRINTED per drill, because they are
 useful review context and they are how a reviewer spots a declared tier that
 the geometry flatly contradicts. They no longer gate anything.
+
+WHY L1 AND L4 WERE REWRITTEN (FLE-123)
+Both gates had come to grade against rules the shipped SYSTEM_PROMPT does not
+state — the same "half the failures were the rule's, not the model's" trap the
+L5 section above records, and the reason the 2026-09-24 baseline could not
+simply be re-run. FLE-99 (commit e4cbc0e) moved the prompt; these two gates did
+not follow.
+
+  L1, RETIRED AS AN ANTI-SLICE RULE. The prompt deliberately dropped the
+  anti-slice instruction and now says the opposite in as many words: "the
+  tab_snippet IS that passage, simplified", "Quoting the song here is the point,
+  not something to dodge". tests/test_breakdowns_mocked.py:503 pins the removal.
+  So the old rule failed the model for OBEYING the prompt, and measurably did:
+  all 3 of the 3 L1 failures in the 2026-09-24 baseline are textbook
+  simplifications — Beat It D2 is the song's F#5 power chord held for a bar with
+  every harmonic move removed, Beat It D3 reduces m3's 8 beats to 4, Little Wing
+  D2 repeats m3's second half renotated 12/8 -> 4/4. This is also FLE-89's
+  measured finding (8 of 16 cached drills already quote the song).
+  L1 is NOT merely weakened to a longer run or a higher threshold: shared length
+  is the wrong axis entirely, because the prompt wants the quote. What survives
+  is the one thing SIMPLIFY still forbids — a lift with no simplification at all.
+  See l1_violations().
+
+  L4, RETIRED AS A SUBSTRING IFF. The prompt's SONG_SPECIFIC block states,
+  verbatim: "Do not scan `what` for that text, and do not key song_specific off
+  whether it appears there." L4 was precisely that scan. Worse, it was never
+  testing the model in either direction:
+    - false->true is a CODE guarantee. enforce_song_specific() forces the flag
+      true whenever `what` names the song, using `_names_song`, the same
+      substring test. That direction can therefore never fail.
+    - true->false was the only live direction, and NAME THE PASSAGE now requires
+      `what` to name the passage ("the intro's hammer-on lick") without
+      requiring the title. So a correct passage-anchored drill flags true, does
+      not contain the title, and fails.
+  Empirically the gate has never tested anything: all 16 drills of the
+  2026-09-24 baseline declared song_specific=false, so its 5/5 was vacuous — and
+  under the current prompt it would have flipped to a systematic false failure.
+  The replacement grades the flag against the drill's notes instead of its prose,
+  which is the only mechanical consequence the SONG_SPECIFIC block actually
+  states. It cannot grade the false direction; that half is dropped rather than
+  guessed, because a gate contradicting the prompt is worse than a missing one.
+  See l4_violations().
+
+CONSEQUENCE FOR THE SCORE'S DENOMINATOR: L4 can now report N/A, which main()
+excludes from both numerator and denominator. A 5-song run is no longer
+necessarily out of 40, so compare gate-by-gate and not just totals.
 
 USAGE:  python -m scripts.grade_eval <eval-output.txt>
 """
@@ -269,7 +318,14 @@ def _parse_durations(path: str, songs: list[Song]) -> None:
 
 
 def _has_common_run(a: list, b: list, n: int = 3) -> list | None:
-    """Return the first length-n contiguous run of `a` that occurs in `b`."""
+    """Return the first length-n contiguous run of `a` that occurs in `b`.
+
+    NO LONGER A GATE PRIMITIVE as of FLE-123 — L1 used to be built on this and the
+    rule it implemented is retired (see the module docstring). Kept because
+    `grade_cached_drills.l1_cover` measures shared quoting as a proportion, which
+    is still useful *reporting*: it is how FLE-89 measured that 8 of 16 cached
+    drills quote the song. Do not rebuild a gate on it.
+    """
     for i in range(len(a) - n + 1):
         run = a[i : i + n]
         for j in range(len(b) - n + 1):
@@ -278,34 +334,77 @@ def _has_common_run(a: list, b: list, n: int = 3) -> list | None:
     return None
 
 
+def _measure_sig(m: Measure) -> tuple:
+    """A measure's identity for L1: its time signature and its exact beat list."""
+    return (m.time_sig, tuple(tuple(b) for b in m.beats))
+
+
+def l1_violations(song: Song, drill: Drill) -> list[str]:
+    """L1 (FLE-123): snippet measures that are verbatim copies of a whole main measure.
+
+    What the prompt still forbids is a snippet that did NO isolating work. Every
+    simplification SIMPLIFY names is a REMOVAL — drop strings, drop beats, slow the
+    subdivision, hold a shape longer, cut to the hardest moment — so an obedient
+    snippet differs from its source measure in beat count, in some beat's note set,
+    or in time signature. A measure matching on all three removed nothing.
+
+    Durations are deliberately NOT consulted: beats plus time signature already pin
+    a verbatim copy, and this keeps L1 off `_parse_durations`' fragile whole-file
+    cursor walk.
+
+    Per-drill so `grade()` and `grade_cached_drills.attribute()` cannot drift.
+    """
+    main_sigs = {_measure_sig(m): m.index for m in song.main}
+    hits = []
+    for i, dm in enumerate(drill.measures):
+        src = main_sigs.get(_measure_sig(dm))
+        if src is not None:
+            hits.append(
+                f"drill {drill.index} m{i + 1} is a verbatim copy of main m{src} "
+                f"({len(dm.beats)} beats, {dm.time_sig}) — nothing simplified"
+            )
+    return hits
+
+
+def l4_violations(song: Song, drill: Drill) -> list[str]:
+    """L4 (FLE-123): a song_specific=true drill whose snippet is not from the song.
+
+    The prompt defines the flag by the MECHANIC, which no code can read. But it
+    states one mechanical consequence: when song_specific is true, "the tab_snippet
+    IS that passage, simplified". Simplification removes and never substitutes, so a
+    true-flagged snippet cannot contain a fretted note the song never plays. One
+    that does was not derived from any passage, and the flag is unsupported by the
+    only evidence the harness can see.
+
+    ONE-DIRECTIONAL, like A1 and for the same reason: deciding that a drill is
+    foundational-rather-than-song-anchored is the semantic judgement
+    `enforce_song_specific()` exists to avoid making, and the false->true half is
+    already a code-level guarantee there. Open strings are excluded, matching L7 —
+    fret 0 is position-neutral and the prompt's own exception allows it.
+    """
+    if not drill.song_specific:
+        return []
+    main_pairs = {p for m in song.main for p in m.pairs if p[1] > 0}
+    foreign = sorted({p for p in drill.pairs if p[1] > 0} - main_pairs)
+    if not foreign:
+        return []
+    return [
+        f"drill {drill.index} declares song_specific but plays "
+        f"{[f'{s}/{f}' for s, f in foreign]}, absent from the main tab"
+    ]
+
+
 def grade(song: Song) -> dict[str, tuple[str, str]]:
     """Return {gate: (PASS|FAIL|N/A, evidence)}."""
     out: dict[str, tuple[str, str]] = {}
     if song.error:
         return {g: ("FAIL", song.error) for g in ("L1", "L2", "L3", "L4", "L5", "L6", "L7", "A1")}
 
-    # L1 — slice detection, compared BEAT-by-beat rather than note-by-note.
-    #
-    # The prompt's self-check says "3 consecutive (string, fret) pairs". Taken
-    # literally over a flattened note list, any reused 3-note chord voicing is a
-    # violation — which is unsatisfiable, because a drill for a chord mechanic
-    # must use that chord, and the neck-region rule now requires it to be in the
-    # song's own position. So the comparison unit here is the BEAT: a 3-note
-    # chord is one beat, and a violation means three consecutive beats of the
-    # song reproduced in order. That is the slice the gate was written to catch.
-    # (The prompt wording needs the same correction — see EVAL-RESULTS.)
-    def _beats(ms):
-        return [tuple(b) for m in ms for b in m.beats]
-
-    hits = []
-    for d in song.drills:
-        db = _beats(d.measures)
-        for m in song.main:
-            run = _has_common_run(db, [tuple(b) for b in m.beats])
-            if run:
-                hits.append(f"drill {d.index} reproduces 3 beats of main m{m.index}")
-                break
-    out["L1"] = ("FAIL", "; ".join(hits)) if hits else ("PASS", "no 3-beat run shared")
+    # L1 — UNSIMPLIFIED LIFT (rewritten, FLE-123). The rule lives in
+    # l1_violations(); see it and the module docstring for why the old
+    # shared-3-beat-run test was the opposite of what the prompt ships.
+    hits = [h for d in song.drills for h in l1_violations(song, d)]
+    out["L1"] = ("FAIL", "; ".join(hits)) if hits else ("PASS", "every snippet reduces its source")
 
     # L2 — id echo
     bad = [d.index for d in song.drills if d.skill_id not in song.skill_ids]
@@ -315,14 +414,22 @@ def grade(song: Song) -> dict[str, tuple[str, str]]:
     n = len(song.drills)
     out["L3"] = (("PASS" if 2 <= n <= 4 else "FAIL"), f"{n} drills")
 
-    # L4 — song_specific iff named
-    l4 = []
-    for d in song.drills:
-        w = d.what.lower()
-        named = song.title.lower() in w or song.artist.lower() in w
-        if named != bool(d.song_specific):
-            l4.append(f"drill {d.index}: names={named} flag={d.song_specific}")
-    out["L4"] = ("FAIL", "; ".join(l4)) if l4 else ("PASS", "flag matches substring test")
+    # L4 — does a song_specific=true drill actually DERIVE from the song?
+    # Rewritten by FLE-123; the rule lives in l4_violations(). The old title/artist
+    # substring IFF is the exact test the prompt forbids in as many words.
+    #
+    # A song whose drills ALL declare false is N/A, not PASS — see main(), which
+    # keeps N/A out of the denominator rather than banking an untested gate as a
+    # pass. All 16 drills of the 2026-09-24 baseline were false, so the 5/5 L4 that
+    # run reported was vacuous.
+    checked = sum(1 for d in song.drills if d.song_specific)
+    bad4 = [h for d in song.drills for h in l4_violations(song, d)]
+    if not checked:
+        out["L4"] = ("N/A", "no drill declared song_specific=true")
+    elif bad4:
+        out["L4"] = ("FAIL", "; ".join(bad4))
+    else:
+        out["L4"] = ("PASS", f"{checked} song_specific drill(s) quote the main tab")
 
     # L5 — non-decreasing declared mechanic_tier (FLE-45; see module docstring for
     # why the old five-dimension dominance rule was retired).
@@ -393,7 +500,7 @@ def main() -> int:
     _parse_durations(path, songs)
 
     gates = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "A1"]
-    passed = total = 0
+    passed = total = skipped = 0
     for song in songs:
         print(f"\n{'=' * 72}\n{song.index}. {song.title} — {song.artist}")
         if song.error:
@@ -415,11 +522,18 @@ def main() -> int:
         res = grade(song)
         for g in gates:
             status, ev = res[g]
-            # FLE-45: A1 is counted now. Every gate in `gates` scores.
-            total += 1
-            passed += status == "PASS"
+            # FLE-45: A1 is counted now. FLE-123: an N/A gate had nothing to grade,
+            # so it scores in NEITHER half — counting it as a failure would punish
+            # the model for a case that never arose, and counting it as a pass would
+            # bank an untested gate. It is reported either way.
+            if status != "N/A":
+                total += 1
+                passed += status == "PASS"
+            else:
+                skipped += 1
             print(f"   {g}: {status:4} — {ev}")
-    print(f"\n{'=' * 72}\nTOTAL: {passed}/{total} gates passed")
+    tail = f" ({skipped} N/A, excluded)" if skipped else ""
+    print(f"\n{'=' * 72}\nTOTAL: {passed}/{total} gates passed{tail}")
     return 0
 
 

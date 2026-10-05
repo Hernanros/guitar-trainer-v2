@@ -34,7 +34,7 @@
 #   breakdown reads back unchanged.
 import logging
 from fractions import Fraction
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -273,6 +273,122 @@ def _is_transposition(name: str, sounding: str, semitones: int) -> Optional[bool
         if (a[0] + semitones) % 12 != b[0] % 12 or a[1].strip() != b[1].strip():
             return False
     return True
+
+
+# --- §7.3 the song-level key frame (FLE-121) ------------------------------
+# `songs.key` was a bare string with nothing in it saying whether it named the
+# SHAPES a player fingers or the PITCH the guitar sounds. On Eb-tuned Little
+# Wing the cached value is 'Em' — right in the shape frame, a semitone off in
+# the sounding frame — so FLE-107's scorer had to accept either (tolerance
+# A-15), which is the same as not checking the field at all.
+#
+# DECLARED CONVENTION: `songs.key` NAMES THE SHAPES, the same frame as
+# `Chord.name` (§7.2). This was measured, not picked. Of the ten prod rows that
+# carry a real tab, four have a setup that makes the two frames differ (all four
+# Eb standard, no capo); three of those four are right in the shape frame and
+# none is right in the sounding frame, and the onboarding prompt's own worked
+# example teaches that frame ("Little Wing" -> key="Em", app/ai/onboarding.py).
+# Declaring the other frame would silently relabel every populated row as wrong.
+#
+# The sounding key is DERIVED HERE, never stored. A second column is a second
+# place for the two frames to contradict each other, which is the argument §7.2
+# already makes for leaving `sounding_name` unset when the capo is at 0.
+#
+# It is only derivable when the setup shifts EVERY string by the same interval.
+# Eb standard does (-1), and a capo does (+n). Drop D, drop C, open D, open E,
+# open G and DADGAD do not — they move strings by different amounts, so no
+# single interval maps a standard shape onto what it sounds, and the chord names
+# in use in those tunings are already the sounding ones. For those this returns
+# None with a reason rather than inventing a transposition.
+_STANDARD_TUNING_PC = [4, 9, 2, 7, 11, 4]   # E A D G B e, low string to high
+
+
+def uniform_tuning_offset(tuning: Optional[list[str]]) -> Optional[int]:
+    """Semitones EVERY string is shifted from standard, or None.
+
+    None deliberately collapses three cases — the tuning is missing, it does not
+    parse, or the retune is not a uniform transposition. All three mean "no
+    interval maps a shape onto its sound", which is the only question asked here.
+
+    Reads the six note names rather than a `songs.tuning` slug on purpose: that
+    column is NULL on all ten prod rows that carry a real tab (measured
+    2026-10-05), so a slug-based offset would return nothing for every song we
+    actually have. The note array lives in the breakdown and is populated.
+    """
+    if not tuning or len(tuning) != 6:
+        return None
+    deltas = set()
+    for given, standard_pc in zip(tuning, _STANDARD_TUNING_PC):
+        token = (given or "").strip().upper().replace("♭", "B").replace("♯", "#")
+        pc = _NOTE_PC.get(token)
+        if pc is None:
+            return None
+        deltas.add((pc - standard_pc) % 12)
+    if len(deltas) != 1:
+        return None
+    delta = deltas.pop()
+    # Read 11 as a half step DOWN, not eleven up. Nobody tunes up eleven.
+    return delta - 12 if delta > 6 else delta
+
+
+def sounding_key(
+    shape_key: Optional[str],
+    tuning: Optional[list[str]],
+    capo: int = 0,
+) -> tuple[Optional[str], str]:
+    """The absolute key a shape-frame key sounds as, plus why when it is None.
+
+    Returns `(key, reason)`. `reason` is one of:
+
+    - `ok`                — derived; `key` is the sounding key.
+    - `same_frame`        — concert pitch and no capo, so the sounding key IS
+                            `shape_key`. None rather than a duplicate (§7.2).
+    - `no_key`            — `songs.key` is NULL or blank (the catalog-upsert
+                            path never writes one; see db.Song.key).
+    - `no_setup`          — no tuning available to shift by.
+    - `non_uniform_setup` — an open or dropped tuning; see §7.3 above.
+    - `unparseable_key`   — the stored string does not start with a note name.
+
+    The reason is returned rather than logged because every caller so far wants
+    to tell "the frames coincide" from "we could not work it out", and a bare
+    None makes those two look identical.
+    """
+    if not (shape_key or "").strip():
+        return None, "no_key"
+    offset = uniform_tuning_offset(tuning)
+    if offset is None:
+        return None, "no_setup" if not tuning else "non_uniform_setup"
+    shift = offset + int(capo or 0)
+    if shift == 0:
+        return None, "same_frame"
+    out = transpose_chord_name(shape_key.strip(), shift)
+    if out is None:
+        return None, "unparseable_key"
+    return out, "ok"
+
+
+def sounding_key_from_breakdown(
+    shape_key: Optional[str],
+    breakdown: Any,
+) -> tuple[Optional[str], str]:
+    """`sounding_key`, reading the setup off a Breakdown.
+
+    Accepts a parsed `Breakdown`/`Tab` or the persisted JSONB dict, because the
+    API serves both shapes — `SongResponse.breakdown` is a parsed model and
+    `EmbeddedSong.breakdown` is the raw envelope.
+    """
+    tab: Any = None
+    if isinstance(breakdown, dict):
+        tab = breakdown.get("tab")
+    elif breakdown is not None:
+        tab = getattr(breakdown, "tab", None)
+    if tab is None:
+        return None, "no_setup" if (shape_key or "").strip() else "no_key"
+    if isinstance(tab, dict):
+        return sounding_key(shape_key, tab.get("tuning"), tab.get("capo") or 0)
+    return sounding_key(
+        shape_key, getattr(tab, "tuning", None), getattr(tab, "capo", 0) or 0
+    )
 
 
 class Bend(BaseModel):
@@ -625,8 +741,9 @@ class Chord(BaseModel):
     parent Tab's capo by `Breakdown._resolve_sounding_names`, because that is the
     first object that holds the chords and the capo at once.
 
-    Song-level `key` stays ABSOLUTE: Wonderwall is in F# minor even though every
-    shape on screen comes from E minor.
+    Song-level `songs.key` names THE SAME FRAME as `name` — the shapes. See §7.3
+    above for why (it is what the populated rows measurably contain) and for
+    `sounding_key()`, which derives the absolute key instead of storing it.
     """
     name: str
     sounding_name: Optional[str] = None  # absolute — "F#m7"; set iff capo > 0
@@ -1168,11 +1285,24 @@ class SongResponse(BaseModel):
     genre: Optional[str] = None
     difficulty: Optional[str] = None   # "beginner" | "intermediate" | "advanced"
     bpm: Optional[int] = None
-    key: Optional[str] = None
+    key: Optional[str] = None           # THE SHAPES — see db.Song.key and §7.3
+    # FLE-121. Derived from `key` + the breakdown's tuning and capo, never sent
+    # in by a caller: a stored copy is a second place for the two frames to
+    # disagree. None whenever the frames coincide (concert pitch, no capo) or
+    # the setup is an open/dropped tuning no single interval describes — see
+    # `sounding_key` for the full reason list.
+    key_sounding: Optional[str] = None
     breakdown: Optional[Breakdown] = None
     # Phase 2 additions (Optional per D-14 — backfilled on existing row, nullable for new)
     user_id: Optional[UUID] = None
     category: Optional[Literal["can_play", "working_on", "aspirational"]] = None
+
+    @model_validator(mode="after")
+    def _derive_key_sounding(self) -> "SongResponse":
+        """§7.3 — always recompute, discarding anything a caller passed in."""
+        derived, _reason = sounding_key_from_breakdown(self.key, self.breakdown)
+        self.key_sounding = derived
+        return self
 
     @field_validator("category", mode="before")
     @classmethod

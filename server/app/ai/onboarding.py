@@ -53,7 +53,7 @@ PART 1 — SONGS: for each UNIQUE song the user mentioned, produce ONE canonical
   - genre — one-word genre, e.g. "Blues", "Rock", "Jazz", "Fingerstyle", "Country", "Metal"
   - difficulty — one of `beginner`, `intermediate`, `advanced` (3-tier)
   - bpm — canonical tempo of the song as an integer (e.g. 90, 120, 145)
-  - key — musical key using standard notation, e.g. "Em", "C", "G#m", "F#", "Bb"
+  - key — musical key using standard notation, e.g. "Em", "C", "G#m", "F#", "Bb". NAME THE SHAPES THE PLAYER FINGERS, not the pitch the record sounds. These differ whenever the guitar is tuned down or capoed: Little Wing is played in E♭ standard, so the shapes are E minor and the record sounds E♭ minor — emit "Em". Pride and Joy is the same case: emit "E". We derive the sounding key from the tuning ourselves; emitting it here instead would contradict the chord names on the same screen.
 
 CRITICAL for the metadata fields (genre/difficulty/bpm/key): if you are unsure about a specific value, make a reasonable inference from your knowledge of the song — DO NOT omit or leave blank. Missing metadata will fail validation and roll back the entire onboarding. For example, "Little Wing" by Jimi Hendrix → genre="Rock", difficulty="intermediate", bpm=70, key="Em". "Sweet Home Chicago" by Robert Johnson → genre="Blues", difficulty="intermediate", bpm=112, key="E". If the artist is unknown or the song is truly obscure, still supply your best-guess values for all four fields.
 

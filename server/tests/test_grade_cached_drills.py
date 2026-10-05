@@ -97,10 +97,13 @@ _SKILL = "ae9df818-b5b9-4e7e-b36a-000000000000"
 
 
 def test_verbatim_bar_copy_covers_the_whole_drill() -> None:
-    """Song 71 D1: the snippet IS one bar of the shuffle, so cover is 1.0.
+    """Song 71 D1: the drill takes 4 of the 8-beat main measure — l1_cover = 1.0.
 
-    This is the defect L1 was written to catch — the "drill" hands the user the
-    song's own riff. It must be held back.
+    FLE-123 changed L1 semantics: halving a measure IS simplification (it removed
+    half the beats), so this drill correctly passes the gate under the rewritten
+    rule. l1_cover still reports 1.0 for diagnostic purposes — all 4 drill beats
+    appear consecutively inside the main — but the gate no longer treats quoting
+    as a defect by itself.
     """
     row = _row(
         71,
@@ -126,17 +129,41 @@ def test_verbatim_bar_copy_covers_the_whole_drill() -> None:
     )
     song = song_from_row(row, {_SKILL})
     assert l1_cover(song, song.drills[0]) == pytest.approx(1.0)
-    assert "L1" in attribute(song)[1]
-    # And the default threshold is low enough to actually catch it.
+    # Halving is simplification; the new L1 does not fire on a partial-measure quote.
+    assert "L1" not in attribute(song)[1]
     assert l1_cover(song, song.drills[0]) >= _DEFAULT_L1_COVER_MIN
 
 
-def test_shared_scale_box_is_not_a_reproduction() -> None:
-    """Song 73 D1: three notes coincide inside the same box; cover stays low.
+def test_verbatim_full_measure_copy_is_attributed_l1() -> None:
+    """A drill that copies a main measure verbatim (nothing removed) gets L1.
 
-    L1 still FAILS here (three consecutive beats really are shared), but the
-    drill is a hammer/pull exercise, not the song. The ratio is what keeps it
-    bankable, so assert the gate fires AND the ratio spares it.
+    FLE-123 rewrote L1 to fire on the strongest possible defect: a snippet measure
+    that matches a main measure on time signature AND every beat exactly — no beat
+    dropped, no note removed. This test exercises the attributor path, parallel to
+    test_a_verbatim_whole_measure_copy_still_fails in test_grade_eval_gates.py.
+    """
+    main_m = _measure(
+        _beat((6, 5)), _beat((5, 7)), _beat((4, 6)), _beat((3, 9))
+    )
+    row = _row(
+        99,
+        "Test Song",
+        "Test Artist",
+        [main_m],
+        [_drill_json("Copied the bar", 2, "Nothing removed.", [main_m], _SKILL)],
+    )
+    song = song_from_row(row, {_SKILL})
+    assert "L1" in attribute(song)[1]
+
+
+def test_shared_scale_box_is_not_a_reproduction() -> None:
+    """Song 73 D1: the hammer-pull drill shares notes with the main but is not derived from it.
+
+    FLE-123 retired the 3-shared-beat trip-wire. The new L1 only fires on verbatim
+    full-measure copies, so a drill that plays notes also found in the song but in
+    a different order or with different repetitions is not an L1 failure.
+    l1_cover is still reported (it captures the proportion of shared quoting), but
+    it no longer drives the gate.
     """
     row = _row(
         73,
@@ -166,8 +193,8 @@ def test_shared_scale_box_is_not_a_reproduction() -> None:
     )
     song = song_from_row(row, {_SKILL})
     cover = l1_cover(song, song.drills[0])
-    assert "L1" in attribute(song)[1], "the raw gate must still report the shared run"
-    assert cover < _DEFAULT_L1_COVER_MIN, f"cover {cover} would wrongly exclude the drill"
+    assert "L1" not in attribute(song)[1], "shared-box notes are not a verbatim lift"
+    assert cover < 0.5, f"l1_cover {cover:.2f} unexpectedly high for a rearranged pattern"
 
 
 def test_a1_is_not_a_default_exclusion() -> None:
@@ -253,14 +280,7 @@ def test_excluded_indices_are_zero_based_for_the_backfill() -> None:
     Pride and Joy is the fixture because its offending drills are D1 and D3
     (1-based) — asymmetric, so an off-by-one cannot accidentally agree.
     """
-    verbatim_bar = [
-        _measure(
-            _beat((6, 0), (5, 2)),
-            _beat((6, 0), (4, 2)),
-            _beat((6, 0), (5, 2)),
-            _beat((6, 0), (4, 2)),
-        )
-    ]
+    verbatim_bar = [_PJ_MAIN_M1]  # all 8 beats, verbatim — nothing simplified
     clean = [_measure(_beat((1, 12)), _beat((1, 15)))]
     row = _row(
         71,
