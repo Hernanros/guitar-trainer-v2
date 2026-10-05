@@ -106,6 +106,15 @@ Three checks are informational only and never block:
                  `_check_double_applied_swing` for why, and
                  `is_double_applied_swing` for the predicate, which
                  fle102_tab_audit.py imports rather than re-deriving.
+  PITCH_DEGENERACY (FLE-127) every sounding note in a measure is the same
+                 pitch — a bar with no pitch content, orthogonal to C4
+                 (C4 is a RHYTHM property, one duration; this is a PITCH
+                 property, one pitch class — a bar can trip either, both or
+                 neither). Warns rather than blocks because it cannot tell
+                 real filler apart from a deliberate single-note pedal tone
+                 or tremolo bar; see `_check_pitch_degeneracy` and
+                 `.planning/investigations/261005-fle127-pitch-degeneracy-check.md`
+                 for the disposition call.
 
 Caveat on the record (FLE-102 "the accuracy number, and why the computable one
 is the wrong one"): Kashmir passed 8 of 8 of these mechanical checks and was a
@@ -440,6 +449,55 @@ def _check_uniform_duration(tab: Tab) -> list[str]:
     return warn
 
 
+def _check_pitch_degeneracy(tab: Tab) -> list[str]:
+    """PITCH_DEGENERACY (FLE-127) — informational, never blocking.
+
+    A measure whose every sounding note is the same pitch has no pitch
+    content: nothing in it is worth reading as music rather than a strike
+    count. The shipped defect (song 107, *Eruption*, m1): eight strikes of
+    the open high E, not in the record and not a practisable bar.
+
+    C4 (`_check_uniform_duration`) cannot catch this — on that same tab it
+    fires on 7 of the other 8 bars too, all legitimate tapping and
+    pentatonic runs in straight eighths, because C4 measures a RHYTHM
+    property (one note LENGTH across the bar), not a pitch one. A warning
+    that fires on 7/8 bars cannot discriminate the filler bar from the real
+    ones. Distinct-PITCH count is the orthogonal signal: on that tab it
+    fires on m1 alone.
+
+    Warns rather than blocks for the same reason C4 does, and by the same
+    owner call as FLE-122's V2/T11 decision: it cannot tell real filler
+    apart from a deliberate single-note pedal tone or tremolo bar, a rare
+    but legitimate choice, and that false-positive rate is unmeasured
+    against real generator output — see
+    `.planning/investigations/261005-fle127-pitch-degeneracy-check.md`.
+
+    Bent notes are excluded from the pitch set for the same reason
+    `_check_foreign_notes` excludes them: a bend doesn't sound at its
+    fingered, integer fret, and this module has no target-pitch field to
+    score it at instead.
+
+    Scoped to the main tab only, same as C4/C8/RENDERER_WIDTH — not run
+    over drill snippets, where a single sustained or pedalled pitch is
+    often the entire teaching point.
+    """
+    om = _open_midi(tab.tuning)
+    warn = []
+    for mi, m in enumerate(tab.measures, 1):
+        midis = [
+            _pitch(n.string, n.fret, om)[1]
+            for bt in m.beats
+            for n in bt.notes
+            if n.bend is None
+        ]
+        if len(midis) > 1 and len(set(midis)) == 1:
+            warn.append(
+                f"m{mi}: all {len(midis)} notes are {CHROM[midis[0] % 12]} — "
+                f"no pitch content unless this is a deliberate pedal/tremolo bar"
+            )
+    return warn
+
+
 # --- C8: double-applied swing (FLE-118, spec §2.5 rule 2) ------------------
 # THE ONE IMPLEMENTATION. fle102_tab_audit.py imports this predicate as its C8
 # rather than carrying a second copy — the spec asked for the check to exist
@@ -537,5 +595,6 @@ def verify(breakdown: Breakdown) -> VerificationResult:
     warnings = [f"UNIFORM_DURATION: {d}" for d in _check_uniform_duration(tab)]
     warnings += [f"DOUBLE_SWING: {d}" for d in _check_double_applied_swing(tab)]
     warnings += [f"RENDERER_WIDTH: {d}" for d in _check_renderer_width(tab)]
+    warnings += [f"PITCH_DEGENERACY: {d}" for d in _check_pitch_degeneracy(tab)]
 
     return VerificationResult(blocking=blocking, warnings=warnings)

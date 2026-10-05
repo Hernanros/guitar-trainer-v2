@@ -281,6 +281,63 @@ def test_uniform_duration_grid_warns_but_does_not_block():
 
 
 # ---------------------------------------------------------------------------
+# PITCH_DEGENERACY (FLE-127) — warns, never blocks
+# ---------------------------------------------------------------------------
+
+def test_repeated_single_pitch_bar_warns_but_does_not_block():
+    """Song 107 (Eruption) m1: eight strikes of the open high E, nothing
+    else. Not in the record, not practisable — but it is wrong because it
+    has no pitch content, not because of notation or physics, so it warns
+    rather than blocks."""
+    measures = [
+        Measure(
+            beats=[Beat(notes=[_note(1, 0, "eighth")]) for _ in range(8)],
+            time_signature="4/4",
+        )
+    ]
+    bd = _breakdown(measures, [_chord("E")])
+    result = verify(bd)
+    assert result.ok, result.blocking
+    assert any(w.startswith("PITCH_DEGENERACY:") for w in result.warnings), result.warnings
+
+
+def test_varied_pitch_run_does_not_trip_pitch_degeneracy():
+    """The selectivity claim from the issue: a bar of straight eighths at
+    varying pitches (legitimate tapping/pentatonic material) trips
+    UNIFORM_DURATION (C4, a rhythm property) but must NOT trip
+    PITCH_DEGENERACY (a pitch property) — the two checks are orthogonal."""
+    measures = [
+        Measure(
+            beats=[
+                Beat(notes=[_note(1, fret, "eighth")])
+                for fret in [0, 3, 5, 3, 0, 3, 5, 7]
+            ],
+            time_signature="4/4",
+        )
+    ]
+    # Chord name left unparseable (same device as
+    # test_unparseable_chord_name_is_skipped_not_blocked) so OWN_CHORDS
+    # contributes nothing — this test isolates C4 vs PITCH_DEGENERACY, not
+    # chord-tone membership.
+    bd = _breakdown(measures, [_chord("???")])
+    result = verify(bd)
+    assert result.ok, result.blocking
+    assert any(w.startswith("UNIFORM_DURATION:") for w in result.warnings), result.warnings
+    assert not any(w.startswith("PITCH_DEGENERACY:") for w in result.warnings), result.warnings
+
+
+def test_single_note_bar_does_not_trip_pitch_degeneracy():
+    """A single whole note is not degenerate — there is nothing repeated.
+    The check needs more than one sounding note before "every note is the
+    same pitch" says anything at all."""
+    measures = [Measure(beats=[Beat(notes=[_note(6, 0, "whole")])], time_signature="4/4")]
+    bd = _breakdown(measures, [_chord("E")])
+    result = verify(bd)
+    assert result.ok
+    assert not any(w.startswith("PITCH_DEGENERACY:") for w in result.warnings), result.warnings
+
+
+# ---------------------------------------------------------------------------
 # FLE-126 — drills[].tab_snippet must run through the same checks as the
 # main tab, not bypass every one of them.
 # ---------------------------------------------------------------------------
