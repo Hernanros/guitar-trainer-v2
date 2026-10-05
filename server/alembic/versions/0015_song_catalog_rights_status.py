@@ -118,6 +118,17 @@ ALLOWED_RIGHTS_STATUSES = (
 # Keyed on title alone: 0007 step 2 added a case-insensitive unique index on
 # (lower(title), lower(artist)), and all 64 titles are distinct within it, so
 # title is a safe match key here for the same reason it was in 0007 step 3.
+#
+# AMENDED by 0019 (FLE-131): "all titles are distinct" stopped being true. 0019
+# inserts TWO *Big Love* rows — the Fleetwood Mac studio credit and the Lindsey
+# Buckingham solo arrangement — which differ in primary_skill_root and
+# difficulty. A title key still works HERE only because both rows resolve to the
+# same rights_status ('copyrighted'), so there is nothing for one key to lose.
+# That is a property of Junie's FLE-130 decision, not of the schema. If a future
+# curator ever needs two same-title rows to carry DIFFERENT rights_status, this
+# map, step 2's UPDATE, 0018's copy of both, and the AST reader in
+# test_alembic_0015.py all have to move to a (title, artist) key together. Do
+# not discover that by writing the second value here and watching one row win.
 _RIGHTS_STATUS = {
     # --- public_domain (2) ---------------------------------------------------
     # Both named and dated in CATALOG §4 as "firmly public domain". These are the
@@ -146,7 +157,7 @@ _RIGHTS_STATUS = {
     # This is a deliberate, reasoned 'unknown', not an untouched default.
     "Black Mountain Side": "unknown",
 
-    # --- copyrighted (60) ----------------------------------------------------
+    # --- copyrighted (65 titles / 66 rows) -----------------------------------
     # CATALOG §4: "every composition in the catalog is under copyright except"
     # the two public_domain rows above. Listed alphabetically.
     #
@@ -155,12 +166,24 @@ _RIGHTS_STATUS = {
     # The Girl from Ipanema; Wagon Wheel). Tier membership changes how hard the
     # song is to LICENCE, not whether a user's clip is postable, so it does not
     # change the value here.
+    #
+    # Five entries are marked `0019`. Those rows are inserted by migration 0019
+    # (FLE-130/FLE-131, Junie's roster decision), not by this migration, and 0019
+    # sets their rights_status inline on the INSERT. They are listed here anyway
+    # because test_alembic_0015.py::test_no_row_left_on_the_default asserts this
+    # map covers the LIVE catalog and its sibling asserts the reverse — so the
+    # map is the project's register of "a curator looked at this row", not a log
+    # of what this one migration wrote. Step 2's UPDATE for these titles is a
+    # harmless no-op on every database: 0015 runs long before 0019 inserts them.
     "A Horse with No Name": "copyrighted",
     "Ain't No Sunshine": "copyrighted",
     "Autumn Leaves": "copyrighted",                # Kosma, 1945
+    "Beat It": "copyrighted",                      # 0019 — Jackson/Lukather/Van Halen, 1982
+    "Big Love": "copyrighted",                     # 0019 — one key, BOTH rows (see note below)
     "Big Yellow Taxi": "copyrighted",
     "Blackbird": "copyrighted",                    # §4 Tier 1
     "Blue Bossa": "copyrighted",
+    "Cause We've Ended as Lovers": "copyrighted",  # 0019 — Stevie Wonder, 1975
     "Chan Chan": "copyrighted",                    # Compay Segundo, 1987 — composed, not folk
     "Chop Suey!": "copyrighted",
     "Cissy Strut": "copyrighted",
@@ -183,6 +206,7 @@ _RIGHTS_STATUS = {
     "Kashmir": "copyrighted",                      # §4 Tier 1
     "Killing in the Name": "copyrighted",
     "Knockin' on Heaven's Door": "copyrighted",
+    "Layla": "copyrighted",                        # 0019 — Clapton/Gordon, Derek and the Dominos 1970
     "Lenny": "copyrighted",
     "Little Wing": "copyrighted",                  # §4 Tier 1
     "Manha de Carnaval": "copyrighted",            # Bonfá, 1959
@@ -201,6 +225,7 @@ _RIGHTS_STATUS = {
     "Sultans of Swing": "copyrighted",
     "Sunshine of Your Love": "copyrighted",
     "Superstition": "copyrighted",
+    "Sweet Child O' Mine": "copyrighted",          # 0019 — Guns N' Roses, 1987
     "Sweet Home Chicago": "copyrighted",           # §4's named trap — PD only in 2033
     "Take the 'A' Train": "copyrighted",
     "Tears Don't Fall": "copyrighted",
