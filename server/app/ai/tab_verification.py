@@ -1,6 +1,28 @@
 """FLE-106 — generator verification pass: recording-free mechanical checks run
 on every breakdown before it is persisted.
 
+FLE-126 — every check below used to read `breakdown.tab` only; nothing read
+`drills[].tab_snippet`, even though a snippet is the same Measure/Beat/Note
+structure as the tab and is the thing the player actually practises. That let
+Little Wing drill1 ship an E9 voicing labelled E7#9 (no G, the #9) with its
+coaching copy naming the wrong degrees — eight checks below, zero of them
+looking at the one place the player's fingers go.
+
+METER, UNPLAYABLE and FRET_SPAN are notation/physical checks with no bar
+classifier dependency, so they now run over every drill's `tab_snippet` too,
+unconditionally, same as the main tab (see `verify()`). A fourth check,
+DRILL_CHORD, is new: a drill's `name` sometimes IS the chord claim ("E ->
+E7#9 Colour Swap"), and when it manifestly is, the snippet must not sound a
+pitch foreign to the chord(s) the name names — the same OWN_CHORDS machinery,
+just sourced from the name instead of `breakdown.chords`. It is deliberately
+NOT the V2-third/chord-stab completeness check FLE-122 twice warned against
+promoting unconditionally (a boogie has no third; an arpeggio sounds one note
+per column) — DRILL_CHORD never requires a chord tone to sound, only that no
+sounding note is foreign to it, which is exactly OWN_CHORDS' already-blocking
+shape, not V2/T11's never-promoted one. The gate that keeps it off riffs and
+arpeggios is `_drill_name_chord_pcs`'s refusal to trust a bare root letter —
+see its docstring.
+
 Built on FLE-102's audit (`server/scripts/fle102_tab_audit.py`) and narrowed by
 FLE-103's finding against hand-verified ground truth
 (`.planning/investigations/261005-fle103-pilot-verified-set.md` §6): T7/C7
@@ -92,10 +114,11 @@ before a write — it is NOT a measure of whether the tab is the song.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-from app.models.song import Breakdown, Tab, measure_beats, time_signature_beats
+from app.models.song import Breakdown, Drill, Tab, measure_beats, time_signature_beats
 
 # --- pitch model (mirrors fle102_tab_audit.py) -----------------------------
 CHROM = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
@@ -295,18 +318,12 @@ def _check_renderer_width(tab: Tab) -> list[str]:
     ]
 
 
-def _check_own_chords(breakdown: Breakdown) -> list[str]:
-    om = _open_midi(breakdown.tab.tuning)
-    allowed: set[int] = set()
-    for c in breakdown.chords:
-        pcs = _chord_pcs(c.name)
-        if pcs is not None:
-            allowed |= pcs
-    if not allowed:
-        # No parseable declared chords at all — nothing to check against.
-        return []
-    off = _tuning_offset(breakdown.tab.tuning)
-    frames = [0] if not off else [0, -off]
+def _check_foreign_notes(tab: Tab, allowed: set[int]) -> dict[int, list[str]]:
+    """Notes in `tab` whose pitch class is outside `allowed` in every tuning
+    frame. Shared machinery: OWN_CHORDS sources `allowed` from
+    `breakdown.chords`, DRILL_CHORD (FLE-126) from a drill's own name — same
+    check, different source for what counts as "this breakdown's own".
+
     # FLE-115 §7.1/§7.2 — the capo term is DELIBERATELY ABSENT here, and that is
     # not the defect §7.1.2 warns about. The absolute sounding pitch is
     # open + capo + fret, but this check scores notes against `Chord.name`,
@@ -316,8 +333,12 @@ def _check_own_chords(breakdown: Breakdown) -> list[str]:
     # absolute against shape names and fail every capo song. A verifier that
     # scores against an ABSOLUTE chord name — fle103_verify_pilot_tabs.py, whose
     # hand-authored ground truth predates `sounding_name` — does need the term.
+    """
+    om = _open_midi(tab.tuning)
+    off = _tuning_offset(tab.tuning)
+    frames = [0] if not off else [0, -off]
     bad: dict[int, list[str]] = {}
-    for mi, m in enumerate(breakdown.tab.measures, 1):
+    for mi, m in enumerate(tab.measures, 1):
         for bi, bt in enumerate(m.beats, 1):
             for n in bt.notes:
                 # FLE-115 §5: a bent note does not sound at an integer fret.
@@ -328,10 +349,83 @@ def _check_own_chords(breakdown: Breakdown) -> list[str]:
                 nm, midi = _pitch(n.string, n.fret, om)
                 if all((midi + f) % 12 not in allowed for f in frames):
                     bad.setdefault(mi, []).append(f"b{bi} {nm}")
+    return bad
+
+
+def _check_own_chords(breakdown: Breakdown) -> list[str]:
+    allowed: set[int] = set()
+    for c in breakdown.chords:
+        pcs = _chord_pcs(c.name)
+        if pcs is not None:
+            allowed |= pcs
+    if not allowed:
+        # No parseable declared chords at all — nothing to check against.
+        return []
+    bad = _check_foreign_notes(breakdown.tab, allowed)
     chord_names = sorted({c.name for c in breakdown.chords})
     return [
         f"m{mi}: notes {', '.join(notes)} outside this breakdown's own declared "
         f"chords {chord_names}"
+        for mi, notes in sorted(bad.items())
+    ]
+
+
+# --- DRILL_CHORD (FLE-126): does a drill's own NAME match its snippet? -----
+# Longest-suffix-first so alternation prefers "7#9" over "7" at the same
+# position — mirrors _chord_pcs's own `next(k for k in (...) if k in suf)`
+# longest-meaningful-match intent, just as a regex instead of a scan.
+_CHORD_QUALITIES = sorted((k for k in QUAL if k), key=len, reverse=True)
+_CHORD_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9])[A-G](?:#|b)?(?:"
+    + "|".join(re.escape(q) for q in _CHORD_QUALITIES)
+    + r")?(?![A-Za-z0-9])"
+)
+
+
+def _drill_name_chord_pcs(name: str) -> set[int]:
+    """Pitch classes every chord symbol in a drill's NAME asserts, unioned —
+    or the empty set if the name doesn't unambiguously name one.
+
+    A bare root letter ('Held E Voicing') is cheap to mistake for a stray
+    capital — a string name, an article, a key-of-the-song mention — so by
+    itself it earns no trust. FLE-122 is two warnings about exactly this
+    false-positive shape for a chord check (V2-third's boogie, T11's
+    arpeggio). The bar here: require at least one token with an accidental
+    or quality suffix — unambiguously a chord, not a letter — before
+    trusting ANY token in the name. Once that bar clears, a bare root in the
+    SAME name is trusted too: "E -> E7#9" should check against {E} union
+    {E7#9}, not only the complex one.
+    """
+    tokens = _CHORD_TOKEN_RE.findall(name or "")
+    if not any(len(t) > 1 for t in tokens):
+        return set()
+    allowed: set[int] = set()
+    for t in tokens:
+        pcs = _chord_pcs(t)
+        if pcs is not None:
+            allowed |= pcs
+    return allowed
+
+
+def _check_drill_chord_identity(drill: Drill) -> list[str]:
+    """DRILL_CHORD — a drill named after a chord must actually voice it.
+
+    The shipped defect (Little Wing drill1, "E -> E7#9 Colour Swap"): the
+    second voicing sounds {E, G#, B, D, F#} — E9, not E7#9, because F# (the
+    plain 9th) stands where G (the #9 the name promises) belongs. F# is
+    foreign to E7#9's own pitch classes {E, G#, B, D, G}, so the same
+    foreign-note machinery that already blocks OWN_CHORDS catches it here —
+    this is NOT the V2-third/T11 "did every chord tone sound" completeness
+    check; it never requires a tone to sound, only that none sounding is
+    foreign. See `_drill_name_chord_pcs` for the gate that keeps this off
+    drills whose name doesn't actually name a chord.
+    """
+    allowed = _drill_name_chord_pcs(drill.name)
+    if not allowed:
+        return []
+    bad = _check_foreign_notes(drill.tab_snippet, allowed)
+    return [
+        f"m{mi}: notes {', '.join(notes)} outside the chord {drill.name!r} names"
         for mi, notes in sorted(bad.items())
     ]
 
@@ -427,6 +521,18 @@ def verify(breakdown: Breakdown) -> VerificationResult:
     blocking += [f"FRET_SPAN: {d}" for d in _check_fret_span(tab)]
     blocking += [f"SPLIT_CHORD: {d}" for d in _check_split_chord(tab)]
     blocking += [f"OWN_CHORDS: {d}" for d in _check_own_chords(breakdown)]
+
+    # FLE-126 — METER/UNPLAYABLE/FRET_SPAN carry no bar-classifier dependency
+    # (unlike V2-third/T11, see module docstring), so they run over every
+    # drill's tab_snippet unconditionally, same as the main tab. DRILL_CHORD
+    # is gated per-drill by `_drill_name_chord_pcs`.
+    for i, d in enumerate(breakdown.drills):
+        snippet = d.tab_snippet
+        label = f"drill {i} ({d.name!r})"
+        blocking += [f"METER: {label} {m}" for m in _check_meter(snippet)]
+        blocking += [f"UNPLAYABLE: {label} {m}" for m in _check_unplayable(snippet)]
+        blocking += [f"FRET_SPAN: {label} {m}" for m in _check_fret_span(snippet)]
+        blocking += [f"DRILL_CHORD: {label} {m}" for m in _check_drill_chord_identity(d)]
 
     warnings = [f"UNIFORM_DURATION: {d}" for d in _check_uniform_duration(tab)]
     warnings += [f"DOUBLE_SWING: {d}" for d in _check_double_applied_swing(tab)]

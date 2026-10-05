@@ -11,7 +11,7 @@ checks that must NEVER block (C4 is a feel judgement, C7/T7 is not
 implemented at all — see the module docstring for why).
 """
 from app.ai.tab_verification import verify
-from app.models.song import Beat, Breakdown, Chord, ChordPosition, Measure, Note, Tab
+from app.models.song import Beat, Breakdown, Chord, ChordPosition, Drill, Measure, Note, Tab
 
 
 def _note(string: int, fret: int, duration: str = "quarter") -> Note:
@@ -22,9 +22,38 @@ def _chord(name: str) -> Chord:
     return Chord(name=name, positions=[ChordPosition(string=6, fret=0)])
 
 
-def _breakdown(measures: list[Measure], chords: list[Chord], tuning: list[str] | None = None) -> Breakdown:
+def _breakdown(
+    measures: list[Measure],
+    chords: list[Chord],
+    tuning: list[str] | None = None,
+    drills: list[Drill] | None = None,
+) -> Breakdown:
     tab = Tab(measures=measures, tuning=tuning or ["E", "A", "D", "G", "B", "e"])
-    return Breakdown(tab=tab, chords=chords, technique_notes=[])
+    kwargs = {"tab": tab, "chords": chords, "technique_notes": []}
+    # Breakdown.drills carries min_length=2 on EXPLICIT input only (see its
+    # docstring) — omit the kwarg entirely rather than pass [] so every
+    # existing drills-less test keeps hitting the unvalidated default_factory
+    # path instead of a spurious min_length failure.
+    if drills is not None:
+        kwargs["drills"] = drills
+    return Breakdown(**kwargs)
+
+
+def _drill(name: str, snippet_measures: list[Measure], tuning: list[str] | None = None) -> Drill:
+    """A minimally-valid Drill — every field other than name/tab_snippet is
+    filler that satisfies the model's own constraints (FLE-72 ladder span,
+    MIN/MAX_DRILL_REPETITIONS) without being load-bearing for these tests."""
+    return Drill(
+        name=name,
+        target_skill_temp_id="skill-1",
+        song_specific=False,
+        what="Practice the passage.",
+        tab_snippet=Tab(measures=snippet_measures, tuning=tuning or ["E", "A", "D", "G", "B", "e"]),
+        start_bpm=60,
+        target_bpm=70,
+        repetitions=8,
+        success_criterion="It rings clean.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -249,3 +278,145 @@ def test_uniform_duration_grid_warns_but_does_not_block():
     result = verify(bd)
     assert result.ok, f"C4 must never be a blocking defect, got {result.blocking}"
     assert any(w.startswith("UNIFORM_DURATION:") for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# FLE-126 — drills[].tab_snippet must run through the same checks as the
+# main tab, not bypass every one of them.
+# ---------------------------------------------------------------------------
+
+def _filler_drill() -> Drill:
+    """A second, uncontroversial drill — Breakdown.drills carries
+    min_length=2 on explicit input, and this filler must trip NOTHING so
+    each test below isolates the one check it is naming."""
+    measures = [Measure(beats=[Beat(notes=[_note(3, 0, "whole")])], time_signature="4/4")]
+    return _drill("Isolate the pull-off", measures)
+
+
+def test_clean_drill_snippets_pass_alongside_a_clean_main_tab():
+    main_measures = [Measure(beats=[Beat(notes=[_note(6, 0, "whole")])], time_signature="4/4")]
+    drills = [_filler_drill(), _filler_drill()]
+    bd = _breakdown(main_measures, [_chord("Em")], drills=drills)
+    result = verify(bd)
+    assert result.ok, result.blocking
+
+
+def test_drill_snippet_meter_mismatch_blocks():
+    """Pre-FLE-126 this bar was invisible to verify() — nothing read
+    drills[].tab_snippet at all, so a two-beat bar claiming 4/4 shipped."""
+    main_measures = [Measure(beats=[Beat(notes=[_note(6, 0, "whole")])], time_signature="4/4")]
+    bad_snippet = [
+        Measure(
+            beats=[Beat(notes=[_note(6, 0, "quarter")]), Beat(notes=[_note(6, 0, "quarter")])],
+            time_signature="4/4",
+        )
+    ]
+    drills = [_drill("Half-step crawl", bad_snippet), _filler_drill()]
+    bd = _breakdown(main_measures, [_chord("Em")], drills=drills)
+    result = verify(bd)
+    assert not result.ok
+    assert any(d.startswith("METER:") and "drill 0" in d for d in result.blocking), result.blocking
+
+
+def test_drill_snippet_same_string_twice_in_one_beat_blocks():
+    main_measures = [Measure(beats=[Beat(notes=[_note(6, 0, "whole")])], time_signature="4/4")]
+    bad_snippet = [
+        Measure(beats=[Beat(notes=[_note(6, 0, "whole"), _note(6, 2, "whole")])], time_signature="4/4")
+    ]
+    drills = [_drill("Alternate pluck", bad_snippet), _filler_drill()]
+    bd = _breakdown(main_measures, [_chord("Em")], drills=drills)
+    result = verify(bd)
+    assert not result.ok
+    assert any(d.startswith("UNPLAYABLE:") and "drill 0" in d for d in result.blocking), result.blocking
+
+
+def test_drill_snippet_fret_span_over_five_blocks():
+    main_measures = [Measure(beats=[Beat(notes=[_note(6, 0, "whole")])], time_signature="4/4")]
+    bad_snippet = [
+        Measure(beats=[Beat(notes=[_note(6, 1, "whole"), _note(5, 9, "whole")])], time_signature="4/4")
+    ]
+    drills = [_drill("Stretch reach", bad_snippet), _filler_drill()]
+    bd = _breakdown(main_measures, [_chord("Em")], drills=drills)
+    result = verify(bd)
+    assert not result.ok
+    assert any(d.startswith("FRET_SPAN:") and "drill 0" in d for d in result.blocking), result.blocking
+
+
+# ---------------------------------------------------------------------------
+# DRILL_CHORD — the Little Wing drill1 defect itself: a voicing scored
+# against the chord its OWN name claims, not against breakdown.chords.
+# ---------------------------------------------------------------------------
+
+def test_drill_chord_identity_catches_the_shipped_little_wing_defect():
+    """Song 106 drill1, "E -> E7#9 Colour Swap": voicing `6:0 5:2 4:2 3:1 2:3
+    1:2` sounds {E, G#, B, D, F#} — E9, not E7#9 (E7#9 needs G, the #9, not
+    F#, the plain 9th). F# is foreign to E7#9's own pitch classes and must
+    block, exactly like OWN_CHORDS already blocks a foreign note against
+    breakdown.chords."""
+    main_measures = [Measure(beats=[Beat(notes=[_note(6, 0, "whole")])], time_signature="4/4")]
+    snippet = [
+        Measure(
+            beats=[
+                Beat(
+                    notes=[
+                        _note(6, 0, "whole"),
+                        _note(5, 2, "whole"),
+                        _note(4, 2, "whole"),
+                        _note(3, 1, "whole"),
+                        _note(2, 3, "whole"),
+                        _note(1, 2, "whole"),
+                    ]
+                )
+            ],
+            time_signature="4/4",
+        )
+    ]
+    drills = [_drill("E -> E7#9 Colour Swap", snippet), _filler_drill()]
+    bd = _breakdown(main_measures, [_chord("E")], drills=drills)
+    result = verify(bd)
+    assert not result.ok
+    assert any(
+        d.startswith("DRILL_CHORD:") and "drill 0" in d and "F#" in d for d in result.blocking
+    ), result.blocking
+
+
+def test_drill_chord_identity_passes_when_the_voicing_matches_the_name():
+    """Same drill name, same shape, but string 1 frets the #9 (G, fret 3)
+    instead of the plain 9th (F#, fret 2) — now the voicing actually IS
+    E7#9, and must not block."""
+    main_measures = [Measure(beats=[Beat(notes=[_note(6, 0, "whole")])], time_signature="4/4")]
+    snippet = [
+        Measure(
+            beats=[
+                Beat(
+                    notes=[
+                        _note(6, 0, "whole"),
+                        _note(5, 2, "whole"),
+                        _note(4, 2, "whole"),
+                        _note(3, 1, "whole"),
+                        _note(2, 3, "whole"),
+                        _note(1, 3, "whole"),
+                    ]
+                )
+            ],
+            time_signature="4/4",
+        )
+    ]
+    drills = [_drill("E -> E7#9 Colour Swap", snippet), _filler_drill()]
+    bd = _breakdown(main_measures, [_chord("E")], drills=drills)
+    result = verify(bd)
+    assert result.ok, result.blocking
+
+
+def test_drill_name_with_only_a_bare_root_letter_is_not_chord_checked():
+    """FLE-122's warning applies here too: a lone capital letter ('Held E
+    Voicing') is too easily a stray reference (a string name, an article) to
+    trust as a chord claim. This snippet plays an F natural — foreign to ANY
+    reading of 'E' — and must NOT block, because the name never clears the
+    bar that makes DRILL_CHORD trust it."""
+    main_measures = [Measure(beats=[Beat(notes=[_note(6, 0, "whole")])], time_signature="4/4")]
+    snippet = [Measure(beats=[Beat(notes=[_note(6, 1, "whole")])], time_signature="4/4")]
+    drills = [_drill("Embellishment Hammer Inside a Held E Voicing", snippet), _filler_drill()]
+    bd = _breakdown(main_measures, [_chord("E")], drills=drills)
+    result = verify(bd)
+    assert result.ok, result.blocking
