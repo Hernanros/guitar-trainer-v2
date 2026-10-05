@@ -21,12 +21,17 @@ Representation conventions (deliberate, and different from the generator's)
    does not document (-1 is a ChordPosition idiom) and which TabNotation.tsx
    renders as the glyph "x" sitting on a string line. A chord the player is
    told not to sound is an absence, not an event.
-2. Every measure holds AT MOST 4 beats. Not a stylistic choice — a renderer
-   constraint. mobile/src/components/TabNotation.tsx pins
-   MEASURE_WIDTH = LEFT_MARGIN + 4 * BEAT_WIDTH + 8 while laying beats out at
-   beatIndex * BEAT_WIDTH with no clamp, so beat 5 escapes its own measure and
-   beats 6+ collide with the next measure's notes. 31 of the 72 cached prod
-   bars (43%) are over that line. See the FLE-103 writeup.
+2. WITHDRAWN by FLE-117 (schema v2 §10 row 9). This used to read "every
+   measure holds AT MOST 4 beats... a renderer constraint", because
+   TabNotation.tsx pinned MEASURE_WIDTH = LEFT_MARGIN + 4 * BEAT_WIDTH + 8
+   while laying beats out at beatIndex * BEAT_WIDTH with no clamp, so beat 5
+   escaped its own measure (31 of 72 cached prod bars, 43%).
+
+   The measurement was right and the conclusion was wrong: a renderer constant
+   had become a rule about the MUSIC, and the notation was being written down
+   to what the component could draw. §9.1 derives each measure's width from its
+   own content, so the limit is gone and so is this convention. Measures here
+   are bounded by the time signature and nothing else.
 3. Every note in a chord-stab beat carries the same duration, and that is
    CORRECT here, not the T4 "uniform grid" defect FLE-102 named: these are
    simultaneous notes of one voicing, not a flattened melody.
@@ -361,8 +366,14 @@ def main():
         },
         "conventions": {
             "muted_strings": "omitted, never fret=-1",
-            "max_beats_per_measure": 4,
-            "rationale": "mobile/src/components/TabNotation.tsx MEASURE_WIDTH",
+            # FLE-117 (§10 row 9): `max_beats_per_measure: 4` and its rationale
+            # "TabNotation.tsx MEASURE_WIDTH" are gone. That was a renderer
+            # constant that had leaked into ground truth and bounded the MUSIC
+            # to what the component could draw. §9.1 sizes every measure from
+            # its own content, so the limit no longer exists and ground truth
+            # must stop being shaped by it.
+            "beats_per_measure": "unbounded — measure width is derived from "
+                                 "content (schema v2 §9.1)",
         },
         "songs": [],
     }

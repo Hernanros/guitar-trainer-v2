@@ -10,8 +10,7 @@
   },
   "conventions": {
     "muted_strings": "omitted, never fret=-1",
-    "max_beats_per_measure": 4,
-    "rationale": "mobile/src/components/TabNotation.tsx MEASURE_WIDTH"
+    "beats_per_measure": "unbounded \u2014 measure width is derived from content (schema v2 \u00a79.1)"
   },
   "songs": [
     {
