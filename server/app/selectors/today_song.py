@@ -36,6 +36,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.selectors.player_level import PLAYER_LEVEL_SQL
+from app.verified_tabs import effective_player_level_cap, pilot_verified_only
 
 logger = logging.getLogger(__name__)
 
@@ -90,9 +91,59 @@ def difficulty_label(value: Optional[Union[Decimal, float, int, str]]) -> Option
 #   :reroll_suffix    — '' for normal fetch; ':reroll' for reroll call (landmine 3 delimiter)
 #   :exclude_song_id  — songs.id integer to exclude from all branches; -1 = no exclusion
 #                       (FLE-98: prevents reroll returning the song already on screen)
+#   :verified_only    — FLE-110 pilot flag. TRUE restricts EVERY branch to songs
+#                       with a hand-verified tab; FALSE is the pre-FLE-110 selector,
+#                       unchanged. See _VERIFIED_SONG_CLAUSE below.
+#   :player_level_cap — FLE-110 ceiling on player_level (0.70 under the pilot flag,
+#                       1.0 — the identity — otherwise). See verified_tabs.py.
 #
 # Returns one row: (today_song_id, from_bank, bank_source)
 # today_song_id is NULL if BOTH working_on AND bank are empty.
+
+# ---------------------------------------------------------------------------
+# FLE-110 — the verified-only restriction, and why it is on all three branches
+# ---------------------------------------------------------------------------
+# The issue asks for the CATALOG branch only ("restrict the `today_song` catalog
+# branch to rows that have a verified tab"). That is the branch FLE-103 was
+# looking at, and on its own it does not deliver the guarantee the parent issue
+# names — "the pilot sees only songs whose tab a human has checked".
+#
+# The catalog branch is one of three, and it is the LEAST likely to fire. A user
+# with any working_on song takes `working_on_pick` 75% of the time, and
+# `user_bench_pick` shadows the catalog entirely whenever the user owns any song
+# at all (clause 6: catalog only runs WHERE NOT EXISTS user_bench_pick). So
+# restricting the catalog alone would leave a pilot user with their own onboarded
+# songs served generator tab on most days, which is the state FLE-102 measured at
+# 0 of 10 fit to practise from.
+#
+# So the clause goes on all three. It is a deliberate widening of the issue's
+# scope item 3, stated here rather than buried: under the flag, a pilot user does
+# not see their own working_on songs unless those songs are in the verified ten.
+# That is a real product cost and it is the cost the gate is asking for.
+#
+# It cannot strand a user. If every branch comes back empty the catalog branch
+# still has ten rows inside any reachable player_level window (FLE-103 §5: "no
+# dead windows in [0.20, 1.00]", with the 0.70 cap keeping every window at two or
+# more), and `_ensure_catalog_song_as_user_song` then mints the catalog row into
+# `songs` — so from day two the user's own bench contains verified songs and
+# matches this clause on its own terms.
+#
+# Matched on (lower(title), lower(artist)) because that is the relation the rest
+# of the request path already uses between a songs row and its catalog entry
+# (`_ensure_catalog_song_as_user_song` below, `songs_user_title_artist_uidx`).
+# There is no FK to use instead. A songs row with a NULL artist cannot match,
+# which is correct — it cannot be identified against the catalog either.
+_VERIFIED_SONG_CLAUSE = """
+      AND (
+        NOT CAST(:verified_only AS boolean)
+        OR EXISTS (
+          SELECT 1 FROM song_catalog vc
+          WHERE vc.verified_tab IS NOT NULL
+            AND lower(vc.title) = lower(s.title)
+            AND lower(vc.artist) = lower(s.artist)
+        )
+      )
+"""
 
 _SELECTOR_CTE = text(
     f"""
@@ -112,8 +163,16 @@ WITH
   --    PLAYER_LEVEL_FLOOR; 0.5 when the user has no leaves at all.
   --    See selectors/player_level.py for why the floor exists (FLE-49) — without it
   --    every production user resolved to 0.00 and the 64-song catalog served 1 song.
+  --    FLE-110: LEAST(..., :player_level_cap) caps the level the WINDOW is centred
+  --    on while the pilot flag is set. The cap is 1.0 — the identity on a
+  --    NUMERIC(4,3) in [0,1] — when the flag is off, so this is one shape of SQL
+  --    rather than two. See verified_tabs.PILOT_PLAYER_LEVEL_CAP for why 0.70 and
+  --    why the cap lands here rather than on the onboarding seed.
   player_level_cte AS (
-    SELECT {PLAYER_LEVEL_SQL}::numeric(4,3) AS player_level
+    SELECT LEAST(
+             {PLAYER_LEVEL_SQL},
+             CAST(:player_level_cap AS numeric)
+           )::numeric(4,3) AS player_level
     FROM skill_nodes
     WHERE user_id = CAST(:user_id AS uuid)
       AND level = 'leaf'
@@ -129,6 +188,7 @@ WITH
     WHERE s.user_id = CAST(:user_id AS uuid)
       AND s.category = 'working_on'
       AND s.id != :exclude_song_id
+      {_VERIFIED_SONG_CLAUSE}
     ORDER BY sn.mastery ASC, sn.updated_at ASC
     LIMIT 1
   ),
@@ -141,6 +201,7 @@ WITH
     FROM songs s
     WHERE s.user_id = CAST(:user_id AS uuid)
       AND s.id != :exclude_song_id
+      {_VERIFIED_SONG_CLAUSE}
     ORDER BY random()
     LIMIT 1
   ),
@@ -151,6 +212,9 @@ WITH
     SELECT sc.id::text AS song_id, 'seed_catalog'::text AS src
     FROM song_catalog sc, player_level_cte pl
     WHERE ABS(sc.difficulty - pl.player_level) <= 0.15
+      -- FLE-110 scope item 3: while the pilot flag is set, only rows a human has
+      -- checked are eligible. NULL verified_tab = not hand-verified.
+      AND (NOT CAST(:verified_only AS boolean) OR sc.verified_tab IS NOT NULL)
       AND NOT EXISTS (
         SELECT 1 FROM songs sx
         WHERE sx.id = :exclude_song_id
@@ -325,8 +389,15 @@ async def select_today_song(
 
     When the selected song comes from song_catalog, _ensure_catalog_song_as_user_song
     UPSERTs it into songs (aspirational category) and returns the resulting integer songs.id.
+
+    FLE-110: while FLETCHER_PILOT_VERIFIED_ONLY is on, every branch is restricted
+    to songs carrying a hand-verified tab and player_level is capped at 0.70 before
+    the catalog window is centred on it. With the flag off this function behaves
+    exactly as it did before — both values are read per call, not at import, so the
+    flag is a deploy-time setting rather than a code change.
     """
     reroll_suffix = ":reroll" if force_reroll else ""
+    verified_only = pilot_verified_only()
 
     # Compute local calendar day from the tz offset (server-side; never trust client clock).
     today: date = await db.scalar(
@@ -344,6 +415,8 @@ async def select_today_song(
             "player_level": 0.5,  # will be overridden by inline AVG in CTE
             "reroll_suffix": reroll_suffix,
             "exclude_song_id": exclude_song_id,
+            "verified_only": verified_only,
+            "player_level_cap": effective_player_level_cap(),
         },
     )
     row = result.mappings().one()

@@ -33,8 +33,34 @@ from app.models.song import (
     is_renderable_breakdown,
 )
 from app.selectors.today_song import select_today_song
+from app.verified_tabs import has_verified_tab, pilot_verified_only
 
 router = APIRouter()
+
+
+async def _breakdown_available(db: AsyncSession, row: Song) -> bool:
+    """Whether GET /songs/{id}/breakdown will return a breakdown for this row.
+
+    FLE-67: the cached half needs both conditions — the cache signal AND a
+    renderable snapshot. A row marked generated whose JSONB is empty/partial is
+    dropped to None by SongResponse and treated as a miss by the breakdown
+    endpoint, so reporting it available would promise a breakdown neither returns.
+
+    FLE-110 adds a second yes-path. A hand-verified song is served from
+    `song_catalog.verified_tab` and never sets `breakdown_generated_at` on the
+    songs row, so the cache signal alone reads False for the exact ten songs the
+    pilot is restricted to — and the client disables the CTA on False. This
+    function has to answer the same question the breakdown endpoint answers, and
+    after FLE-110 that question has two yes-paths.
+
+    The verified lookup is skipped entirely when the pilot flag is off, which is
+    when the endpoint would not take that path either.
+    """
+    if row.breakdown_generated_at is not None and is_renderable_breakdown(row.breakdown):
+        return True
+    if not pilot_verified_only():
+        return False
+    return await has_verified_tab(db, row.title, row.artist)
 
 
 async def _breakdown_quota(db: AsyncSession, user_id: UUID) -> BreakdownQuota | None:
@@ -236,14 +262,10 @@ async def get_song_of_day(
 
     return TodaySongResponse(
         song=SongResponse.model_validate(row),
-        # FLE-67: both halves — the cache signal AND a renderable snapshot. A row
-        # marked generated whose JSONB is empty/partial is dropped to None by
-        # SongResponse, and GET /songs/{id}/breakdown now treats it as a miss, so
-        # reporting it available would promise a cached breakdown neither returns.
-        breakdown_available=(
-            row.breakdown_generated_at is not None
-            and is_renderable_breakdown(row.breakdown)
-        ),
+        # FLE-67 + FLE-110 — see _breakdown_available above. Both yes-paths, and
+        # deliberately not inlined twice: this endpoint returns the same field
+        # from two places and they drifted once already.
+        breakdown_available=await _breakdown_available(db, row),
         from_bank=from_bank,
         bank_source=bank_source,
         rerolled=rerolled,
@@ -354,14 +376,10 @@ async def reroll_today_song(
 
     return TodaySongResponse(
         song=SongResponse.model_validate(row),
-        # FLE-67: both halves — the cache signal AND a renderable snapshot. A row
-        # marked generated whose JSONB is empty/partial is dropped to None by
-        # SongResponse, and GET /songs/{id}/breakdown now treats it as a miss, so
-        # reporting it available would promise a cached breakdown neither returns.
-        breakdown_available=(
-            row.breakdown_generated_at is not None
-            and is_renderable_breakdown(row.breakdown)
-        ),
+        # FLE-67 + FLE-110 — see _breakdown_available above. Both yes-paths, and
+        # deliberately not inlined twice: this endpoint returns the same field
+        # from two places and they drifted once already.
+        breakdown_available=await _breakdown_available(db, row),
         # FLE-41: derived, not hard-coded. D-05's "rerolls are always bank picks" is
         # wrong — force_reroll re-seeds the same 75/25 CTE, so a reroll can land on the
         # working_on_pick branch with bank_source=null. GET /song-of-day already derives

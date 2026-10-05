@@ -339,6 +339,19 @@ class SongCatalog(Base):
         String(32), nullable=False, default="unknown", server_default=text("'unknown'")
     )
     breakdown: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # Hand-verified Breakdown snapshot (migration 0016, FLE-110). NULL on every
+    # row no human has checked — 54 of the 64, once the FLE-103 pilot set loads.
+    #
+    # NOT the same column as `breakdown` above, and the two must not be merged.
+    # `breakdown` is the generator's cache slot (NULL on all 64 prod rows today);
+    # this one is ground truth a person committed, written only by
+    # scripts/fle110_load_verified_tabs.py from
+    # server/data/verified_tabs/pilot_verified_set.json. Collapsing them would let
+    # a generated tab overwrite a verified one, which is exactly the failure
+    # FLE-103 §1a describes.
+    #
+    # Read only while FLETCHER_PILOT_VERIFIED_ONLY is on — see app/verified_tabs.py.
+    verified_tab: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
