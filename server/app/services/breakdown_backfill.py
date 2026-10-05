@@ -50,6 +50,7 @@ from app.ai.breakdown import AIBreakdownError, run_technique_breakdown
 from app.ai.governor import AnthropicQuotaExceededError, BudgetExceededError
 from app.models.db import SkillNode, Song, SongSkill
 from app.selectors.player_level import floor_player_level
+from app.services.song_tuning import resolve_known_tuning
 
 logger = logging.getLogger(__name__)
 
@@ -228,13 +229,18 @@ async def regenerate_one(db: AsyncSession, candidate: Candidate) -> BackfillResu
     )
     user_level = float(floor_player_level(avg_mastery))
 
+    # FLE-108: same resolution the live endpoint uses. Regenerating a row against
+    # a NULL column would re-spend a real Sonnet call and still throw away the
+    # catalog's tuning — the backfill is the one path where that is unrecoverable,
+    # because it stamps breakdown_generated_at and the row stops being a candidate.
+    known_tuning = await resolve_known_tuning(db, song)
     try:
         breakdown = await run_technique_breakdown(
             song.title,
             song.artist or "",
             target_skills,
             user_level,
-            song.tuning,
+            known_tuning,
             db=db,
             user_id=candidate.user_id,
         )

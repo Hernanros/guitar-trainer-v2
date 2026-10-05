@@ -159,11 +159,28 @@ class Song(Base):
     difficulty: Mapped[str] = mapped_column(String(50), nullable=True)
     bpm: Mapped[int] = mapped_column(Integer, nullable=True)
     key: Mapped[str] = mapped_column(String(10), nullable=True)
-    # Canonical recorded tuning, copied from song_catalog.tuning at upsert time
-    # (migration 0014, FLE-33). NULL means no catalog ground truth exists for
-    # this song (user-onboarded, or a pre-migration row) — the breakdown prompt
-    # falls back to Sonnet's own inference in that case. One of the slugs in
-    # that migration's ALLOWED_TUNINGS / app.ai.breakdown.TUNING_NOTE_MAP when set.
+    # Canonical recorded tuning, copied from song_catalog.tuning (migration 0014,
+    # FLE-33). NULL means no catalog ground truth exists for this song. One of the
+    # slugs in that migration's ALLOWED_TUNINGS / app.ai.breakdown.TUNING_NOTE_MAP
+    # when set.
+    #
+    # FLE-108: that NULL semantic was aspirational until this column had writers.
+    # 0014 shipped with one — _ensure_catalog_song_as_user_song, the catalog-pick
+    # path — and onboarding, which creates nearly every row, did not write it. Prod
+    # read 0 of 48 populated on 2026-10-05 while 39 of the 48 matched a catalog row,
+    # 17 of them a non-standard one. Writers now: the onboarding insert, that
+    # upsert, and app.services.song_tuning.resolve_known_tuning as a lazy backfill
+    # at generation time; migration 0017 backfilled the rows already there.
+    #
+    # Two claims from 0014's docstring are struck, here because this is the comment
+    # a reader of the column finds first:
+    #   - "Sonnet still infers tuning from the title" when NULL. Not since FLE-128
+    #     — a catalog miss passes `standard` into the prompt and records
+    #     Breakdown.tuning_source='default'. Inference produced the only wrong
+    #     tuning in the corpus and is suppressed on both paths.
+    #   - NULL vs non-NULL is no longer the only provenance seam. tuning_source
+    #     carries it per generated breakdown, which is what makes an off-catalog
+    #     generation countable after the fact rather than just loggable.
     tuning: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     breakdown: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(

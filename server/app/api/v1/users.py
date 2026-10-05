@@ -38,6 +38,7 @@ from app.ai.governor import (
 from app.ai.onboarding import AIParseError, FIXED_ROOTS, run_onboarding_parse
 from app.ai.skill_dedupe import best_match, SCORE_AUTO_DEDUPE, SCORE_CURATOR_QUEUE
 from app.ai.skill_verifier import AISkillVerifierError, run_skill_node_verify
+from app.services.song_tuning import catalog_tuning_map
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -699,6 +700,15 @@ async def _persist_bootstrap(
     # 2026-08-16, see .planning/debug/onboarding-dup-song.md).
     coalesced_songs = _coalesce_song_proposals(output.songs)
 
+    # FLE-108: stamp ground-truth tuning on every onboarded song that is in the
+    # catalog. This is the path that made `songs.tuning` NULL on 48 of 48 prod
+    # rows — migration 0014 and _ensure_catalog_song_as_user_song covered the
+    # catalog-pick path only, and a catalog pick is not how songs are born. 39 of
+    # those 48 rows matched a catalog row on exactly this key, 17 of them a
+    # non-standard one, so the ground truth was one join away the whole time.
+    # One query for the 64-row catalog, not a lookup per song.
+    catalog_tunings = await catalog_tuning_map(db)
+
     song_id_by_key: dict[tuple, int] = {}
     for song_prop in coalesced_songs:
         # Persist Sonnet-emitted metadata (Phase 4 hotfix 2026-08-16 —
@@ -716,6 +726,15 @@ async def _persist_bootstrap(
             difficulty=song_prop.difficulty,
             bpm=song_prop.bpm,
             key=song_prop.key,
+            # FLE-108. Note this is NOT `song_prop.key` with a different name:
+            # key is the song's tonality and tuning is the pitch of the open
+            # strings, and conflating them is what produced the corpus's only
+            # wrong tuning (an E-flat *key* read as an E-flat *tuning*, see
+            # 261005-fle125-tuning-ground-truth.md §6). So this value never comes
+            # from Sonnet — only from the catalog, or NULL.
+            tuning=catalog_tunings.get(
+                (song_prop.title.lower().strip(), (song_prop.artist or "").lower().strip())
+            ),
             # Placeholder breakdown intentional — Phase 3 breakdown selector fills this
             # on first user-requested breakdown. SongResponse.breakdown is now Optional,
             # so this row now serves via GET /song-of-day as breakdown_available=False.

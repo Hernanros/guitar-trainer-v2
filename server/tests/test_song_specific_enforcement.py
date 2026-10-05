@@ -335,6 +335,15 @@ async def test_run_technique_breakdown_enforces_song_specific(monkeypatch):
                 "Led Zeppelin",
                 [{"id": str(uuid.uuid4()), "name": "Odd-meter feel"}],
                 0.5,
+                # FLE-108: Kashmir's catalog tag. Required since FLE-128 made the
+                # tuning check fire on every song: with no known_tuning the call
+                # defaults to standard, and this payload is the real Kashmir eval
+                # output in DADGAD, so the whole test died on TuningMismatchError
+                # before reaching the song_specific assertion below. Passing the
+                # catalog tag is also what production now does — the raw NULL
+                # `songs.tuning` column it used to pass is resolved through
+                # app.services.song_tuning.resolve_known_tuning.
+                "dadgad",
                 db=db,
                 user_id=uuid.UUID(user_id),
             )

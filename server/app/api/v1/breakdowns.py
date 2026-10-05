@@ -57,6 +57,7 @@ from app.db.session import get_db
 from app.models.db import SkillNode, Song, SongSkill, UserSession
 from app.models.song import Breakdown, BreakdownEnvelope, is_renderable_breakdown
 from app.selectors.player_level import floor_player_level
+from app.services.song_tuning import resolve_known_tuning
 from app.verified_tabs import pilot_verified_only, verified_breakdown_for
 
 logger = logging.getLogger(__name__)
@@ -379,10 +380,19 @@ async def get_breakdown(
     # Exception priority: AnthropicQuotaExceededError → 503 FLETCHER_OUT (D-08)
     #                     AIBreakdownError → 503 generic Fletcher message
     # (BudgetExceededError is caught upstream in step 2 — cap-check fires before this)
+    #
+    # FLE-108: `song.tuning` on its own was NULL on 48 of 48 prod rows — the
+    # onboarding wizard, which creates nearly every song, never consulted the
+    # catalog. resolve_known_tuning falls back to the catalog join and backfills
+    # the column (persisted by step 6's commit below). Passing the raw column
+    # here sent NULL for 17 rows whose catalog row is non-standard, which after
+    # FLE-128's default-to-standard would have generated Kashmir in standard
+    # tuning. A None return is a genuine catalog miss and is logged there.
+    known_tuning = await resolve_known_tuning(db, song)
     try:
         breakdown = await run_technique_breakdown(
             song.title, song.artist or "", target_skills, user_level,
-            song.tuning,
+            known_tuning,
             db=db, user_id=user_id,
         )
     except BudgetExceededError as exc:
