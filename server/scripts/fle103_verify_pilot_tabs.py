@@ -25,6 +25,11 @@ Checks (unit: the measure, so the number has a stated denominator)
                        rhythm §9.1 draws is distinguishable (see V6 below)
   V7 one note / string no string sounded twice in one beat (unplayable)
   V8 fret span         fretted span within a beat <= 5 (one hand position)
+  V9 feel marking      `tab.feel` is present and legal, agrees with the prose
+                       `feel`, and is not double-applied as triplet pairs (C8).
+                       Unit: the song. Added after FLE-111/116 shipped the
+                       renderer that draws the marking — see `check_feel` for the
+                       defect in this file that nothing had been catching.
 
 FLE-117 — what schema v2 changed in here (spec §10 row 4)
 ---------------------------------------------------------
@@ -73,6 +78,10 @@ from app.models.song import (  # noqa: E402  (needs the path fix)
     DURATION_BEATS,
     duration_beats,
 )
+# V9 imports the ONE C8 predicate rather than reimplementing it. Same reason
+# DURATION_BEATS is imported above and not copied: a duplicated rhythm heuristic
+# is how two scripts start disagreeing about what a defect is.
+from app.ai.tab_verification import is_double_applied_swing  # noqa: E402
 
 CHROM = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 PC = {"C": 0, "C#": 1, "DB": 1, "D": 2, "D#": 3, "EB": 3, "E": 4, "F": 5,
@@ -300,6 +309,89 @@ def check_drawn_rhythm(beats, where, warns):
                          f"rhythm is in the data but not on the staff")
 
 
+# --- V9: the feel marking ---------------------------------------------------
+# Prose words that COMMIT the song to a swung reading, and words that commit it
+# to an even one. Matched against the human `feel` string to cross-examine the
+# declared `tab_feel` enum — NOT to derive it. A song whose prose says neither
+# (there are none today) is left alone rather than guessed at.
+_PROSE_SWUNG = ("swing", "swung", "shuffle")
+_PROSE_EVEN = ("straight", "even eighth", "even 8th", "not swung")
+_FEEL_VALUES = ("straight", "swing", "shuffle")
+
+
+def check_feel(song, fails):
+    """V9 — `tab.feel` is present, legal, and agrees with the prose `feel`.
+
+    This check exists because of a defect it would have caught in this very
+    file. `Tab.feel` defaults to "straight", and FLE-103's set carried feel only
+    as a per-song PROSE string that nothing downstream reads. So three swing
+    tunes — Autumn Leaves, Take the 'A' Train, Giant Steps — validated clean,
+    loaded clean, and would have reached a pilot player's screen with no swing
+    badge on the staff: told, in the only language the product speaks, to play
+    Coltrane's changes dead straight. Nothing went red, because a default is not
+    a disagreement.
+
+    That is the `tuning: standard` failure mode exactly (schema v2 §7): a field
+    that is TRUE as data and MISLEADING as instruction. The fix is not to infer
+    the marking from the prose — pattern-matching "swing" out of an English
+    sentence is the guess this whole file exists to refuse — but to declare it
+    per song and make the two sources check each other. Then a future editor who
+    changes one and not the other gets a failure instead of a silent downgrade.
+    """
+    where = song["title"]
+    prose = (song.get("feel") or "").lower()
+    tab = song["tab"]
+
+    if "feel" not in tab:
+        fails.append(f"V9 {where}: tab has no `feel` — it would default to "
+                     f"'straight'. Ground truth states its feel; it does not "
+                     f"inherit one (prose feel is {song.get('feel')!r})")
+        return
+    marking = tab["feel"]
+    if marking not in _FEEL_VALUES:
+        fails.append(f"V9 {where}: tab.feel {marking!r} is not one of "
+                     f"{list(_FEEL_VALUES)} — `Tab.feel` is a closed Literal and "
+                     f"this file would not survive Tab.model_validate (§2.5)")
+        return
+
+    swung_prose = any(w in prose for w in _PROSE_SWUNG)
+    even_prose = any(w in prose for w in _PROSE_EVEN)
+    # "bossa nova (even eighths, not swung)" trips BOTH lists on "not swung".
+    # The even phrases win, because they are the ones that say what it IS.
+    if swung_prose and not even_prose and marking == "straight":
+        fails.append(f"V9 {where}: prose feel {song['feel']!r} is swung but "
+                     f"tab.feel is 'straight' — the staff would carry no feel "
+                     f"badge and the player is told to play it even")
+    if even_prose and marking != "straight":
+        fails.append(f"V9 {where}: prose feel {song['feel']!r} is even but "
+                     f"tab.feel is {marking!r} — the staff would tell the player "
+                     f"to swing even-eighth music")
+
+    # C8, per bar: feel marked AND written out as triplet pairs is swing applied
+    # twice (4/9 + 2/9). Vacuous on all-quarter data; it is here so that
+    # FLE-107's re-notation cannot introduce it silently.
+    #
+    # BLOCKING here, warning in the write gate (`_check_double_applied_swing`),
+    # and that is not an inconsistency. It warns there because no cached
+    # breakdown carries `feel` at all, so its false-positive rate on generator
+    # output is unmeasured and FLE-103 §6 is the precedent for not gating on an
+    # unmeasured heuristic. Neither condition holds over THIS file: every
+    # duration in it was typed by hand, so there is no unknown population to be
+    # wrong about, and a bar of ground truth that cannot be performed as notated
+    # is not a finding to report — it is a bug in the ruler.
+    for mi, meas in enumerate(tab["measures"], 1):
+        durations = [
+            b.get("rest") if b.get("rest") is not None
+            else (b["notes"][0]["duration"] if b.get("notes") else None)
+            for b in meas["beats"]
+        ]
+        if is_double_applied_swing(marking, durations):
+            fails.append(f"V9 {where} m{mi}: tab.feel is {marking!r} AND the bar "
+                         f"is triplet-quarter/triplet-eighth pairs — swing "
+                         f"applied twice gives 4/9 + 2/9. Mark the feel and "
+                         f"write plain eighths (§2.5)")
+
+
 def beat_duration(beat, where, fails):
     """Beat-value of one column as an exact `Fraction` (FLE-115 §2.2/§3)."""
     ds = {n["duration"] for n in beat["notes"]}
@@ -394,6 +486,9 @@ def main(path=None):
 
     for song in songs:
         tab = song["tab"]
+        # V9 is a property of the song, not of a measure, so it runs once per
+        # song rather than per bar (its own C8 loop walks the bars).
+        check_feel(song, fails)
         opens = open_pcs(tab["tuning"])
         # §7.1 — absent means 0, and 0 makes every term below a no-op, so a
         # pre-v2 tab reads exactly as it did. `.get` is the whole migration.

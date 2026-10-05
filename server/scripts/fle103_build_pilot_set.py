@@ -35,6 +35,19 @@ Representation conventions (deliberate, and different from the generator's)
 3. Every note in a chord-stab beat carries the same duration, and that is
    CORRECT here, not the T4 "uniform grid" defect FLE-102 named: these are
    simultaneous notes of one voicing, not a flattened melody.
+4. Two feel fields, on purpose, and only one of them is machine-readable.
+   `feel` is prose for a human reading the set ("medium swing — comped on beats").
+   `tab_feel` is the `Tab.feel` enum (straight|swing|shuffle, schema v2 §2.5)
+   and is the ONLY one that reaches a player: it lands in `tab.feel`, survives
+   `Tab.model_validate` in app/verified_tabs.py, is stored in
+   song_catalog.verified_tab, and TabNotation.tsx §9.2 draws it as a
+   "Swing 8ths" / "Shuffle" badge on the setup line.
+
+   `tab_feel` is DECLARED per song, never inferred from the prose. Pattern-
+   matching "swing" out of an English sentence is the same move as reading a
+   chord quality off a song title, and this file exists because that move is
+   not allowed here. The verifier's V9 checks the two against each other, so a
+   disagreement is a failure rather than a silent downgrade to "straight".
 """
 import json
 import pathlib
@@ -130,6 +143,7 @@ SONGS = [
         "key": "E minor",
         "time_signature": "4/4",
         "feel": "straight eighths",
+        "tab_feel": "straight",
         "bpm": 122,
         "passage": "Verse — the entire song alternates two chords; 8 bars = two full cycles.",
         "why_in_set": "Two chords, both open position, no articulation. The cleanest "
@@ -148,6 +162,7 @@ SONGS = [
         "key": "E minor",
         "time_signature": "4/4",
         "feel": "straight eighths",
+        "tab_feel": "straight",
         "bpm": 84,
         "passage": "Verse/chorus loop — Em C G D/F#, one bar each, twice.",
         "why_in_set": "The canonical i-VI-III-VII minor loop. Four chords, every "
@@ -170,6 +185,11 @@ SONGS = [
         "key": "A minor",
         "time_signature": "4/4",
         "feel": "straight, heavy backbeat",
+        # Not `shuffle`. The groove is a straight-16th backbeat; the enum's
+        # `shuffle` means a hard triplet subdivision whose omitted middle
+        # triplet IS the groove, and marking this song that way would have a
+        # player bouncing a tune that does not bounce.
+        "tab_feel": "straight",
         "bpm": 76,
         "passage": "Verse — Am Em7 G Am, one bar each, twice.",
         "why_in_set": "A minor tonic with a m7 on the v. Tests the third on two "
@@ -194,6 +214,7 @@ SONGS = [
         "key": "D major",
         "time_signature": "4/4",
         "feel": "straight",
+        "tab_feel": "straight",
         "bpm": 64,
         "passage": "The ground bass cycle — D A Bm F#m G D G A, one bar each. "
                    "8 bars is exactly one full cycle.",
@@ -216,6 +237,11 @@ SONGS = [
         "key": "G minor (relative Bb major)",
         "time_signature": "4/4",
         "feel": "medium swing — comped on beats, not a melody line",
+        # 120 is the near-2:1 end of the swing range (the ratio argument on
+        # FLE-105 Q1 that chose MARKING over notation; Giant Steps at 240 is the
+        # near-even end). The enum carries no ratio, which is the point — the
+        # player supplies it from the tempo, the way a chart works.
+        "tab_feel": "swing",
         "bpm": 120,
         "passage": "A section, bars 1-8: ii-V-I in Bb then ii-V-i in Gm.",
         "why_in_set": "The clearest ii-V-I in the catalog. Four chord qualities "
@@ -227,10 +253,19 @@ SONGS = [
                          "Am7b5", "D7", ("Gm", 2)),
         "corrections": [],
         "cannot_verify": [
-            "The swing feel. Comped quarter-note stabs are correct as PITCH and "
-            "wrong as FEEL, and the renderer shows no rhythm at all, so the feel "
-            "cannot be delivered or scored today. Not counted as a defect "
-            "against the generator; counted as a product gap."
+            # REVISED after FLE-111/FLE-116. The original text read "the renderer
+            # shows no rhythm at all, so the feel cannot be delivered or scored
+            # today" — that was true when written and is now FALSE. §9.1 sizes
+            # columns from `note.duration` and §9.2 draws the feel badge, so the
+            # product gap closed and what is left is this file's own debt.
+            "The swing RATIO is not notated, and that is deliberate: `tab_feel` "
+            "is `swing`, so the player is told to swing the eighths and supplies "
+            "the ratio from the 120 bpm marking (FLE-105 Q1). What is NOT here is "
+            "a comping RHYTHM — these are quarter-note stabs on all four beats, "
+            "which is correct as pitch and inert as time. A real medium-swing "
+            "comp anticipates and leaves holes. FLE-107 re-notates this song; "
+            "until it does, a player practising these eight bars from the screen "
+            "gets the changes and not the groove."
         ],
     },
     {
@@ -242,6 +277,7 @@ SONGS = [
         "key": "C major",
         "time_signature": "4/4",
         "feel": "medium swing",
+        "tab_feel": "swing",
         "bpm": 160,
         "passage": "A section, bars 1-8.",
         "why_in_set": "The D7#11 is the whole identity of this tune. An altered "
@@ -262,6 +298,13 @@ SONGS = [
         "key": "C minor",
         "time_signature": "4/4",
         "feel": "bossa nova (even eighths, not swung)",
+        # `straight`, and that is the CORRECT marking, not a fallback: bossa is
+        # even-eighth music. Its groove is syncopation — where the attacks land
+        # — not a subdivision ratio, so there is deliberately no `bossa` value in
+        # the enum (FLE-105 Q1): a label would let a writer emit the word in
+        # place of the pattern. The pattern is still missing from these eight
+        # bars; see `cannot_verify` and FLE-107.
+        "tab_feel": "straight",
         "bpm": 148,
         "passage": "Bars 1-8 of the 16-bar form.",
         "why_in_set": "Minor ii-V-i. Pairs with Autumn Leaves as the same cadence "
@@ -286,6 +329,7 @@ SONGS = [
         "key": "F major",
         "time_signature": "4/4",
         "feel": "bossa nova (even eighths)",
+        "tab_feel": "straight",   # even eighths — see Blue Bossa's note
         "bpm": 136,
         "passage": "A section, bars 1-8.",
         "why_in_set": "The Gb7 in bar 6 is a tritone substitution — the one chord "
@@ -306,6 +350,7 @@ SONGS = [
         "key": "B minor",
         "time_signature": "4/4",
         "feel": "straight, reggae-inflected backbeat",
+        "tab_feel": "straight",
         "bpm": 75,
         "passage": "The 8-bar progression, one bar each: Bm F#7 A E G D Em F#7.",
         "why_in_set": "The hardest mode-flip trap available without articulation. "
@@ -334,6 +379,12 @@ SONGS = [
         "key": "modulating — B / G / Eb major thirds cycle",
         "time_signature": "4/4",
         "feel": "fast swing",
+        # Still `swing`, at 240 where it is played nearly even. There is no
+        # `fast_swing` value and there should not be: the marking says "this is
+        # swing music", the tempo says how much. Notating it as triplet pairs —
+        # the option rejected on FLE-105 Q1 — would print this bar and Autumn
+        # Leaves' identically and teach a player to bounce Coltrane.
+        "tab_feel": "swing",
         "bpm": 240,
         "passage": "Bars 1-8: Bmaj7 D7 Gmaj7 Bb7 Ebmaj7 Ebmaj7 Am7 D7.",
         "why_in_set": "The only song I can certify at the top of the difficulty "
@@ -355,7 +406,11 @@ SONGS = [
 
 def main():
     out = {
-        "schema_version": 1,
+        # 2 since FLE-103's feel pass: every tab now carries the §2.5 `feel`
+        # enum. Bumped because app/verified_tabs.py stamps this value into each
+        # row's provenance (`set_schema_version`), so a prod row can be traced to
+        # the shape of the file that produced it rather than to "FLE-103" at large.
+        "schema_version": 2,
         "issue": "FLE-103",
         "generated_by": "server/scripts/fle103_build_pilot_set.py",
         "verifier": "server/scripts/fle103_verify_pilot_tabs.py",
@@ -374,6 +429,11 @@ def main():
             # must stop being shaped by it.
             "beats_per_measure": "unbounded — measure width is derived from "
                                  "content (schema v2 §9.1)",
+            "feel": "swing and shuffle are MARKED in tab.feel, never written out "
+                    "as triplet pairs (§2.5). Bossa is `straight` — even-eighth "
+                    "music whose groove is syncopation, not a subdivision ratio. "
+                    "A tab carrying feel=swing AND literal triplet durations is "
+                    "double-applied swing and fails V9.",
         },
         "songs": [],
     }
@@ -383,6 +443,12 @@ def main():
         song["chord_sequence"] = [m.get("_chord") for m in measures]
         song["tab"] = {
             "tuning": song["tuning"],
+            # §2.5 — the enum, inside `tab`, because that is the object
+            # app/verified_tabs.py runs through `Tab.model_validate`. Declared,
+            # never derived from the prose `feel` (convention 4). Absent would
+            # default to "straight" silently, which is how three swing tunes were
+            # about to be served unmarked, so it is always written out.
+            "feel": song["tab_feel"],
             "measures": [{"beats": m["beats"], "time_signature": m["time_signature"]}
                          for m in measures],
         }

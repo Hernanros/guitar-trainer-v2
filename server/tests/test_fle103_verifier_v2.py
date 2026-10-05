@@ -25,6 +25,8 @@ import sys
 from fractions import Fraction
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.models.song import DURATION_BEATS
@@ -90,11 +92,23 @@ def _run(tmp_path, songs, expect_fail=None):
     return rc
 
 
-def _song(measures, chords, *, title="T", capo=None, difficulty=0.5):
+def _song(measures, chords, *, title="T", capo=None, difficulty=0.5,
+          feel="straight", prose_feel=None, omit_feel=False):
+    """A candidate-set song.
+
+    `feel` is the `Tab.feel` enum and `prose_feel` the human string V9 checks it
+    against; prose defaults to the enum value so that a test about capo or meter
+    does not have to think about feel. `omit_feel` drops the field entirely,
+    which is its own V9 failure and is how these fixtures looked before V9
+    existed — every song in the committed set was in that state.
+    """
     tab = {"tuning": list(STANDARD), "measures": measures}
     if capo is not None:
         tab["capo"] = capo
+    if not omit_feel:
+        tab["feel"] = feel
     return {"title": title, "catalog_difficulty": difficulty,
+            "feel": prose_feel if prose_feel is not None else feel,
             "chord_sequence": chords, "tab": tab}
 
 
@@ -335,6 +349,97 @@ def test_v6b_is_a_warning_and_never_turns_the_run_red(tmp_path):
     beats += [_beat([(1, 0)], duration="thirty-second") for _ in range(4)]
     # 3 + 0.5 + 0.5 == 4
     assert _run(tmp_path, [_song([_measure(beats)], [None])]) == 0
+
+
+# --- §2.5 V9 feel marking ----------------------------------------------------
+# The defect these cover: `Tab.feel` defaults to "straight", the pilot set
+# carried feel only as prose nothing downstream read, and so three swing tunes
+# validated clean and would have reached a player with no swing badge drawn.
+# Nothing was red, because a default is not a disagreement.
+
+def test_a_missing_feel_fails_rather_than_defaulting_to_straight(tmp_path):
+    assert _run(tmp_path, [_song([_measure([_beat(EM7_SHAPE)] * 4)], ["Em7"], omit_feel=True)],
+                expect_fail="tab has no `feel`") == 1
+
+
+def test_swung_prose_with_a_straight_marking_fails(tmp_path):
+    """The exact shape of the committed-set defect: the human note says swing,
+    the machine-readable field says the player should play it even."""
+    assert _run(tmp_path, [_song([_measure([_beat(EM7_SHAPE)] * 4)], ["Em7"], title="A Train",
+                                 feel="straight", prose_feel="medium swing")],
+                expect_fail="is swung but tab.feel is 'straight'") == 1
+
+
+def test_even_prose_with_a_swung_marking_fails(tmp_path):
+    """The opposite error, which would tell a player to swing a bossa."""
+    assert _run(tmp_path, [_song([_measure([_beat(EM7_SHAPE)] * 4)], ["Em7"], title="Bossa",
+                                 feel="swing",
+                                 prose_feel="bossa nova (even eighths)")],
+                expect_fail="is even but tab.feel is 'swing'") == 1
+
+
+def test_bossa_prose_saying_not_swung_is_not_read_as_swung(tmp_path):
+    """"even eighths, not swung" contains the substring "swung". The even
+    phrases have to win or the real Blue Bossa entry fails for saying, twice,
+    exactly what it means."""
+    assert _run(tmp_path, [_song([_measure([_beat(EM7_SHAPE)] * 4)], ["Em7"],
+                                 feel="straight",
+                                 prose_feel="bossa nova (even eighths, "
+                                            "not swung)")]) == 0
+
+
+def test_an_illegal_feel_value_fails(tmp_path):
+    """`bossa` is the value FLE-105 Q1 deliberately did NOT add: a label that
+    could stand in for the syncopation pattern itself."""
+    assert _run(tmp_path, [_song([_measure([_beat(EM7_SHAPE)] * 4)], ["Em7"], feel="bossa")],
+                expect_fail="is not one of") == 1
+
+
+def test_swing_marked_and_written_as_triplet_pairs_fails_as_double_swing(tmp_path):
+    """C8 — blocking here, a warning in the write gate. 4/9 + 2/9 of a beat is
+    not a stylistic preference; nobody reading it correctly can play it."""
+    beats = [_beat(EM7_SHAPE, duration="triplet-quarter"),
+             _beat(EM7_SHAPE, duration="triplet-eighth")] * 4
+    assert _run(tmp_path, [_song([_measure(beats)], ["Em7"], feel="swing")],
+                expect_fail="swing applied twice") == 1
+
+
+def test_triplet_pairs_under_a_straight_marking_are_legal(tmp_path):
+    """The exemption that makes C8's `feel != straight` condition load-bearing:
+    a drill whose teaching object IS the subdivision is written in literal
+    triplets and marked straight, and is correct."""
+    beats = [_beat(EM7_SHAPE, duration="triplet-quarter"),
+             _beat(EM7_SHAPE, duration="triplet-eighth")] * 4
+    assert _run(tmp_path, [_song([_measure(beats)], ["Em7"], feel="straight")]) == 0
+
+
+def test_the_three_swing_songs_in_the_committed_set_are_marked_swing():
+    """Pins the fix in ground truth, not just in the checker."""
+    path = (Path(__file__).resolve().parents[1] / "data" / "verified_tabs"
+            / "pilot_verified_set.json")
+    doc = json.loads(path.read_text())
+    marked = {s["title"]: s["tab"]["feel"] for s in doc["songs"]}
+    assert {t for t, f in marked.items() if f == "swing"} == {
+        "Autumn Leaves", "Take the 'A' Train", "Giant Steps"}
+    # Bossa is `straight` on purpose — even-eighth music. Not an oversight.
+    assert marked["Blue Bossa"] == "straight"
+    assert marked["The Girl from Ipanema"] == "straight"
+    assert doc["schema_version"] == 2
+
+
+def test_the_renderer_draws_the_feel_it_is_sent():
+    """V9 is pointless if the badge is not rendered — that was the explicit
+    condition on the FLE-105 Q1 decision ("mark it, don't notate it" is only
+    honest if the mark appears). Guards the §9.2 label map the way V6a guards
+    the duration table: a renderer-side rename must not silently drop it."""
+    src = (Path(__file__).resolve().parents[2] / "mobile" / "src" / "components"
+           / "TabNotation.tsx")
+    if not src.exists():                      # same posture as V6a's parse miss
+        pytest.skip(f"{src} not present")
+    text = src.read_text()
+    assert "'swing'" in text and "'shuffle'" in text, (
+        "TabNotation no longer maps the feel enum — the marking in ground truth "
+        "reaches a player as nothing at all")
 
 
 # --- the committed set ------------------------------------------------------

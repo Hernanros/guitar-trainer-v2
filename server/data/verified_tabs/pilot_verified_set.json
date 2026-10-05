@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "issue": "FLE-103",
   "generated_by": "server/scripts/fle103_build_pilot_set.py",
   "verifier": "server/scripts/fle103_verify_pilot_tabs.py",
@@ -10,7 +10,8 @@
   },
   "conventions": {
     "muted_strings": "omitted, never fret=-1",
-    "beats_per_measure": "unbounded \u2014 measure width is derived from content (schema v2 \u00a79.1)"
+    "beats_per_measure": "unbounded \u2014 measure width is derived from content (schema v2 \u00a79.1)",
+    "feel": "swing and shuffle are MARKED in tab.feel, never written out as triplet pairs (\u00a72.5). Bossa is `straight` \u2014 even-eighth music whose groove is syncopation, not a subdivision ratio. A tab carrying feel=swing AND literal triplet durations is double-applied swing and fails V9."
   },
   "songs": [
     {
@@ -29,6 +30,7 @@
       "key": "E minor",
       "time_signature": "4/4",
       "feel": "straight eighths",
+      "tab_feel": "straight",
       "bpm": 122,
       "passage": "Verse \u2014 the entire song alternates two chords; 8 bars = two full cycles.",
       "why_in_set": "Two chords, both open position, no articulation. The cleanest possible test that the generator can spell a minor tonic.",
@@ -54,6 +56,7 @@
           "B",
           "e"
         ],
+        "feel": "straight",
         "measures": [
           {
             "beats": [
@@ -1202,6 +1205,7 @@
       "key": "E minor",
       "time_signature": "4/4",
       "feel": "straight eighths",
+      "tab_feel": "straight",
       "bpm": 84,
       "passage": "Verse/chorus loop \u2014 Em C G D/F#, one bar each, twice.",
       "why_in_set": "The canonical i-VI-III-VII minor loop. Four chords, every third present, nothing to articulate.",
@@ -1229,6 +1233,7 @@
           "B",
           "e"
         ],
+        "feel": "straight",
         "measures": [
           {
             "beats": [
@@ -2297,6 +2302,7 @@
       "key": "A minor",
       "time_signature": "4/4",
       "feel": "straight, heavy backbeat",
+      "tab_feel": "straight",
       "bpm": 76,
       "passage": "Verse \u2014 Am Em7 G Am, one bar each, twice.",
       "why_in_set": "A minor tonic with a m7 on the v. Tests the third on two different minor chords in one passage.",
@@ -2324,6 +2330,7 @@
           "B",
           "e"
         ],
+        "feel": "straight",
         "measures": [
           {
             "beats": [
@@ -3392,6 +3399,7 @@
       "key": "D major",
       "time_signature": "4/4",
       "feel": "straight",
+      "tab_feel": "straight",
       "bpm": 64,
       "passage": "The ground bass cycle \u2014 D A Bm F#m G D G A, one bar each. 8 bars is exactly one full cycle.",
       "why_in_set": "Public domain (migration 0015 tags it so), and the only song in the set whose 8-bar excerpt is a COMPLETE musical unit rather than a slice. Two barre minors test position.",
@@ -3417,6 +3425,7 @@
           "B",
           "e"
         ],
+        "feel": "straight",
         "measures": [
           {
             "beats": [
@@ -4425,13 +4434,14 @@
       "key": "G minor (relative Bb major)",
       "time_signature": "4/4",
       "feel": "medium swing \u2014 comped on beats, not a melody line",
+      "tab_feel": "swing",
       "bpm": 120,
       "passage": "A section, bars 1-8: ii-V-I in Bb then ii-V-i in Gm.",
       "why_in_set": "The clearest ii-V-I in the catalog. Four chord qualities (m7, dom7, maj7, m7b5) in eight bars \u2014 nowhere to hide a missing third.",
       "mode_flip_guard": "Am7b5 must contain Eb (the flat five). A natural E makes it Am7 and destroys the cadence.",
       "corrections": [],
       "cannot_verify": [
-        "The swing feel. Comped quarter-note stabs are correct as PITCH and wrong as FEEL, and the renderer shows no rhythm at all, so the feel cannot be delivered or scored today. Not counted as a defect against the generator; counted as a product gap."
+        "The swing RATIO is not notated, and that is deliberate: `tab_feel` is `swing`, so the player is told to swing the eighths and supplies the ratio from the 120 bpm marking (FLE-105 Q1). What is NOT here is a comping RHYTHM \u2014 these are quarter-note stabs on all four beats, which is correct as pitch and inert as time. A real medium-swing comp anticipates and leaves holes. FLE-107 re-notates this song; until it does, a player practising these eight bars from the screen gets the changes and not the groove."
       ],
       "chord_sequence": [
         "Cm7",
@@ -4452,6 +4462,7 @@
           "B",
           "e"
         ],
+        "feel": "swing",
         "measures": [
           {
             "beats": [
@@ -5400,6 +5411,7 @@
       "key": "C major",
       "time_signature": "4/4",
       "feel": "medium swing",
+      "tab_feel": "swing",
       "bpm": 160,
       "passage": "A section, bars 1-8.",
       "why_in_set": "The D7#11 is the whole identity of this tune. An altered dominant is the single hardest thing for the generator to get right, and it is checkable without a recording.",
@@ -5425,6 +5437,7 @@
           "B",
           "e"
         ],
+        "feel": "swing",
         "measures": [
           {
             "beats": [
@@ -6293,6 +6306,7 @@
       "key": "C minor",
       "time_signature": "4/4",
       "feel": "bossa nova (even eighths, not swung)",
+      "tab_feel": "straight",
       "bpm": 148,
       "passage": "Bars 1-8 of the 16-bar form.",
       "why_in_set": "Minor ii-V-i. Pairs with Autumn Leaves as the same cadence a minor third away, so a generator that transposes a house pattern instead of transcribing (T7) shows up as an exact shape match between the two.",
@@ -6320,6 +6334,7 @@
           "B",
           "e"
         ],
+        "feel": "straight",
         "measures": [
           {
             "beats": [
@@ -7248,6 +7263,7 @@
       "key": "F major",
       "time_signature": "4/4",
       "feel": "bossa nova (even eighths)",
+      "tab_feel": "straight",
       "bpm": 136,
       "passage": "A section, bars 1-8.",
       "why_in_set": "The Gb7 in bar 6 is a tritone substitution \u2014 the one chord in the set that is not diatonic to anything. A generator guessing from the key signature cannot reach it.",
@@ -7273,6 +7289,7 @@
           "B",
           "e"
         ],
+        "feel": "straight",
         "measures": [
           {
             "beats": [
@@ -8261,6 +8278,7 @@
       "key": "B minor",
       "time_signature": "4/4",
       "feel": "straight, reggae-inflected backbeat",
+      "tab_feel": "straight",
       "bpm": 75,
       "passage": "The 8-bar progression, one bar each: Bm F#7 A E G D Em F#7.",
       "why_in_set": "The hardest mode-flip trap available without articulation. A minor key whose dominant is a MAJOR seventh chord \u2014 the generator must put A# over a B-minor tonality, which is exactly the move it gets backwards in the other direction (T1: major third where the minor belongs).",
@@ -8288,6 +8306,7 @@
           "B",
           "e"
         ],
+        "feel": "straight",
         "measures": [
           {
             "beats": [
@@ -9356,6 +9375,7 @@
       "key": "modulating \u2014 B / G / Eb major thirds cycle",
       "time_signature": "4/4",
       "feel": "fast swing",
+      "tab_feel": "swing",
       "bpm": 240,
       "passage": "Bars 1-8: Bmaj7 D7 Gmaj7 Bb7 Ebmaj7 Ebmaj7 Am7 D7.",
       "why_in_set": "The only song I can certify at the top of the difficulty range (see the writeup: above 0.65 this catalog is hard BECAUSE of articulation, which the schema drops). Three key centres in eight bars \u2014 no house pattern survives it.",
@@ -9383,6 +9403,7 @@
           "B",
           "e"
         ],
+        "feel": "swing",
         "measures": [
           {
             "beats": [
