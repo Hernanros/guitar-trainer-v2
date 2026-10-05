@@ -11,6 +11,40 @@ be a per-write check anyway: it needs every OTHER song's tab to compare
 against, which is a corpus-wide batch question (fle102_tab_audit.py's job),
 not something one write can answer cheaply.
 
+FLE-107 §6c (`.planning/investigations/261005-fle107-tab-regression-set.md`)
+is this file's SECOND warning of that same shape, and for the same reason it
+is recorded here rather than only in the issue:
+
+  V2-THIRD (the "chord stab" check: root + third + characteristic tone sound
+            SOMEWHERE in a bar assigned a chord) and T11 (the stricter form:
+            those three sound TOGETHER in one column) are both absent from
+            this module ON PURPOSE. Both need a bar classifier this schema
+            does not carry. Fret's regression ground truth
+            (`regression_set.json`, scored by `fle107_score_tab.py`) tags
+            every bar `kind` (chord / riff / arpeggio / melody),
+            `chord_checked` (false on riff bars) and `chord_spelled_over`
+            (beat vs bar), and gates `check_chord` on `chord_checked` before
+            either rule is allowed to fire. Without that gate: a boogie has
+            no third at all — the 1-5-6-b7 figure is the entire content of
+            eight bars each of Sweet Home Chicago and Pride and Joy, and a
+            third in it would be the defect — and an arpeggio sounds one
+            note per column, so a per-beat third check fails every correct
+            bar of House of the Rising Sun, 8 for 8. `Measure`/`Beat` carry
+            none of `kind`, `chord_checked` or `chord_spelled_over` today, so
+            there is nothing in this module's input to gate on; only the
+            offline scorer has the classifier, and only because Fret
+            hand-authored it. DO NOT port either check into `verify()` as an
+            unconditional block until the generator itself emits an
+            equivalent per-bar classifier — doing so first fails correct riff
+            and arpeggio tab the day it ships, the same false-positive shape
+            T7 already demonstrated above. And even where `chord_checked` is
+            true, T11 stays partial BY DESIGN: it fires on "never sounded
+            whole in one column" and must NOT fire on a split that leaves a
+            complete triad in one half, because a multi-beat voicing is
+            legitimate. `fle107_score_tab.py --mutation-test` row 10 is the
+            form T11 covers; FLE-107 §6c names the form it does not, and
+            correctly does not.
+
 Five checks are hard blocks (`verify()` raises when any fire) — each is wrong
 against notation or against the guitar itself, no recording needed:
 
