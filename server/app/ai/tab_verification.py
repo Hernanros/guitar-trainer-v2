@@ -20,10 +20,6 @@ against notation or against the guitar itself, no recording needed:
                  position (C3)
   SPLIT_CHORD    a 2+-string shape sounded across two disjoint adjacent beats,
                  so the voicing it names never actually sounds whole (C5)
-  RENDERER_WIDTH > 4 beats in one measure. TabNotation.tsx's MEASURE_WIDTH is
-                 hardcoded to 4 beats (mobile/src/components/TabNotation.tsx);
-                 a 5th beat renders on top of the NEXT measure. FLE-103 §1b
-                 measured this at 43% of prod bars.
   OWN_CHORDS     a sounding pitch class outside every chord this breakdown
                  itself declares, checked in BOTH tuning frames via
                  tuning_offset() so an Eb/DADGAD song isn't flagged for
@@ -32,10 +28,28 @@ against notation or against the guitar itself, no recording needed:
                  Numb error (every C natural where B minor needs C#) purely
                  from the tab contradicting the chords shipped beside it.
 
-One check is informational only and never blocks — UNIFORM_DURATION (C4, every
-note in a measure the same length): FLE-102 calls this "a feel judgement, not
-a notation error on its face." It is real evidence of a flattened rhythm, not
-grounds to refuse an otherwise-sound breakdown.
+Three checks are informational only and never block:
+
+  RENDERER_WIDTH (> 4 beats in one measure) WAS the sixth hard block and was
+                 DOWNGRADED by FLE-118 — its whole justification was
+                 TabNotation.tsx's fixed MEASURE_WIDTH, which FLE-116 replaced
+                 with width-from-content (spec §9.1). Left blocking it would
+                 have refused most of the rhythmic variety FLE-118's prompt
+                 asks for; FLE-103 §1b measured 43% of prod bars above 4
+                 columns, so that is the normal shape of this model's output.
+                 See `_check_renderer_width` for the full argument.
+  UNIFORM_DURATION (C4, every note in a measure the same length): FLE-102 calls
+                 this "a feel judgement, not a notation error on its face." It
+                 is real evidence of a flattened rhythm, not grounds to refuse
+                 an otherwise-sound breakdown.
+  DOUBLE_SWING   (C8, FLE-118 — spec §2.5 rule 2) a non-straight `feel` on a
+                 bar ALSO written out as triplet-quarter/triplet-eighth pairs.
+                 Swing applied to an already-swung pair gives 4/9 + 2/9. The
+                 arithmetic would justify blocking; the unmeasured
+                 false-positive rate does not yet — see
+                 `_check_double_applied_swing` for why, and
+                 `is_double_applied_swing` for the predicate, which
+                 fle102_tab_audit.py imports rather than re-deriving.
 
 Caveat on the record (FLE-102 "the accuracy number, and why the computable one
 is the wrong one"): Kashmir passed 8 of 8 of these mechanical checks and was a
@@ -63,8 +77,11 @@ NOTE_PC = {
 # table, in exact `Fraction`, and `beat_beats` carries the rest branch (§2.2,
 # §3) so this module cannot silently skip a rest column.
 
-# Renderer constant mirrored from mobile/src/components/TabNotation.tsx —
-# MEASURE_WIDTH assumes 4 beats per measure. Keep in sync if that ever changes.
+# Was a renderer constant mirrored from mobile/src/components/TabNotation.tsx,
+# whose MEASURE_WIDTH assumed 4 beats per measure. FLE-116 (§9.1) removed that
+# assumption, so this no longer mirrors anything live — it is now only the
+# threshold above which a PRE-FLE-116 client draws bars overlapping, which is
+# why the check that reads it warns instead of blocking.
 _MAX_RENDERABLE_BEATS = 4
 
 # intervals above the root, by chord-name suffix. Superset of fle102_tab_audit's
@@ -213,14 +230,35 @@ def _check_split_chord(tab: Tab) -> list[str]:
 
 
 def _check_renderer_width(tab: Tab) -> list[str]:
-    bad = []
-    for mi, m in enumerate(tab.measures, 1):
-        if len(m.beats) > _MAX_RENDERABLE_BEATS:
-            bad.append(
-                f"m{mi}: {len(m.beats)} beats > {_MAX_RENDERABLE_BEATS} — "
-                f"overflows TabNotation's fixed MEASURE_WIDTH onto the next measure"
-            )
-    return bad
+    """RENDERER_WIDTH — DOWNGRADED TO A WARNING BY FLE-118. See below.
+
+    This was a hard block, and its entire justification was a renderer constant
+    that no longer exists: FLE-116 (commit `0b8f2ee`, spec §9.1) replaced
+    TabNotation's fixed `MEASURE_WIDTH` with width-from-content, and the
+    component now says in as many words that "a 4/4 bar of straight sixteenths
+    no longer overflows its box."
+
+    Left blocking, it would have made FLE-118 actively harmful rather than
+    merely incomplete. The RHYTHM, RESTS and ARTICULATION blocks this issue
+    added to SYSTEM_PROMPT teach sixteenths, triplets and rests — a 4/4 bar of
+    plain eighths is already 8 columns — so the gate would have refused, at
+    write time, most of the rhythmic variety the prompt now asks for. FLE-103
+    §1b measured 43% of prod bars at more than 4 columns, so this is the
+    historically NORMAL shape of the model's output, not an edge case.
+
+    Why a warning rather than deletion: a client older than FLE-116's bundle
+    still draws these bars overlapping. But that is a client-version concern
+    with a self-healing fix (the next OTA), whereas refusing the write loses the
+    breakdown outright and hands the user nothing. A server must not destroy
+    correct music to protect an un-updated client. The real constraint on how
+    many columns a bar may hold is METER (C1), which is exact.
+    """
+    return [
+        f"m{mi}: {len(m.beats)} beats > {_MAX_RENDERABLE_BEATS} — renders "
+        f"overlapped on a client older than FLE-116's width-from-content bundle"
+        for mi, m in enumerate(tab.measures, 1)
+        if len(m.beats) > _MAX_RENDERABLE_BEATS
+    ]
 
 
 def _check_own_chords(breakdown: Breakdown) -> list[str]:
@@ -274,6 +312,78 @@ def _check_uniform_duration(tab: Tab) -> list[str]:
     return warn
 
 
+# --- C8: double-applied swing (FLE-118, spec §2.5 rule 2) ------------------
+# THE ONE IMPLEMENTATION. fle102_tab_audit.py imports this predicate as its C8
+# rather than carrying a second copy — the spec asked for the check to exist
+# once, and a duplicated rhythm heuristic is how two scripts start disagreeing
+# about what a defect is (the three duration tables FLE-115 collapsed).
+#
+# It takes plain duration STRINGS rather than a Tab so both callers can reach
+# it: the write gate holds parsed `Tab` objects, the corpus audit holds raw
+# JSONB dicts and deliberately does not parse them (parsing would repair the
+# very defects the audit counts).
+_SWUNG_PAIR = ("triplet-quarter", "triplet-eighth")
+
+
+def is_double_applied_swing(feel: str, durations: list) -> bool:
+    """§2.5 — is this bar a swing feel written out AS a triplet pair as well?
+
+    `feel` applies to what is written, so a reader who swings an already-swung
+    triplet pair gets 4/9 + 2/9 of a beat. That is not a stylistic preference,
+    it is a bar that cannot be performed as notated by anyone reading it
+    correctly.
+
+    Returns True only when BOTH hold:
+      - `feel` is not "straight" — the bar already carries the instruction, and
+      - every column is `triplet-quarter` or `triplet-eighth`, alternating, in
+        whole long-short (or short-long) pairs.
+
+    THE `feel != "straight"` CONDITION IS LOAD-BEARING — do not drop it to make
+    the check "catch more". It is what exempts Fret's one legitimate case: a
+    drill whose teaching object IS the subdivision ("feel the triplet underneath
+    the shuffle") is written in literal triplets with `feel: "straight"` for
+    that snippet, and is correct. Triplets also stay legal whenever
+    `feel != "straight"` on their own — they then mean a REAL triplet against
+    the prevailing feel, such as a fill. It is specifically the all-pairs bar
+    that has no such reading.
+    """
+    if (feel or "straight") == "straight":
+        return False
+    ds = list(durations)
+    if len(ds) < 2 or len(ds) % 2:
+        return False
+    if any(d not in _SWUNG_PAIR for d in ds):
+        return False
+    return all(a != b for a, b in zip(ds, ds[1:]))
+
+
+def _check_double_applied_swing(tab: Tab) -> list[str]:
+    """C8 — informational, never blocking. See `is_double_applied_swing`.
+
+    Why this warns rather than blocks, which is a weaker disposition than the
+    arithmetic argument alone would justify: no cached breakdown carries a
+    `feel` field at all (they all predate v2), so this check has never been run
+    against real generator output and its false-positive rate is unmeasured.
+    FLE-103 §6 is the precedent that settles it — C7 cross-song template reuse
+    read as obviously sound and turned out to have a 100% false-positive rate on
+    hand-verified correct data. Promote this to `blocking` once there is output
+    to measure it against, not before.
+    """
+    warn = []
+    for mi, m in enumerate(tab.measures, 1):
+        durations = [
+            b.rest if b.rest is not None else (b.notes[0].duration if b.notes else None)
+            for b in m.beats
+        ]
+        if is_double_applied_swing(tab.feel, durations):
+            warn.append(
+                f"m{mi}: feel is {tab.feel!r} and the bar is written as "
+                f"triplet-quarter/triplet-eighth pairs — swing applied twice "
+                f"gives 4/9 + 2/9. Mark the feel and write plain eighths."
+            )
+    return warn
+
+
 def verify(breakdown: Breakdown) -> VerificationResult:
     """Run every recording-free check against one freshly-generated breakdown."""
     tab = breakdown.tab
@@ -282,9 +392,10 @@ def verify(breakdown: Breakdown) -> VerificationResult:
     blocking += [f"UNPLAYABLE: {d}" for d in _check_unplayable(tab)]
     blocking += [f"FRET_SPAN: {d}" for d in _check_fret_span(tab)]
     blocking += [f"SPLIT_CHORD: {d}" for d in _check_split_chord(tab)]
-    blocking += [f"RENDERER_WIDTH: {d}" for d in _check_renderer_width(tab)]
     blocking += [f"OWN_CHORDS: {d}" for d in _check_own_chords(breakdown)]
 
     warnings = [f"UNIFORM_DURATION: {d}" for d in _check_uniform_duration(tab)]
+    warnings += [f"DOUBLE_SWING: {d}" for d in _check_double_applied_swing(tab)]
+    warnings += [f"RENDERER_WIDTH: {d}" for d in _check_renderer_width(tab)]
 
     return VerificationResult(blocking=blocking, warnings=warnings)

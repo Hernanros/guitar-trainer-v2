@@ -126,10 +126,34 @@ def test_chord_split_across_disjoint_adjacent_beats_blocks():
 
 
 # ---------------------------------------------------------------------------
-# V6 / RENDERER_WIDTH
+# V6 / RENDERER_WIDTH — downgraded from blocking to a warning by FLE-118
 # ---------------------------------------------------------------------------
 
-def test_more_than_four_beats_in_a_measure_blocks():
+def test_more_than_four_beats_in_a_measure_warns_but_does_not_block():
+    """This test asserted `not result.ok` until FLE-118, and the inversion is
+    the point rather than a concession to make a suite pass.
+
+    V6's entire justification was TabNotation.tsx's fixed `MEASURE_WIDTH`, which
+    FLE-116 (commit 0b8f2ee, spec §9.1) replaced with width-from-content; the
+    component now computes measure offsets as a running sum and says in as many
+    words that "a 4/4 bar of straight sixteenths no longer overflows its box."
+
+    Blocking outlived its reason and became actively destructive. `verify` is
+    the live write gate — breakdown.py:982 turns anything in `blocking` into
+    TabVerificationError, which refuses to serve the breakdown at all — and the
+    bar below is the most ordinary rhythm in guitar music: eight straight
+    eighths in 4/4. FLE-103 §1b measured 43% of prod bars above 4 columns. So
+    as a block this gate threw away correct music to protect a renderer
+    constraint that no longer existed, and it would have made FLE-118's RHYTHM
+    block (sixteenths, triplets, rests — all of which push past 4 columns)
+    worse than useless.
+
+    It stays as a WARNING because a client older than FLE-116's bundle does
+    still draw these overlapped; that is a client-version problem with a
+    self-healing fix (the next OTA), not grounds to discard the breakdown. The
+    exact constraint on how many columns a bar may hold is METER (V1), which
+    this bar satisfies: 8 eighths = 4 beats.
+    """
     measures = [
         Measure(
             beats=[Beat(notes=[_note(6, 0, "eighth")]) for _ in range(8)],
@@ -138,8 +162,9 @@ def test_more_than_four_beats_in_a_measure_blocks():
     ]
     bd = _breakdown(measures, [_chord("E")])
     result = verify(bd)
-    assert not result.ok
-    assert any(d.startswith("RENDERER_WIDTH:") for d in result.blocking)
+    assert result.ok, result.blocking
+    assert not any("RENDERER_WIDTH" in d for d in result.blocking)
+    assert any(w.startswith("RENDERER_WIDTH:") for w in result.warnings), result.warnings
 
 
 # ---------------------------------------------------------------------------

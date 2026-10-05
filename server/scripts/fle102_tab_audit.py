@@ -30,6 +30,15 @@ Two kinds of output, deliberately kept apart:
    C7 template reuse   a measure whose shape (string set + intervals above the
                        bass, per beat) also appears in a DIFFERENT song. One
                        house pattern slid around the neck is not a transcription.
+   C8 double swing     a non-straight `tab.feel` on a bar ALSO written out as
+                       triplet-quarter/triplet-eighth pairs — a reader who
+                       swings an already-swung pair gets 4/9 + 2/9 (FLE-118,
+                       spec §2.5 rule 2). IMPORTED from app.ai.tab_verification
+                       rather than re-derived here, so the live write gate and
+                       this corpus audit cannot drift about what the defect is.
+                       It cannot fire on today's corpus: no cached breakdown
+                       carries a `feel` field at all, so a 0 in this column is
+                       the absence of v2 output, not a passing grade.
 
 Each check is counted per measure so the accuracy number has a stated unit.
 """
@@ -41,6 +50,7 @@ from fractions import Fraction
 # server/ is not on the path and `app` is not importable without this.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from app.models.song import duration_beats  # noqa: E402  (needs the path fix)
+from app.ai.tab_verification import is_double_applied_swing  # noqa: E402
 
 # --- pitch model ----------------------------------------------------------
 CHROM = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
@@ -127,8 +137,13 @@ def spell(tab):
 
 
 # --- checks ---------------------------------------------------------------
-def check_measure(m):
-    """return list of (code, detail) defects for one measure."""
+def check_measure(m, feel="straight"):
+    """return list of (code, detail) defects for one measure.
+
+    `feel` comes from the parent `tab`, not the measure — C8 is the one check
+    here that cannot be judged from a bar in isolation. It defaults to the
+    schema default so a caller that has only a measure still gets C1-C7.
+    """
     bad = []
     beats = m.get("beats") or []
     ts = m.get("time_signature") or "4/4"
@@ -178,6 +193,19 @@ def check_measure(m):
     alld = {(n.get("duration") or "") for bt in beats for n in (bt.get("notes") or [])}
     if len(alld) == 1 and len(beats) > 2:
         bad.append(("C4", f"every note in the bar is a {alld.pop()!r} — a grid, not a rhythm"))
+
+    # C8 — a swing/shuffle feel written out as triplet pairs as WELL as marked.
+    # The predicate lives in app/ai/tab_verification.py so the write gate and
+    # this audit share one definition; see its docstring for why the
+    # `feel != straight` condition must not be dropped to "catch more".
+    col_durs = [
+        bt.get("rest") if bt.get("rest") is not None
+        else ((bt.get("notes") or [{}])[0].get("duration") if bt.get("notes") else None)
+        for bt in beats
+    ]
+    if is_double_applied_swing(feel, col_durs):
+        bad.append(("C8", f"feel={feel!r} AND the bar is triplet-quarter/"
+                          f"triplet-eighth pairs — swing applied twice (4/9 + 2/9)"))
 
     # C5 — adjacent beats whose note sets are disjoint by string and which
     # together form one chord shape: the voicing is never sounded whole.
@@ -326,7 +354,7 @@ def main():
         songbad = []
         percode = Counter()
         for mi, m in enumerate(ms, 1):
-            d = check_measure(m)
+            d = check_measure(m, tab.get("feel") or "straight")
             if mi in c6:
                 d.append(("C6", f"outside the breakdown's own chords: {', '.join(c6[mi])}"))
             sig = measure_sig(dict(m, _tuning=tab.get("tuning")))
@@ -339,11 +367,13 @@ def main():
                 for code, _ in d:
                     tally[code] += 1
                     percode[code] += 1
-                if all(c == "C4" for c, _ in d):
-                    percode["clean_ex_C4"] += 1
+                # C4 and C8 are the two FEEL judgements (see the footer note);
+                # a bar whose only defects are those is otherwise sound.
+                if all(c in ("C4", "C8") for c, _ in d):
+                    percode["clean_ex_info"] += 1
             else:
                 bars_clean += 1
-                percode["clean_ex_C4"] += 1
+                percode["clean_ex_info"] += 1
         summary.append((title, len(ms), percode))
         if songbad:
             print("  CHECKS:")
@@ -353,24 +383,27 @@ def main():
         else:
             print("  CHECKS: clean")
         print()
-    codes = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]
+    codes = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]
     print("=" * 78)
     print("PER-SONG BARS AFFECTED, by check\n")
-    print(f"{'song':32}{'bars':>5}" + "".join(f"{c:>5}" for c in codes) + f"{'ex-C4 ok':>10}")
+    print(f"{'song':32}{'bars':>5}" + "".join(f"{c:>5}" for c in codes) + f"{'ex-info ok':>12}")
     for title, nb, pc in summary:
         print(f"{title[:31]:32}{nb:>5}"
               + "".join(f"{pc.get(c, 0) or '.':>5}" for c in codes)
-              + f"{pc.get('clean_ex_C4', 0):>7}/{nb}")
+              + f"{pc.get('clean_ex_info', 0):>9}/{nb}")
     print()
     print(f"bars: {bars_total}   passing ALL mechanical checks: {bars_clean}"
           f"  ({100*bars_clean/max(bars_total,1):.0f}%)")
-    exc4 = sum(pc.get("clean_ex_C4", 0) for _, _, pc in summary)
-    print(f"                 passing all EXCEPT C4 (uniform grid): {exc4}"
-          f"  ({100*exc4/max(bars_total,1):.0f}%)")
+    exinfo = sum(pc.get("clean_ex_info", 0) for _, _, pc in summary)
+    print(f"                 passing all EXCEPT C4/C8 (feel judgements): {exinfo}"
+          f"  ({100*exinfo/max(bars_total,1):.0f}%)")
     print("defect counts by code (bars affected):", dict(sorted(tally.items())))
     print()
-    print("C4 is listed separately because 'every note is an eighth' is a feel")
-    print("judgement, not a notation error. The other six are errors on their face.")
+    print("C4 and C8 are listed separately because 'every note is an eighth' and")
+    print("'the swing is written as well as marked' are feel judgements, not")
+    print("notation errors on their face. The other six are errors on their face.")
+    print("A 0 in C8 on a pre-v2 corpus means no tab carries a `feel` field at")
+    print("all — the absence of the data, not a passing grade.")
 
 
 if __name__ == "__main__":
