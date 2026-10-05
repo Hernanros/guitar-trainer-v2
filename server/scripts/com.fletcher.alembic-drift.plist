@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FLE-134 — daily prod alembic drift check.
+     Template. Install with (adjusting the two absolute paths if the repo moved):
+
+       sed "s#__REPO__#$HOME/Documents/guitar-trainer-v2#" \
+         server/scripts/com.fletcher.alembic-drift.plist \
+         > ~/Library/LaunchAgents/com.fletcher.alembic-drift.plist
+       launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.fletcher.alembic-drift.plist
+
+     Run it once by hand to confirm:  launchctl kickstart -p gui/$UID/com.fletcher.alembic-drift
+     Remove with:                     launchctl bootout gui/$UID/com.fletcher.alembic-drift
+
+     RunAtLoad is false on purpose: loading this should not fire a prod query as a side
+     effect. StartCalendarInterval makes launchd run a missed 09:15 as soon as the Mac
+     wakes, which is what we want on a laptop that is not always on. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fletcher.alembic-drift</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO__/server/scripts/alembic_drift_cron.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__/server</string>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>15</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <!-- The wrapper redirects its own output to ~/Library/Logs/fletcher-alembic-drift.log.
+       These two catch anything that dies before that redirect takes effect. -->
+  <key>StandardOutPath</key>
+  <string>/tmp/fletcher-alembic-drift.launchd.out</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/fletcher-alembic-drift.launchd.err</string>
+
+  <!-- launchd starts agents with a minimal PATH. docker, railway and git all live in
+       homebrew/Docker locations the wrapper needs to find. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Docker.app/Contents/Resources/bin</string>
+  </dict>
+</dict>
+</plist>

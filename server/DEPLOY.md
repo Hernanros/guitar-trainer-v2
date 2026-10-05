@@ -115,6 +115,32 @@ one is invisible here and needs a row-shape assertion by hand.
 **If you ever need to correct a migration, write a forward repair revision** — see
 0018, which repaired 0015. Never a `stamp`, and never `alembic` against prod by hand.
 
+### Running it on a schedule, not in CI
+
+A CI step on `main` fires on push — only when a deploy is happening anyway — so it
+cannot see a divergence sitting on a quiet day, which is the exact window that hid
+FLE-133 for 24 hours. It has to be time-based. And every hosted option would need
+prod's `DATABASE_URL` in a third-party secret store, while this machine already has the
+Railway CLI authenticated and `gt-postgres` on 5433.
+
+`scripts/alembic_drift_cron.sh` is the unattended wrapper: it fetches (never merges, so
+it cannot disturb a shared working tree), starts `gt-postgres` if it is merely stopped,
+re-asserts the Railway link, runs the check, appends to
+`~/Library/Logs/fletcher-alembic-drift.log`, and on exit ≥ 2 raises a desktop
+notification. `scripts/com.fletcher.alembic-drift.plist` schedules it daily at 09:15:
+
+```bash
+sed "s#__REPO__#$HOME/Documents/guitar-trainer-v2#" \
+  server/scripts/com.fletcher.alembic-drift.plist \
+  > ~/Library/LaunchAgents/com.fletcher.alembic-drift.plist
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.fletcher.alembic-drift.plist
+launchctl kickstart -p gui/$UID/com.fletcher.alembic-drift   # prove it runs
+```
+
+`StartCalendarInterval` runs a missed 09:15 when the Mac next wakes, so a closed laptop
+delays the check rather than skipping it. Remove with
+`launchctl bootout gui/$UID/com.fletcher.alembic-drift`.
+
 ## Cost controls ride in on the deploy (FLE-92)
 
 Two independent spend limits live in `app/ai/governor.py`, and because a push of `main`
