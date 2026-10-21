@@ -1,8 +1,30 @@
 """drills: the FLE-101 §2 section link — prepares_section, section_start_beat, section_end_beat
 
 Revision ID: 0020
-Revises: 0019
+Revises: 0018
 Create Date: 2026-10-21
+
+WHY 0020 CHAINS ONTO 0018 AND THE 0019 SLOT IS EMPTY
+----------------------------------------------------
+Not a mistake, and not a gap to tidy up. `0019_insert_fle130_catalog_rows.py`
+exists and is correct, but was deliberately REVERTED out of the tree on
+2026-10-21 (`revert(FLE-131): hold migration 0019 out of this release`) so the
+release unblocking prod — stuck undeployable for 16 days, FLE-136 — ships no
+prod data change. FLE-137 re-lands it afterwards, on its own board approval,
+because it takes `song_catalog` from 64 to 70 rows.
+
+So at the moment this migration was written the chain head is 0018, and the
+revision id 0019 is SPOKEN FOR by a file that is coming back. This migration
+therefore takes the next free id, 0020, and chains onto the real head.
+
+**For whoever re-lands 0019 (FLE-137): set its `down_revision` to "0020", not
+to "0018".** Two migrations both claiming `down_revision = "0018"` is two
+alembic heads, and `upgrade head` refuses to run with an ambiguous head —
+which on this repo means the deploy fails, which is the exact class of failure
+FLE-129 and FLE-136 just spent two weeks digging out of. Chaining after 0020
+costs nothing: these two migrations touch different tables (`drills` vs
+`song_catalog`) and have no ordering requirement between them beyond being in
+*some* single line.
 
 FLE-101, the engineering half of the drill → section graduation loop (design:
 FLE-100 `design` doc rev. 3, approved 2026-10-21).
@@ -62,7 +84,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0020"
-down_revision = "0019"
+down_revision = "0018"
 branch_labels = None
 depends_on = None
 
