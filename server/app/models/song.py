@@ -794,8 +794,20 @@ class Section(BaseModel):
     label: str = Field(
         ...,
         min_length=1,
+        # Matches String(80) on `drills.prepares_section` (migration 0020) exactly,
+        # and that agreement is the point rather than a cosmetic bound. The label is
+        # copied from this JSONB into that column when a drill is promoted into the
+        # bank, and JSONB has no width limit — so without a cap here, an over-long
+        # label validates fine, caches fine, and then raises
+        # StringDataRightTruncation on the un-guarded `db.flush()` in
+        # scripts/backfill_drills.py, aborting a whole backfill run over one
+        # mislabelled section. Capping it here routes that case into
+        # `_prune_unsound_sections`, so it degrades the song to unsectioned like
+        # every other unsound-section case instead of being the one model-emitted
+        # value in this feature that can hard-fail.
+        max_length=80,
         description=(
-            "Display name for this passage. Prefer one of: "
+            "Display name for this passage, at most 80 characters. Prefer one of: "
             + ", ".join(SECTION_LABELS)
             + ". When a label would repeat inside one breakdown, disambiguate it "
             "('Riff 1'/'Riff 2', or 'Solo (bars 5-8)')."

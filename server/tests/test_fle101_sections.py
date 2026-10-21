@@ -183,6 +183,7 @@ def test_a_single_section_covering_everything_is_valid():
         ([{"label": "Intro", "start_beat": 5, "end_beat": 1}], "inverted range"),
         ([{"label": "Intro", "start_beat": -1, "end_beat": 7}], "negative beat"),
         ([{"start_beat": 0, "end_beat": 7}], "no label"),
+        ([{"label": "R" * 81, "start_beat": 0, "end_beat": 7}], "label over 80 chars"),
     ],
 )
 def test_an_unsound_sections_list_is_dropped_whole_never_raised(sections, why):
@@ -194,6 +195,37 @@ def test_an_unsound_sections_list_is_dropped_whole_never_raised(sections, why):
     """
     parsed = Breakdown.model_validate(_raw(sections=sections))
     assert parsed.sections == [], f"should have dropped: {why}"
+
+
+def test_the_label_cap_matches_the_column_it_is_copied_into():
+    """§2 — `Section.label`'s cap and `drills.prepares_section`'s width must agree.
+
+    These two numbers are one number. The label is copied out of the breakdown JSONB
+    (no width limit) into that VARCHAR when a drill is promoted into the bank, so if
+    the cap here ever exceeds the column, an over-long label validates, caches, and
+    then raises StringDataRightTruncation on the un-guarded `db.flush()` in
+    scripts/backfill_drills.py — taking down a whole backfill run over one
+    mislabelled section, in a feature whose every other content defect degrades
+    softly. Asserted against the ORM rather than restated as a literal so widening
+    one side alone fails here instead of in a backfill at 2am.
+    """
+    from app.models.db import Drill as DrillRow
+
+    caps = [
+        m.max_length
+        for m in Section.model_fields["label"].metadata
+        if hasattr(m, "max_length")
+    ]
+    assert caps == [80], f"expected exactly one max_length on Section.label, got {caps}"
+    assert caps[0] == DrillRow.__table__.c.prepares_section.type.length
+
+
+def test_an_over_long_label_degrades_the_song_instead_of_failing_the_backfill():
+    """The §5 fail-soft path, reached by the one value that used to escape it."""
+    parsed = Breakdown.model_validate(
+        _raw(sections=[{"label": "Solo " * 20, "start_beat": 0, "end_beat": 7}])
+    )
+    assert parsed.sections == []
 
 
 def test_too_many_sections_are_dropped_rather_than_truncated():
