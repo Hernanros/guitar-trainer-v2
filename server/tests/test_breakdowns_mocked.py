@@ -1327,6 +1327,197 @@ async def test_get_breakdown_envelope_backward_compat_wrap(mock_breakdown_never_
 
 
 # ---------------------------------------------------------------------------
+# FLE-101 — sections through the endpoint, both directions.
+#
+# The module-level tests (tests/test_fle101_sections.py) prove the partition
+# rules, the link resolution and the unlock predicate in isolation. These two
+# cover the seam those cannot reach: that `sections` and the three drill-link
+# columns actually SURVIVE the round trip — generated → validated → written to
+# the `songs.breakdown` JSONB → read back out of cache → serialized. That seam
+# is where a field silently disappears, and it is the literal wording of the
+# issue's done-when ("a new breakdown produces sections with drills linked to
+# passages", "an existing cached breakdown still renders").
+# ---------------------------------------------------------------------------
+
+def _sectioned_breakdown(skill_id: str) -> Breakdown:
+    """A fully VALIDATED sectioned breakdown — the real constructor, not model_construct.
+
+    Construction matters here. `_make_breakdown_with_drills` uses model_construct to
+    inject post-soft-fail state, which skips exactly the two validators this test
+    exists to exercise: `_prune_unsound_sections` (the partition rule) and
+    `_link_drills_to_sections` (which blanks a link that does not resolve). A
+    constructed model would carry `sections` through even if both were broken.
+
+    `_canned_breakdown().tab` is one measure of four beats, so the beat columns are
+    0..3 and this partition — Intro 0-1, Riff 2-3 — is sound: starts at 0, ends at
+    N-1, no gap, no overlap.
+    """
+    from app.models.song import Drill, Section
+
+    return Breakdown(
+        tab=_canned_breakdown().tab,
+        chords=[],
+        technique_notes=[],
+        sections=[
+            Section(label="Intro", start_beat=0, end_beat=1),
+            Section(label="Riff", start_beat=2, end_beat=3),
+        ],
+        drills=[
+            Drill(
+                **_drill_dict(
+                    skill_id,
+                    name="Intro drill",
+                    what="Play the intro's opening slide alone.",
+                    prepares_section="Intro",
+                    section_start_beat=0,
+                    section_end_beat=1,
+                )
+            ),
+            Drill(
+                **_drill_dict(
+                    skill_id,
+                    name="Riff drill",
+                    what="Play the riff's turnaround alone.",
+                    prepares_section="Riff",
+                    section_start_beat=2,
+                    section_end_beat=3,
+                )
+            ),
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_cache_miss_persists_sections_and_their_drill_links(monkeypatch):
+    """A newly generated breakdown comes back sectioned, with drills pointing at passages.
+
+    Also asserts the links reach the CACHE, not just the response. The bank is filled
+    from `songs.breakdown` (scripts/backfill_drills.py promotes the three link fields
+    into `drills`), so a link that renders once and is not persisted would gate nothing
+    — the unlock loop would quietly never arm.
+    """
+    user_id = str(uuid.uuid4())
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(db, user_id)
+        skill_id = await _seed_skill_and_link(db, user_id, song_id, "Slide")
+
+    async def _fake(*args, **kwargs) -> Breakdown:
+        return _sectioned_breakdown(skill_id)
+
+    monkeypatch.setattr("app.api.v1.breakdowns.run_technique_breakdown", _fake)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id},
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        bd = data["breakdown"]
+
+        # The sections survived validation as the partition the model emitted.
+        assert [(s["label"], s["start_beat"], s["end_beat"]) for s in bd["sections"]] == [
+            ("Intro", 0, 1),
+            ("Riff", 2, 3),
+        ]
+
+        # Every drill points at a passage, not only at prose.
+        links = {
+            d["name"]: (
+                d["prepares_section"],
+                d["section_start_beat"],
+                d["section_end_beat"],
+            )
+            for d in bd["drills"]
+        }
+        assert links == {
+            "Intro drill": ("Intro", 0, 1),
+            "Riff drill": ("Riff", 2, 3),
+        }
+
+        # The §3 lock state is on the envelope, one card per section. Both read
+        # cleared at 0 of 0 on this path and that is the honest answer rather than a
+        # bug: the drills were born seconds ago in this very request and nothing has
+        # promoted them into the bank yet, so there is nothing to gate on. They
+        # become gated the moment the bank is filled.
+        assert [(s["label"], s["required_drills"], s["cleared"]) for s in data["sections"]] == [
+            ("Intro", 0, True),
+            ("Riff", 0, True),
+        ]
+
+        # And the links are in the cache, which is what the bank is filled from.
+        async with _make_session() as db:
+            result = await db.execute(select(Song).where(Song.id == song_id))
+            cached = result.scalar_one().breakdown
+        assert [s["label"] for s in cached["sections"]] == ["Intro", "Riff"]
+        assert [d["prepares_section"] for d in cached["drills"]] == ["Intro", "Riff"]
+        assert [d["section_start_beat"] for d in cached["drills"]] == [0, 2]
+        assert [d["section_end_beat"] for d in cached["drills"]] == [1, 3]
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_cached_sectioned_breakdown_renders_its_sections(mock_breakdown_never_called):
+    """The read-back half: a sectioned row already in the cache serves its section cards.
+
+    The backward-compat case — an UNsectioned cached row reporting `sections: []` — is
+    asserted in test_get_breakdown_envelope_backward_compat_wrap. This is its pair, and
+    together they are the only two shapes the `breakdown` JSONB column can hold.
+    """
+    user_id = str(uuid.uuid4())
+    cached_ts = datetime(2026, 10, 21, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with _make_session() as db:
+        song_id = await _seed_user_and_song(db, user_id)
+        skill_id = await _seed_skill_and_link(db, user_id, song_id, "Slide")
+        canned = _sectioned_breakdown(skill_id)
+        await db.execute(
+            # CAST(), not `:bd::jsonb` — a bound parameter followed by `::` is a
+            # syntax error once SQLAlchemy has rewritten it to $1.
+            text(
+                "UPDATE songs SET breakdown = CAST(:bd AS jsonb), "
+                "breakdown_generated_at = :ts WHERE id = :sid"
+            ),
+            {
+                "bd": canned.model_dump_json(),
+                "ts": cached_ts,
+                "sid": song_id,
+            },
+        )
+        await db.commit()
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get(
+                f"/api/v1/songs/{song_id}/breakdown",
+                headers={"X-User-ID": user_id, "X-Timezone-Offset": "0"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert [(s["label"], s["start_beat"], s["end_beat"]) for s in data["breakdown"]["sections"]] == [
+            ("Intro", 0, 1),
+            ("Riff", 2, 3),
+        ]
+        assert [s["label"] for s in data["sections"]] == ["Intro", "Riff"]
+        # Nothing banked for this user, so nothing is required of them — same
+        # reasoning as the cache-miss case above.
+        assert all(s["required_drills"] == 0 and s["cleared"] for s in data["sections"])
+    finally:
+        async with _make_session() as db:
+            await _cleanup(db, user_id)
+
+
+# ---------------------------------------------------------------------------
 # FLETCHER_CAP_BREAKDOWN env override — this endpoint has its own cap-check
 # (step 2, BEFORE the cache read) that is separate from the @governed
 # decorator wrapping run_technique_breakdown. It hardcoded the cap directly
