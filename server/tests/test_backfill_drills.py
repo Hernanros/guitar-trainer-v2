@@ -433,6 +433,76 @@ async def test_banked_drill_records_origin_song_and_index(db: AsyncSession):
     assert [r[0] for r in survivors.all()] == [None, None]
 
 
+async def test_the_section_link_is_carried_into_the_bank(db: AsyncSession):
+    """FLE-101 §2 — provenance, copied at promotion exactly like origin_song_id.
+
+    This script is the ONLY writer of the `drills` table, so if it drops the link
+    the §3 graduation predicate has nothing to read: every section reads "0 drills
+    required" and auto-clears. The drill the section gates on would be banked and
+    the passage would unlock anyway, with no error anywhere — which is why this is
+    asserted rather than trusted to the column defaults.
+    """
+    user_id, (skill,) = await _seed_user_and_skills(db)
+    await _seed_song(
+        db,
+        user_id,
+        [
+            _drill(
+                "Intro slide",
+                skill,
+                prepares_section="Intro",
+                section_start_beat=0,
+                section_end_beat=3,
+            ),
+            _drill("Unlinked mechanic", skill),
+        ],
+    )
+
+    await backfill(db, user_id=uuid.UUID(user_id), cutoff=None, apply=False, verbose=False)
+
+    rows = await db.execute(
+        text(
+            "SELECT name, prepares_section, section_start_beat, section_end_beat "
+            "FROM drills WHERE user_id = :uid ORDER BY origin_drill_index"
+        ),
+        {"uid": user_id},
+    )
+    assert list(rows.all()) == [
+        ("Intro slide", "Intro", 0, 3),
+        # §5 — a drill with no link banks fine and belongs to the implicit section.
+        ("Unlinked mechanic", None, None, None),
+    ]
+
+
+async def test_a_half_written_link_banks_as_no_link_rather_than_failing(db: AsyncSession):
+    """ck_drills_section_link_complete would reject a partial link outright.
+
+    The drill itself is perfectly good — refusing to bank it would cost the player a
+    drill over a labelling miss — so the script drops the partial link and banks the
+    rest, matching `Breakdown._link_drills_to_sections`.
+    """
+    user_id, (skill,) = await _seed_user_and_skills(db)
+    await _seed_song(
+        db,
+        user_id,
+        [
+            _drill("Named but unplaced", skill, prepares_section="Solo"),
+            _drill("Second drill", skill),
+        ],
+    )
+
+    counters = await backfill(
+        db, user_id=uuid.UUID(user_id), cutoff=None, apply=False, verbose=False
+    )
+
+    assert counters.inserted == 2, "a partial link must not cost the drill"
+    rows = await db.execute(
+        text("SELECT prepares_section FROM drills WHERE user_id = :uid"),
+        {"uid": user_id},
+    )
+    assert [r[0] for r in rows.all()] == [None, None]
+
+
 async def test_songs_without_a_user_are_ignored(db: AsyncSession):
     """Seed/catalog rows have user_id NULL; a drill needs an owner, so they're skipped.
 

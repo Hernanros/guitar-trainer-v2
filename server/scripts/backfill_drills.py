@@ -77,6 +77,31 @@ _CONTENT_FIELDS = (
     "success_criterion",
 )
 
+# FLE-101 §2 — the section link, carried into the bank as provenance.
+#
+# NOT in _CONTENT_FIELDS, and the distinction is load-bearing: that tuple doubles
+# as the required-field gate above (a missing one counts the drill
+# `skipped_malformed` and drops it). A link is legitimately absent — on every
+# breakdown cached before FLE-101, and on any individual drill whose link failed
+# to resolve — so gating on it would refuse to bank drills that are perfectly
+# good, which is the opposite of what the bank is for.
+#
+# All three or none. `Breakdown._link_drills_to_sections` already clears the three
+# together, so a partial set here means the JSONB was hand-edited or written by
+# something else; dropping the link is the honest read, and
+# ck_drills_section_link_complete (migration 0020) would reject it anyway.
+_SECTION_LINK_FIELDS = (
+    "prepares_section",
+    "section_start_beat",
+    "section_end_beat",
+)
+
+
+def _section_link(raw: dict) -> dict:
+    """The drill's §2 link, or empty when it has none / has only part of one."""
+    link = {f: raw.get(f) for f in _SECTION_LINK_FIELDS}
+    return link if all(v is not None for v in link.values()) else {}
+
 
 class Counters:
     """Per-run tally. Printed as the report; also the assertion surface for tests."""
@@ -346,6 +371,7 @@ async def backfill(
                 common_trap=raw.get("common_trap"),
                 origin_song_id=song.id,
                 origin_drill_index=index,
+                **_section_link(raw),
                 **{f: raw[f] for f in _CONTENT_FIELDS},
             )
             db.add(row)

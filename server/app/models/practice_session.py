@@ -208,6 +208,27 @@ class LadderMoveResponse(BaseModel):
     push_withheld: bool = False
 
 
+class SectionUnlockResponse(BaseModel):
+    """FLE-101 §3/§4 — the passage this rating just earned. The reward moment.
+
+    Present on exactly one rating per section: the one that masters its LAST
+    required drill. Null everywhere else, including a repeat clear of a drill that
+    was already mastered — the server reports the EDGE, so the client can show the
+    celebration unconditionally when this field is set and never has to work out
+    whether it has shown it before.
+
+    `start_beat`/`end_beat` are inclusive global beat-column indices into
+    `breakdown.tab.measures[*].beats[*]`, which is what the *Play the Section*
+    screen slices on. `label` is display text and nothing else: it is an opaque key
+    server-side, so a client must not branch on its value.
+    """
+
+    song_id: int
+    label: str
+    start_beat: int
+    end_beat: int
+
+
 class ItemEventResponse(BaseModel):
     """What an item transition returns: the item's new state and the session header.
 
@@ -252,6 +273,16 @@ class ItemEventResponse(BaseModel):
             "flush, on a repertoire item whose day already carried a whole-song "
             "verdict (the shift it would apply is already applied), and on an item "
             "whose target node is missing or not this user's."
+        ),
+    )
+    section_unlocked: Optional[SectionUnlockResponse] = Field(
+        default=None,
+        description=(
+            "FLE-101 §3 — set when this rating mastered the last drill preparing a "
+            "section, so the player has just earned *Play the Section*. Null on "
+            "every other rating. Unsectioned songs (every breakdown cached before "
+            "FLE-101) never set it: their drills belong to one implicit section "
+            "that was already cleared."
         ),
     )
     session: PracticeSessionResponse

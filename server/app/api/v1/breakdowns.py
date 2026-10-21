@@ -55,7 +55,13 @@ from app.ai.governor import (
 from app.api.deps import get_tz_offset_minutes, get_user_id
 from app.db.session import get_db
 from app.models.db import SkillNode, Song, SongSkill, UserSession
-from app.models.song import Breakdown, BreakdownEnvelope, is_renderable_breakdown
+from app.models.song import (
+    Breakdown,
+    BreakdownEnvelope,
+    SectionProgressResponse,
+    is_renderable_breakdown,
+)
+from app.sessions import sections
 from app.selectors.player_level import floor_player_level
 from app.services.song_tuning import resolve_known_tuning
 from app.verified_tabs import pilot_verified_only, verified_breakdown_for
@@ -153,6 +159,50 @@ async def _record_free_view(db: AsyncSession, user_id: UUID) -> None:
         {"id": str(_uuid.uuid4()), "uid": str(user_id), "model": _SONNET_MODEL},
     )
     await db.commit()
+
+
+async def _section_progress(
+    db: AsyncSession,
+    user_id: UUID,
+    song_id: int,
+    breakdown: Breakdown,
+) -> list[SectionProgressResponse]:
+    """FLE-101 §3 — the lock/unlock state of each section, for THIS user.
+
+    Per-request, never cached, for the same reason `drill_rated_today_indices` is:
+    the Breakdown beside it is one cached row shared by every user, and this is a
+    read of that user's own `drill_progress`. Caching it into the JSONB would make
+    one player's progress another player's unlock.
+
+    Costs nothing on the overwhelmingly common path. Every breakdown cached before
+    FLE-101 has no sections, so `section_states` returns `[]` after a single
+    grouped query that matches no rows.
+
+    Never raises — the breakdown is the response, and a section card is the least
+    of what this endpoint owes the player. Degrading to "no section cards" is the
+    same thing every pre-FLE-101 row already shows.
+    """
+    try:
+        states = await sections.section_states(
+            db, user_id=user_id, song_id=song_id, breakdown=breakdown
+        )
+    except Exception:
+        logger.exception(
+            "section progress failed for user=%s song=%s — serving the breakdown "
+            "with no section cards (FLE-101 §3)", user_id, song_id,
+        )
+        return []
+    return [
+        SectionProgressResponse(
+            label=s.label,
+            start_beat=s.start_beat,
+            end_beat=s.end_beat,
+            required_drills=s.required_drills,
+            mastered_drills=s.mastered_drills,
+            cleared=s.cleared,
+        )
+        for s in states
+    ]
 
 
 async def _compute_drill_rated_today_indices(
@@ -316,6 +366,7 @@ async def get_breakdown(
         return BreakdownEnvelope(
             breakdown=cached_breakdown,
             drill_rated_today_indices=drill_indices,
+            sections=await _section_progress(db, user_id, song_id, cached_breakdown),
         )
 
     # 3b. FLE-92 — the global pilot ceiling, checked only on the path that spends.
@@ -482,4 +533,10 @@ async def get_breakdown(
     return BreakdownEnvelope(
         breakdown=breakdown,
         drill_rated_today_indices=drill_indices,
+        # FLE-101: on the cache-MISS path this is every section at 0 of 0 and
+        # therefore cleared — the drills were born seconds ago in the same request
+        # and nothing has promoted them into the bank yet, so nothing is required.
+        # That is the honest answer rather than a special case: a section is gated
+        # by banked drills, and until they are banked there is nothing to gate on.
+        sections=await _section_progress(db, user_id, song_id, breakdown),
     )

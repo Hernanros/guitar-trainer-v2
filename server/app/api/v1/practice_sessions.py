@@ -55,6 +55,7 @@ from app.models.practice_session import (
     LadderMoveResponse,
     PracticeSessionItemResponse,
     PracticeSessionResponse,
+    SectionUnlockResponse,
     SessionCompleteResponse,
 )
 from app.sessions import lifecycle
@@ -511,6 +512,16 @@ async def complete_item(
         ),
         daily_verdict_recorded=fan.daily_verdict_written,
         mastery_shifted=fan.mastery_shifted,
+        section_unlocked=(
+            None
+            if fan.section_unlocked is None
+            else SectionUnlockResponse(
+                song_id=fan.section_unlocked.song_id,
+                label=fan.section_unlocked.label,
+                start_beat=fan.section_unlocked.start_beat,
+                end_beat=fan.section_unlocked.end_beat,
+            )
+        ),
         session=await _payload(db, session),
     )
     if fan.daily_verdict_conflict:

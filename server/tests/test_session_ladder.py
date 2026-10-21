@@ -655,3 +655,106 @@ async def test_a_rated_song_item_writes_no_drill_rows(db):
         text("SELECT count(*) FROM drill_attempts WHERE user_id = :u"), {"u": uid}
     )
     assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# FLE-101 §3 — the sixth step of the fan-out: did this rating earn a passage?
+# ---------------------------------------------------------------------------
+#
+# The predicate itself is tested exhaustively in test_fle101_sections.py. What is
+# tested HERE, and nowhere else, is the wiring: that the ladder reports the EDGE
+# into `mastered` and that `_fan_out` turns that edge into one unlock. The failure
+# these two tests exist to catch is the quiet one — a correct predicate that the
+# rating path never calls, so the player masters the last drill of a section and is
+# shown nothing at all.
+
+async def _link_drill_to_section(db, drill_id, song_id, label, start, end) -> None:
+    await db.execute(
+        text(
+            "UPDATE drills SET origin_song_id = :s, origin_drill_index = 0, "
+            "   prepares_section = :l, section_start_beat = :a, section_end_beat = :b "
+            " WHERE id = :d"
+        ),
+        {"s": song_id, "l": label, "a": start, "b": end, "d": drill_id},
+    )
+
+
+async def _give_song_one_section(db, song_id, label) -> None:
+    """A breakdown whose single section covers its whole 4-beat tab (§1 coverage)."""
+    import json
+
+    beats = [{"notes": [{"string": 1, "fret": 0, "duration": "quarter"}]} for _ in range(4)]
+    await db.execute(
+        text("UPDATE songs SET breakdown = CAST(:bd AS jsonb) WHERE id = :s"),
+        {
+            "s": song_id,
+            "bd": json.dumps(
+                {
+                    "tab": {"measures": [{"beats": beats, "time_signature": "4/4"}]},
+                    "chords": [],
+                    "technique_notes": [],
+                    "sections": [{"label": label, "start_beat": 0, "end_beat": 3}],
+                }
+            ),
+        },
+    )
+
+
+async def _park_at_the_top_rung(db, uid, item) -> None:
+    """One clear away from mastered: top of the ladder, CLEARS_TO_PUSH-1 banked.
+
+    Seeded rather than played up the ladder because the rungs in between are
+    §7.2's business and already covered above; this test is about what happens on
+    the attempt that finishes the job.
+    """
+    target = await db.scalar(
+        text("SELECT target_bpm FROM drills WHERE id = :d"), {"d": item.drill_id}
+    )
+    await db.execute(
+        text(
+            "INSERT INTO drill_progress (id, user_id, drill_id, rung_bpm, "
+            "    consecutive_clears, state) "
+            "VALUES (:id, :u, :d, :r, :c, 'active'::drill_progress_state)"
+        ),
+        {
+            "id": uuid.uuid4(), "u": uid, "d": item.drill_id, "r": target,
+            "c": CLEARS_TO_PUSH - 1,
+        },
+    )
+
+
+async def test_mastering_a_sections_last_drill_surfaces_the_unlock(db):
+    """The reward moment, through the real rating path.
+
+    Hernan's verdict on FLE-89 was that graduating from the drills should let you
+    play part of the song. This is the assertion that it does: one rating, and the
+    response carries the passage the player just earned.
+    """
+    uid, song_id = await _user_with_a_song(db)
+    sid, items = await _session(db, uid, song_id=song_id)
+    item = _first_rated_drill(items)
+    await _give_song_one_section(db, song_id, "Intro")
+    await _link_drill_to_section(db, item.drill_id, song_id, "Intro", 0, 3)
+    await _park_at_the_top_rung(db, uid, item)
+
+    outcome, _ = await _rate(db, uid, sid, item, TOP_RATING)
+
+    assert outcome.fanout.progress_state == "mastered"
+    unlock = outcome.fanout.section_unlocked
+    assert unlock is not None, "the last drill of a section mastered and nothing opened"
+    assert (unlock.song_id, unlock.label) == (song_id, "Intro")
+    assert (unlock.start_beat, unlock.end_beat) == (0, 3)
+
+
+async def test_an_ordinary_clear_unlocks_nothing(db):
+    """No edge into mastered, no reward — and no query run looking for one."""
+    uid, song_id = await _user_with_a_song(db)
+    sid, items = await _session(db, uid, song_id=song_id)
+    item = _first_rated_drill(items)
+    await _give_song_one_section(db, song_id, "Intro")
+    await _link_drill_to_section(db, item.drill_id, song_id, "Intro", 0, 3)
+
+    outcome, _ = await _rate(db, uid, sid, item, TOP_RATING)
+
+    assert outcome.fanout.progress_state == "active"
+    assert outcome.fanout.section_unlocked is None

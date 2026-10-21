@@ -335,6 +335,13 @@ class AttemptRecord:
     pushed: bool
     dropped: bool
     push_withheld: bool
+    # FLE-101 §3 — this attempt took the drill from not-mastered to mastered.
+    #
+    # Reported rather than inferred from `progress_state`, which only says where the
+    # row landed: a clear recorded on a drill that was ALREADY mastered also answers
+    # progress_state='mastered'. The section-unlock moment must fire exactly once,
+    # so it needs the edge, not the level.
+    newly_mastered: bool = False
 
 
 async def record_attempt(
@@ -470,6 +477,7 @@ async def record_attempt(
         pushed=moved.pushed,
         dropped=moved.dropped,
         push_withheld=push_withheld,
+        newly_mastered=moved.newly_mastered,
     )
 
 

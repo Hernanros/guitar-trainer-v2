@@ -55,7 +55,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.sessions import ladder, mastery
+from app.sessions import ladder, mastery, sections
+from app.sessions.sections import SectionUnlock
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,12 @@ class FanOut:
     # a distinction a pilot post-mortem cannot recover from the mastery column alone.
     mastery_node_id: Optional[UUID] = None
     mastery_shifted: bool = False
+    # FLE-101 §3/§4 — the section this rating just earned, if it earned one. Set only
+    # on the attempt that masters the LAST required drill of a section; None on every
+    # other rating, including a repeat clear of an already-mastered drill. This is the
+    # reward FLE-89 found the app did not have, so it is reported on the response that
+    # the rating itself returns — the player is still looking at the screen.
+    section_unlocked: Optional[SectionUnlock] = None
 
     @property
     def is_empty(self) -> bool:
@@ -651,6 +658,9 @@ async def _fan_out(
             push_withheld=record.push_withheld,
             mastery_node_id=item.target_skill_node_id,
             mastery_shifted=shifted,
+            section_unlocked=await _section_unlock(
+                db, user_id=session.user_id, drill_id=item.drill_id, record=record
+            ),
         )
 
     if item.song_id is not None:
@@ -696,6 +706,52 @@ async def _fan_out(
         session.id,
     )
     return FanOut()
+
+
+async def _section_unlock(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    drill_id: UUID,
+    record: ladder.AttemptRecord,
+) -> Optional[SectionUnlock]:
+    """§5.2's sixth step, added by FLE-101: did this attempt earn a passage?
+
+    Gated on `record.newly_mastered` — the EDGE, not the level — so the unlock
+    moment fires exactly once per section. Every other rating does no work at all
+    here, which matters because this is the player's critical path: the common case
+    is a single boolean check and no query.
+
+    Never raises, for the same reason `_shift_mastery` never raises and with more
+    force. By this point the rating is on the item row and the §7.2 ladder has moved
+    in this transaction; the player's outbox will not send the rating again. A
+    reward is the most expendable thing in that set — losing the celebration modal
+    costs a moment, losing the attempt costs the ladder its evidence. So a failure
+    here is logged and swallowed, and the card on the breakdown screen still reads
+    unlocked next time it is opened, because §3's predicate is derived rather than
+    stored and so has nothing to miss.
+
+    The SAVEPOINT is what makes "swallowed" true rather than wishful. A bare
+    try/except around a failing statement leaves the enclosing transaction in an
+    aborted state, so the caller's commit would raise anyway and this handler would
+    have bought nothing but a confusing error. `begin_nested()` rolls back only the
+    reads below. Nothing here writes, so there is nothing to lose in the rollback.
+    """
+    if not record.newly_mastered:
+        return None
+    try:
+        async with db.begin_nested():
+            return await sections.unlock_for_mastered_drill(
+                db, user_id=user_id, drill_id=drill_id
+            )
+    except Exception:
+        logger.exception(
+            "section-unlock check failed for user=%s drill=%s — the rating and "
+            "ladder move stand, no unlock moment surfaced (FLE-101 §3)",
+            user_id,
+            drill_id,
+        )
+        return None
 
 
 async def _shift_mastery(

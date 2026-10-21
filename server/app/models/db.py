@@ -688,6 +688,38 @@ class Drill(Base):
         Integer, ForeignKey("songs.id", ondelete="SET NULL"), nullable=True
     )
     origin_drill_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # --- FLE-101 §2: which passage of the origin song this drill prepares ---
+    #
+    # PROVENANCE, alongside origin_song_id/origin_drill_index and copied at promotion
+    # time exactly like them — not a claim that travels with the canonical row. A
+    # drill promoted from song A and later reused by song B via dedup still says
+    # "I prepare song A's Solo", because that is the true and only statement
+    # available: nothing measured where it sits in song B.
+    #
+    # §3's section-clear predicate resolves through canonical_drill_id, so mastering
+    # a canonical row in one song's context clears it everywhere it is required.
+    # That is skill transfer and it is intentional — it is already how DrillProgress
+    # behaves, being keyed to the drill and not to the song that spawned it.
+    #
+    # Nullable, and NULL is the overwhelming majority: every one of the drills
+    # banked before this migration has no link, which §5 reads as the implicit
+    # whole-song section.
+    prepares_section: Mapped[Optional[str]] = mapped_column(
+        String(80),
+        nullable=True,
+        doc="Section.label from the ORIGIN song's breakdown. Opaque key, display-only text.",
+    )
+    section_start_beat: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="First beat column of the passage this drill isolates, in the origin song's tab.",
+    )
+    section_end_beat: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Last beat column of that passage, inclusive. Paired with the other two "
+        "by ck_drills_section_link_complete — all three present or all three NULL.",
+    )
     # --- FLE-4 §13 taxonomy (migration 0011) ---
     #
     # family/tier/tier_raw_score are NULLABLE and NULL means NOT YET CLASSIFIED, not

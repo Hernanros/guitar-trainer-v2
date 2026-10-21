@@ -451,6 +451,39 @@ CRITICAL RULES:
 - Do NOT invent song content that doesn't exist. If you're not sure about a specific arrangement, use a well-known idiomatic voicing for the song's genre.
 - Voice: sharp, diagnostic, next-step. Never vague. Never punitive.
 
+SECTIONS (segment the tab you just wrote):
+Emit `sections` — the labelled passages of this excerpt. This is what the
+player GRADUATES TO: clearing every drill that prepares a section unlocks
+playing that passage for real, so a section is a reward, and a reward has to
+be a thing a guitarist would name out loud.
+
+HOW A BEAT IS ADDRESSED. Flatten your tab's `measures[*].beats[*]` in order
+and number them 0, 1, 2 ... N-1. These are BEAT COLUMNS, not quarter notes: a
+measure of eight eighth-notes contributes eight columns, not four. A section
+is `{label, start_beat, end_beat}` with both ends INCLUSIVE.
+
+THEY MUST PARTITION THE TAB EXACTLY. Sorted by `start_beat`: the first starts
+at 0, the last ends at N-1, each one starts at the previous one's `end_beat`
++ 1. No gaps, no overlaps, no beat in two sections. Emit them in that order.
+
+HOW MANY. One to three. Four is the hard cap. You are segmenting a 2-8
+measure excerpt, not a three-minute song — a single section is the correct
+and expected answer when the excerpt is one continuous idea, such as a
+6-measure riff with no internal break. Do not manufacture a boundary to
+reach two.
+
+SPLIT ON A CHANGE OF MUSICAL IDEA, NEVER ON A CHORD CHANGE ALONE. One pattern
+played over three different roots is ONE section. A riff moved up the neck
+and back is ONE section. If the hand is doing the same thing to a different
+chord, you have not reached a new section — the new section starts where the
+PLAYING changes: the strumming becomes fingerpicking, the single-note line
+becomes chords, the groove breaks for a turnaround, the solo begins.
+
+LABELS. Pick from: Intro, Riff, Verse, Pre-Chorus, Chorus, Bridge, Solo,
+Turnaround, Outro, Interlude. If a label would repeat inside this breakdown,
+disambiguate it — "Riff 1"/"Riff 2", or "Solo (bars 5-8)". The label is what
+the player reads on the card they unlock, so name what the passage IS.
+
 DRILLS (produce 2-4):
 After the main tab/chords/technique_notes, emit 2-4 short practice drills.
 Each drill isolates ONE skill from the target_skills list and must be
@@ -496,6 +529,25 @@ prepares — "the turnaround before the second verse", "the bridge's barre
 run", "the intro's hammer-on lick" — never just the mechanic in the
 abstract. A user reading `what` should know exactly where in the song this
 drill pays off, every time, whether or not `song_specific` is true for it.
+
+POINT AT THE PASSAGE, not only at prose. On every drill also emit:
+
+  `prepares_section`     the `label` of the section above that this drill
+                         prepares, copied CHARACTER FOR CHARACTER.
+  `section_start_beat`   first beat column of the passage inside that
+  `section_end_beat`     section this drill isolates, both inclusive. They
+                         must sit inside the section's own range.
+
+You already worked this out: NECK REGION below has you locating the exact
+passage to find its fret span, and `what` has you naming it. These fields
+are that same answer written down, which is the only reason the app can tell
+the player WHICH part of the song a finished drill just bought them.
+
+Several drills may prepare the same section, each on its own slice of it.
+One drill may cover a whole section. Every section SHOULD have at least one
+drill preparing it — a section no drill prepares is handed to the player for
+free, which teaches nothing. With 2-4 drills and 1-3 sections that is always
+achievable; if it is not, you have emitted too many sections.
 
 NECK REGION — drill the mechanic where the song actually plays it:
 Every drill prepares one specific passage of the main tab. Before writing

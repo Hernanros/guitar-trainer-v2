@@ -758,6 +758,74 @@ class TechniqueNote(BaseModel):
     body: str
 
 
+# ---------------------------------------------------------------------------
+# FLE-101 §1 — sections
+# ---------------------------------------------------------------------------
+# The addressing unit is the GLOBAL BEAT INDEX: flatten `tab.measures[*].beats[*]`
+# in order and number the columns 0..N-1. Deliberately the same unit the
+# generator's own anti-slice self-check already compares in, so no new musical-time
+# concept enters the prompt — and deliberately a COLUMN index, not a quarter-note
+# position, because a column is the thing a renderer can slice on without having to
+# re-derive durations.
+SECTION_LABELS: tuple[str, ...] = (
+    "Intro", "Riff", "Verse", "Pre-Chorus", "Chorus",
+    "Bridge", "Solo", "Turnaround", "Outro", "Interlude",
+)
+
+# §1 granularity. The whole corpus is a 2-8 measure EXCERPT (8-64 columns), so this
+# is "segment an 8-measure phrase into its moving parts", not "segment a 3-minute
+# song". More than 4 slices a passage into pieces too small to call one.
+MAX_SECTIONS = 4
+
+
+def tab_beat_count(tab: "Tab") -> int:
+    """N — the number of addressable beat columns in a tab. §1's `0..N-1`."""
+    return sum(len(m.beats) for m in tab.measures)
+
+
+class Section(BaseModel):
+    """A labelled, contiguous beat range of the main tab — the thing a player earns.
+
+    `label` is DISPLAY-ONLY. Nothing downstream parses it for logic: `start_beat` /
+    `end_beat` carry the real range, and the graduation predicate matches a drill to
+    a section on the label as an opaque key, never by reading meaning out of it.
+    That is why a disambiguated label ("Riff 2", "Solo (bars 5-8)") is free.
+    """
+    label: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Display name for this passage. Prefer one of: "
+            + ", ".join(SECTION_LABELS)
+            + ". When a label would repeat inside one breakdown, disambiguate it "
+            "('Riff 1'/'Riff 2', or 'Solo (bars 5-8)')."
+        ),
+    )
+    start_beat: int = Field(
+        ..., ge=0, description="First beat column of this section, inclusive. 0-based."
+    )
+    end_beat: int = Field(
+        ..., ge=0, description="Last beat column of this section, INCLUSIVE."
+    )
+
+    @model_validator(mode="after")
+    def _end_not_before_start(self) -> "Section":
+        """Raises rather than repairs — and the raise never costs a breakdown.
+
+        An inverted range has no honest repair (swapping the two invents a passage
+        the model did not describe), but unlike the tab-level validators this one is
+        contained: `Breakdown._prune_unsound_sections` re-validates each raw entry
+        inside a try/except before field validation runs, so an inverted range
+        degrades the song to "unsectioned" rather than failing the breakdown.
+        """
+        if self.end_beat < self.start_beat:
+            raise ValueError(
+                f"section {self.label!r}: end_beat {self.end_beat} is before "
+                f"start_beat {self.start_beat}"
+            )
+        return self
+
+
 # FLE-72 — tap-count budget for one drill run.
 #
 # The mobile drill screen (mobile/src/app/breakdown/[songId]/drill/[drillIndex].tsx,
@@ -893,6 +961,41 @@ class Drill(BaseModel):
         None,
         description="Optional. One sentence about the mistake beginners make on this mechanic.",
     )
+    # --- FLE-101 §2: the drill -> passage link ---
+    #
+    # The gap FLE-89 named: the prompt has claimed since FLE-99 that every drill
+    # prepares one specific passage (`what` MUST name it, NECK REGION reasons about
+    # its fret span), and NOTHING recorded WHICH passage. The model was already doing
+    # the reasoning privately; these three fields ask it to emit the answer.
+    #
+    # All three Optional for the same reason `mechanic_tier` is: every cached row in
+    # prod predates them, and a required field would make every one of them fail to
+    # read back. They are also the repair target of `_link_drills_to_sections` —
+    # a drill whose link does not resolve has all three cleared to None and falls
+    # back to §5's unsectioned behaviour for that drill alone.
+    prepares_section: Optional[str] = Field(
+        None,
+        description=(
+            "The `label` of the section this drill prepares, copied EXACTLY. Must be "
+            "one of the labels emitted in `sections`."
+        ),
+    )
+    section_start_beat: Optional[int] = Field(
+        None,
+        ge=0,
+        description=(
+            "First beat column of the passage inside that section this drill "
+            "isolates, inclusive. Must fall within the named section's own range."
+        ),
+    )
+    section_end_beat: Optional[int] = Field(
+        None,
+        ge=0,
+        description=(
+            "Last beat column of that passage, INCLUSIVE. May equal the section's "
+            "own end_beat when the drill prepares the whole section."
+        ),
+    )
 
     @field_validator("repetitions", mode="before")
     @classmethod
@@ -986,6 +1089,15 @@ class Breakdown(BaseModel):
     # output path). Default-factory-produced [] bypasses these checks — that's the
     # intended backward-compat behavior for pre-4.1 cached rows.
     drills: list[Drill] = Field(default_factory=list, min_length=2, max_length=4)
+    # FLE-101 §1. JSONB on the breakdown, no new table — a section has no identity
+    # outside the breakdown that emitted it, and the breakdown is already the cached
+    # unit. `default_factory=list` is the whole backward-compat story: every cached
+    # row in prod has no `sections` key and reads back as `[]`, which §5 defines as
+    # "one implicit, already-cleared section" — nothing gated, nothing dead-ended.
+    #
+    # No `min_length`: a 6-measure riff with no internal break is ONE section, and a
+    # breakdown that honestly has nothing to segment must be able to say so.
+    sections: list[Section] = Field(default_factory=list, max_length=MAX_SECTIONS)
     # FLE-128: provenance of the tuning used when generating this breakdown.
     # "catalog" = matched a song_catalog row; "default" = no row, used standard.
     # None for cached rows generated before this field was added.
@@ -1030,6 +1142,144 @@ class Breakdown(BaseModel):
                     changed = True
             patched.append(d)
         return {**data, "drills": patched} if changed else data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _prune_unsound_sections(cls, data: object) -> object:
+        """§1/§5 — a malformed `sections` list degrades the song, never fails it.
+
+        FAIL-SOFT, and all-or-nothing by design. The §3 graduation predicate rests
+        on every drill resolving to exactly one section, which rests on the sections
+        being a clean partition; a half-trusted list would gate a reward on a range
+        nobody checked. So one bad entry drops the whole list and the song falls back
+        to §5's unsectioned behaviour — which is exactly what every cached row in
+        prod does today, i.e. a path that is already live rather than a new one.
+
+        This runs BEFORE field validation so it also absorbs the failures Pydantic
+        would otherwise raise on (a negative beat, a non-int, a missing key, the
+        inverted range `Section` itself rejects). Rejecting instead would turn a
+        labelling miss into a full regeneration — the same cost argument that makes
+        `repetitions` a clamp.
+        """
+        if not isinstance(data, dict):
+            return data
+        raw = data.get("sections")
+        if not isinstance(raw, list) or not raw:
+            return data
+        try:
+            parsed = [Section.model_validate(s) for s in raw]
+        except Exception as e:
+            logger.warning(
+                "Breakdown emitted a malformed section (%s) — dropping all %d "
+                "sections; the song degrades to unsectioned (FLE-101 §5).",
+                e, len(raw),
+            )
+            return {**data, "sections": []}
+        if len(parsed) > MAX_SECTIONS:
+            logger.warning(
+                "Breakdown emitted %d sections, over the cap of %d — dropping all "
+                "of them rather than choosing which passages to discard "
+                "(FLE-101 §1).", len(parsed), MAX_SECTIONS,
+            )
+            return {**data, "sections": []}
+        return data
+
+    @model_validator(mode="after")
+    def _validate_section_coverage(self) -> "Breakdown":
+        """§1 coverage rule — sections partition the tab exactly, or there are none.
+
+        Sorted by `start_beat`: contiguous, non-overlapping, first starts at 0, last
+        ends at N-1. This is the property that lets every drill resolve to exactly
+        one section with no ambiguity, so it is checked rather than assumed.
+
+        Dropped, not raised, for the reason in `_prune_unsound_sections`. The sort is
+        on a COPY — a list that only failed the check by arriving out of order is
+        still dropped, deliberately: out-of-order output means the model was not
+        tracking the partition, and the ranges themselves are then not worth trusting
+        either.
+        """
+        if not self.sections:
+            return self
+        n = tab_beat_count(self.tab)
+        ordered = sorted(self.sections, key=lambda s: s.start_beat)
+        problem: Optional[str] = None
+        if ordered != self.sections:
+            problem = "sections are not in ascending start_beat order"
+        elif ordered[0].start_beat != 0:
+            problem = f"first section starts at beat {ordered[0].start_beat}, not 0"
+        elif ordered[-1].end_beat != n - 1:
+            problem = (
+                f"last section ends at beat {ordered[-1].end_beat}, not {n - 1} "
+                f"(the tab's last beat)"
+            )
+        else:
+            for prev, nxt in zip(ordered, ordered[1:]):
+                if nxt.start_beat != prev.end_beat + 1:
+                    problem = (
+                        f"gap or overlap between {prev.label!r} (ends {prev.end_beat}) "
+                        f"and {nxt.label!r} (starts {nxt.start_beat})"
+                    )
+                    break
+        if problem is not None:
+            logger.warning(
+                "Breakdown sections do not partition the tab's %d beats — %s. "
+                "Dropping all %d sections; the song degrades to unsectioned "
+                "(FLE-101 §1/§5).", n, problem, len(self.sections),
+            )
+            self.sections = []
+        return self
+
+    @model_validator(mode="after")
+    def _link_drills_to_sections(self) -> "Breakdown":
+        """§2 — a drill's section link resolves, or that ONE drill loses its link.
+
+        Per-drill, not per-breakdown: a single mislabelled drill should cost its own
+        link and nothing else. A cleared link is not a hole in the model — §5 already
+        defines a drill with no `prepares_section` as belonging to the implicit
+        whole-song section, which is where all 18 drills live in prod today.
+
+        Runs after `_validate_section_coverage` (definition order), so by here
+        `self.sections` is either a verified partition or empty. Empty means there is
+        nothing for a link to resolve against, so every link is cleared — that is the
+        same outcome as the cached rows and not a special case.
+        """
+        by_label = {s.label: s for s in self.sections}
+        for i, d in enumerate(self.drills):
+            if d.prepares_section is None and d.section_start_beat is None \
+                    and d.section_end_beat is None:
+                continue
+            section = by_label.get(d.prepares_section or "")
+            reason: Optional[str] = None
+            if section is None:
+                reason = (
+                    f"prepares_section {d.prepares_section!r} matches no emitted "
+                    f"section label {sorted(by_label)!r}"
+                )
+            elif d.section_start_beat is None or d.section_end_beat is None:
+                reason = "a section link needs BOTH section_start_beat and section_end_beat"
+            elif d.section_end_beat < d.section_start_beat:
+                reason = (
+                    f"beat range {d.section_start_beat}-{d.section_end_beat} is inverted"
+                )
+            elif (
+                d.section_start_beat < section.start_beat
+                or d.section_end_beat > section.end_beat
+            ):
+                reason = (
+                    f"beat range {d.section_start_beat}-{d.section_end_beat} falls "
+                    f"outside section {section.label!r} "
+                    f"({section.start_beat}-{section.end_beat})"
+                )
+            if reason is not None:
+                logger.warning(
+                    "drill %d (%r): %s — clearing its section link; the drill falls "
+                    "back to the implicit whole-song section (FLE-101 §2/§5).",
+                    i, d.name, reason,
+                )
+                d.prepares_section = None
+                d.section_start_beat = None
+                d.section_end_beat = None
+        return self
 
     @model_validator(mode="after")
     def _assert_drill_setup_matches(self) -> "Breakdown":
@@ -1229,6 +1479,24 @@ def enforce_song_specific(
     return breakdown
 
 
+class SectionProgressResponse(BaseModel):
+    """One section plus the player's progress toward unlocking it — the card's data.
+
+    `cleared` is the whole lock/unlock decision and is server-decided, never derived
+    client-side from the two counts: a section with zero required drills is cleared
+    (design §3 — a reward cannot be gated on drills that do not exist), and a client
+    computing `mastered == required && required > 0` would lock exactly that case
+    forever. Read `cleared`; the counts are for the "2 of 3 drills mastered" line.
+    """
+
+    label: str
+    start_beat: int
+    end_beat: int
+    required_drills: int
+    mastered_drills: int
+    cleared: bool
+
+
 class BreakdownEnvelope(BaseModel):
     """Envelope wrapper for GET /api/v1/songs/{id}/breakdown response.
 
@@ -1256,6 +1524,17 @@ class BreakdownEnvelope(BaseModel):
             "0-based drill_index values the current user has rated for this song today. "
             "Sorted ascending. Empty when no drill ratings exist yet. Server-derived — "
             "cannot be set by clients."
+        ),
+    )
+    sections: list[SectionProgressResponse] = Field(
+        default_factory=list,
+        description=(
+            "FLE-101 §3 — this user's standing in each section of the song, in tab "
+            "order. Per-request like drill_rated_today_indices, never cached: it is "
+            "a query over drill_progress, and the cached Breakdown it sits beside is "
+            "the same for every user. Empty for an unsectioned breakdown (every row "
+            "cached before FLE-101), which is how §5's 'nothing is gated' reads on "
+            "the wire — no cards, rather than cards the client must know to hide."
         ),
     )
 

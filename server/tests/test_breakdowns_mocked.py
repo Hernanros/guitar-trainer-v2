@@ -1299,10 +1299,19 @@ async def test_get_breakdown_envelope_backward_compat_wrap(mock_breakdown_never_
         assert resp.status_code == 200, resp.text
         data = resp.json()
 
-        # Top-level envelope shape
-        assert set(data.keys()) == {"breakdown", "drill_rated_today_indices"}, (
-            f"Envelope must have exactly {{breakdown, drill_rated_today_indices}}, got {set(data.keys())}"
-        )
+        # Top-level envelope shape. Still an EXACT set, not a subset: the point of
+        # this assertion is that a field cannot appear or be renamed without a human
+        # reading this line. FLE-101 added `sections` (the per-request §3 lock state,
+        # computed like drill_rated_today_indices and cached no more than it is), so
+        # the set is widened here deliberately rather than relaxed to a subset check.
+        assert set(data.keys()) == {
+            "breakdown",
+            "drill_rated_today_indices",
+            "sections",
+        }, f"Envelope shape drifted, got {set(data.keys())}"
+        # An unsectioned cached breakdown — every row cached before FLE-101 — gates
+        # nothing and renders no section cards (FLE-101 §5).
+        assert data["sections"] == []
 
         # Nested breakdown shape must include all pre-envelope fields
         bd = data["breakdown"]
