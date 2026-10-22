@@ -17,14 +17,21 @@ So at the moment this migration was written the chain head is 0018, and the
 revision id 0019 is SPOKEN FOR by a file that is coming back. This migration
 therefore takes the next free id, 0020, and chains onto the real head.
 
-**For whoever re-lands 0019 (FLE-137): set its `down_revision` to "0020", not
-to "0018".** Two migrations both claiming `down_revision = "0018"` is two
-alembic heads, and `upgrade head` refuses to run with an ambiguous head —
-which on this repo means the deploy fails, which is the exact class of failure
-FLE-129 and FLE-136 just spent two weeks digging out of. Chaining after 0020
-costs nothing: these two migrations touch different tables (`drills` vs
-`song_catalog`) and have no ordering requirement between them beyond being in
-*some* single line.
+**WHICHEVER OF 0019 AND 0020 MERGES SECOND MUST BE RE-POINTED.** Both files
+declare `down_revision = "0018"` today, and two migrations claiming the same
+parent is two alembic heads — `upgrade head` refuses to run with an ambiguous
+head, which on this repo means the deploy fails, the exact class of failure
+FLE-129 and FLE-136 just spent two weeks digging out of.
+
+Updated 2026-10-22: FLE-136 shipped and prod is at 0018, so the hold this file
+was written under has ended. 0019 is now on branch `fle-137-reland-0019`
+(FLE-137) behind its own approval card, and the agreed order is FLE-137 first
+— it is verified against live prod and is the smaller change — after which
+**this file's `down_revision` becomes "0019"**, done by FLE-101's owner, not by
+FLE-137. Only if 0020 somehow lands first does the original instruction apply
+and 0019 chains onto 0020 instead. Either order costs nothing: the two
+migrations touch different tables (`drills` vs `song_catalog`) and have no
+ordering requirement between them beyond being in *some* single line.
 
 FLE-101, the engineering half of the drill → section graduation loop (design:
 FLE-100 `design` doc rev. 3, approved 2026-10-21).
