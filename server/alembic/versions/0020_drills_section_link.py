@@ -1,11 +1,11 @@
 """drills: the FLE-101 §2 section link — prepares_section, section_start_beat, section_end_beat
 
 Revision ID: 0020
-Revises: 0018
+Revises: 0019
 Create Date: 2026-10-21
 
-WHY 0020 CHAINS ONTO 0018 AND THE 0019 SLOT IS EMPTY
-----------------------------------------------------
+WHY 0020 CHAINS ONTO 0019, AND WHY THAT WAS NOT ALWAYS TRUE
+-----------------------------------------------------------
 Not a mistake, and not a gap to tidy up. `0019_insert_fle130_catalog_rows.py`
 exists and is correct, but was deliberately REVERTED out of the tree on
 2026-10-21 (`revert(FLE-131): hold migration 0019 out of this release`) so the
@@ -23,15 +23,12 @@ parent is two alembic heads — `upgrade head` refuses to run with an ambiguous
 head, which on this repo means the deploy fails, the exact class of failure
 FLE-129 and FLE-136 just spent two weeks digging out of.
 
-Updated 2026-10-22: FLE-136 shipped and prod is at 0018, so the hold this file
-was written under has ended. 0019 is now on branch `fle-137-reland-0019`
-(FLE-137) behind its own approval card, and the agreed order is FLE-137 first
-— it is verified against live prod and is the smaller change — after which
-**this file's `down_revision` becomes "0019"**, done by FLE-101's owner, not by
-FLE-137. Only if 0020 somehow lands first does the original instruction apply
-and 0019 chains onto 0020 instead. Either order costs nothing: the two
-migrations touch different tables (`drills` vs `song_catalog`) and have no
-ordering requirement between them beyond being in *some* single line.
+Resolved 2026-10-25: the order above played out as agreed. FLE-137 merged 0019
+to `main` (`390ffd4`) and applied it in prod — `alembic_version = 0019`,
+`song_catalog` 64 → 70 rows. 0020 therefore merged second, so per the rule above
+this file is the one that gets re-pointed, and `down_revision` is now "0019".
+The empty-0019-slot reasoning is kept above because it explains why this file
+carries id 0020 at all; it is history now, not a live instruction.
 
 FLE-101, the engineering half of the drill → section graduation loop (design:
 FLE-100 `design` doc rev. 3, approved 2026-10-21).
@@ -91,7 +88,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0020"
-down_revision = "0018"
+down_revision = "0019"
 branch_labels = None
 depends_on = None
 
