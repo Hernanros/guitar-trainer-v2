@@ -50,13 +50,22 @@ Three of the four changes exist to stop this script failing CORRECT tab:
 
 WHAT A GREEN RUN DOES NOT PROVE
 -------------------------------
-All 1612 notes in the pilot set are `quarter` and none carries a capo or a bend,
-so a green run exercises the PITCH/HARMONY half and nothing else. It encodes
-zero rhythm: as all-quarters ground truth it would score a correctly swung bar
-as WRONG. Do not read green here as rhythm coverage — FLE-107 re-notates the
-five swing/bossa songs (§2.5.1). The capo and bend paths above are likewise
-unexercised by this data and are covered by tests/test_fle103_verifier_v2.py
-instead, which is the only evidence that they work.
+UPDATED 2026-10-25 by the FLE-103 widening. This section used to read "all 1612
+notes in the pilot set are `quarter` and none carries a capo or a bend ... it
+encodes zero rhythm". Two thirds of that is now false and the sentence is
+rewritten rather than left to be quoted at me later:
+
+  * CAPO: exercised. Wonderwall is capo 2, so the §7.1 term and the shape-frame
+    shift now run over committed ground truth, not only over fixtures.
+  * RHYTHM: partly exercised. The two boogie songs are written in eighths, so
+    the set is no longer all-quarters and no longer scores every swung bar as
+    wrong. What is still true, and still a limit: the thirteen chord-stab songs
+    are a quarter-note stab per beat, which is the harmony WITHOUT the comping
+    rhythm. A green run does not mean the set teaches those grooves.
+  * BENDS: still not exercised at all. No song here carries one, so the §5 bend
+    path has no evidence behind it outside tests/test_fle103_verifier_v2.py.
+    That is also the honest reason the set has no bend-led song in it: a
+    renderer that can draw a bend does not make me able to certify one.
 
 Plus two set-level reports:
   COVERAGE   for every player_level in [0.20, 1.00], how many of the set fall
@@ -77,6 +86,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from app.models.song import (  # noqa: E402  (needs the path fix)
     DURATION_BEATS,
     duration_beats,
+    uniform_tuning_offset,
 )
 # V9 imports the ONE C8 predicate rather than reimplementing it. Same reason
 # DURATION_BEATS is imported above and not copied: a duplicated rhythm heuristic
@@ -84,6 +94,7 @@ from app.models.song import (  # noqa: E402  (needs the path fix)
 from app.ai.tab_verification import is_double_applied_swing  # noqa: E402
 
 CHROM = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
+STANDARD_TUNING = ["E", "A", "D", "G", "B", "e"]
 PC = {"C": 0, "C#": 1, "DB": 1, "D": 2, "D#": 3, "EB": 3, "E": 4, "F": 5,
       "F#": 6, "GB": 6, "G": 7, "G#": 8, "AB": 8, "A": 9, "A#": 10, "BB": 10,
       "B": 11}
@@ -104,7 +115,25 @@ QUALITIES = {
     "7b9":    {"ivals": {0, 1, 4, 7, 10},     "third": 4,  "char": 1},
     "7#11":   {"ivals": {0, 4, 6, 7, 10},     "third": 4,  "char": 6},
     "6/9":    {"ivals": {0, 2, 4, 7, 9},      "third": 4,  "char": 2},
+    # FLE-103 widening. `third: None` is a real statement, not a gap: a sus
+    # chord's identity is that the 4 stands WHERE the third would be, so V2 must
+    # not demand one. Wonderwall's Dsus4 and A7sus4 are the whole reason — they
+    # are the two voicings Gallagher never resolves, and a verifier that insisted
+    # on a third would have failed correct tab and invited "fixing" the data.
+    "sus4":   {"ivals": {0, 5, 7},            "third": None, "char": 5},
+    "7sus4":  {"ivals": {0, 5, 7, 10},        "third": None, "char": 10},
+    "5":      {"ivals": {0, 7},               "third": None, "char": None},
 }
+
+# --- degrees, for the bars that have no chord at all (V10) -------------------
+# A boogie figure is not a chord and declaring one for it would be a lie in
+# either direction: call an E-B-C#-D bar "E5" and the 6 and b7 are foreign;
+# call it "E7" and the verifier demands a G# that must NOT be there. Those two
+# wrong answers are exactly why the first ten songs were all chord-changes
+# music — the ruler could only measure chords, so the set could only contain
+# chords. This is the measured form of that bias, and V10 is what removes it.
+DEGREES = {"1": 0, "b2": 1, "2": 2, "b3": 3, "3": 4, "4": 5, "b5": 6,
+           "5": 7, "#5": 8, "6": 9, "b7": 10, "7": 11}
 
 
 def parse_chord(name):
@@ -168,20 +197,30 @@ def sounding_pcs(beats, opens, capo):
        past what §5 says, and this is the file whose entire premise is that my
        confidence is not the evidence.
 
-    READ THIS BEFORE ADDING A CAPO SONG TO THE PILOT SET. The capo term is
-    correct here only because this file's ground truth declares chords by their
-    SOUNDING name — `chord_sequence` is hand-authored and predates §7.2's
-    `sounding_name`, so it is absolute. Both sides of the comparison must sit in
-    the same frame, and the live write gate resolves that the other way on
-    purpose: `app/ai/tab_verification.py` deliberately OMITS the capo because it
-    scores against `Chord.name`, which in v2 is the shape as fingered (`Em7`),
-    so there the capo cancels. See the comment at tab_verification.py:238.
+    What this function returns is the SOUNDING frame, and that is correct — it
+    is what the guitar makes. Which frame the NAME sits in is a separate
+    question, resolved in `frame_shift` below.
 
-    So a capo song added here must write the SOUNDING chord (`F#m7`), never the
-    shape (`Em7`). Write the shape and V1-V4 fail across correct tab — the exact
-    breakage this capo fix exists to remove, reintroduced from the other side
-    and looking identical in the output. There is no way to detect which
-    convention a bare name follows, which is why it is written down instead.
+    RETRACTED, 2026-10-25 (FLE-103 widening). This docstring used to end with
+    "a capo song added here must write the SOUNDING chord (`F#m7`), never the
+    shape (`Em7`)", on the reasoning that `chord_sequence` is internal to this
+    file and predates §7.2. Both halves of that are wrong, and I am striking it
+    in place rather than deleting it because following it would have published a
+    defect:
+
+    1. `chord_sequence` is NOT internal. `app/verified_tabs.py::_chord_diagrams`
+       reads it straight into `Chord.name`, which §7.2 declares IS THE SHAPE AS
+       FINGERED. So writing sounding names here does not stay here — it labels
+       the player's chord diagram `F#m7` over an Em7 shape, with `sounding_name`
+       left unset so §7.2's own validator never fires.
+    2. FLE-121 §7.3 then declared the same frame for `songs.key`, and it did so
+       by measurement ("declaring the other frame would silently relabel every
+       populated row as wrong"). That postdates the instruction above.
+
+    So the rule is the opposite of what was written: THE NAME IS THE SHAPE, here
+    as everywhere else. The product needs no change for the capo case —
+    `Breakdown._resolve_sounding_names` derives `F#m7` from the shape plus the
+    capo, which is why the shape is the only thing worth storing.
     """
     pcs = set()
     for beat in beats:
@@ -190,6 +229,64 @@ def sounding_pcs(beats, opens, capo):
                 continue
             pcs.add((opens[n["string"]] + capo + n["fret"]) % 12)
     return pcs
+
+
+def frame_shift(tuning, capo):
+    """Semitones from the SHAPE frame to the SOUNDING frame, plus why.
+
+    Chord names and roots in this file are shapes (§7.2/§7.3, and the retraction
+    in `sounding_pcs`). `sounding_pcs` returns what the strings actually make.
+    One of the two has to move or the comparison is between different frames —
+    which is the bug the retracted instruction tried to fix by rewriting the
+    DATA instead of the ruler.
+
+    The shift is the uniform tuning offset plus the capo:
+
+      standard, no capo   ->  0   (all ten original songs: nothing changes)
+      standard, capo 2    -> +2   (Wonderwall)
+      Eb standard         -> -1   (Pride and Joy)
+
+    `uniform_tuning_offset` is imported from app/models/song.py rather than
+    re-derived, for the same reason V9 imports C8: two copies of a music rule is
+    how two files start disagreeing about what is true. It returns None for drop
+    D, open G and DADGAD, because those move strings by DIFFERENT intervals, so
+    no single number maps a standard shape onto its sound. §7.3's answer for
+    those is that the names in use are ALREADY sounding names, so the offset term
+    is 0 and only the capo shifts. No song in this set is in that case yet; the
+    branch is written down because the next curator will hit it.
+    """
+    offset = uniform_tuning_offset(tuning)
+    reason = "uniform" if offset is not None else "non_uniform_tuning"
+    return (offset or 0) + int(capo or 0), reason
+
+
+def check_degrees(spec, beats, opens, capo, shift, where, fails):
+    """V10 — a bar with no chord, checked against declared scale degrees.
+
+    The unit is the bar's whole pitch content and the test is EQUALITY, not
+    containment: a boogie figure is defined as much by what it refuses as by
+    what it plays. The E shuffle bar is root/5/6/b7 and the reason it is a blues
+    rather than a rock riff is that the b7 is present and the third is ABSENT —
+    so a third appearing here must fail, which a "these degrees are present"
+    check would wave through.
+
+    Degrees are declared relative to a root IN THE SHAPE FRAME, so `shift` moves
+    the expectation exactly as it moves a chord name. Pride and Joy's root is
+    declared `E` — the shape every blues player means — and sounds Eb.
+    """
+    root = PC[spec["root"].upper()]
+    want = {(root + shift + DEGREES[d]) % 12 for d in spec["degrees"]}
+    got = sounding_pcs(beats, opens, capo)
+    missing = want - got
+    extra = got - want
+    if missing:
+        fails.append(f"V10 {where}: {spec['root']} "
+                     f"{'/'.join(spec['degrees'])} figure is missing "
+                     f"{sorted(CHROM[p] for p in missing)}")
+    if extra:
+        fails.append(f"V10 {where}: {spec['root']} "
+                     f"{'/'.join(spec['degrees'])} figure sounds "
+                     f"{sorted(CHROM[p] for p in extra)}, which is not in it")
 
 
 # ---- V6: the renderer checks that replaced the MEASURE_WIDTH one -------------
@@ -368,8 +465,11 @@ def check_feel(song, fails):
                      f"to swing even-eighth music")
 
     # C8, per bar: feel marked AND written out as triplet pairs is swing applied
-    # twice (4/9 + 2/9). Vacuous on all-quarter data; it is here so that
-    # FLE-107's re-notation cannot introduce it silently.
+    # twice (4/9 + 2/9). No longer vacuous: the two boogie songs are marked
+    # `shuffle` AND written in eighths, which is precisely the combination C8
+    # inspects, and it passes because plain eighths under a shuffle marking are
+    # the correct way to write it. Before the widening this ran only over
+    # all-quarter data and could not have told a pass from a no-op.
     #
     # BLOCKING here, warning in the write gate (`_check_double_applied_swing`),
     # and that is not an inconsistency. It warns there because no cached
@@ -415,7 +515,7 @@ def beat_duration(beat, where, fails):
     return beats
 
 
-def check_chord(name, beats, opens, capo, where, fails, warns):
+def check_chord(name, beats, opens, capo, where, fails, warns, shift=0):
     """V1-V4 for one measure against its declared chord NAME.
 
     Extracted from main() by FLE-117 so that the capo and bend paths can be
@@ -426,9 +526,13 @@ def check_chord(name, beats, opens, capo, where, fails, warns):
     """
     rt, qual, bass = parse_chord(name)
     spec = QUALITIES[qual]
+    # `shift` carries the name from the shape frame into the sounding frame that
+    # `sounding_pcs` returns (see frame_shift). 0 for every concert-pitch song
+    # with no capo, which is why the original ten are byte-for-byte unaffected.
+    rt = (rt + shift) % 12
     allowed = {(rt + i) % 12 for i in spec["ivals"]}
     if bass is not None:
-        allowed.add(bass)
+        allowed.add((bass + shift) % 12)
     # §7.1 capo + §5 bend skip, both inside sounding_pcs().
     sounding = sounding_pcs(beats, opens, capo)
     if not sounding and any(b["notes"] for b in beats):
@@ -445,8 +549,10 @@ def check_chord(name, beats, opens, capo, where, fails, warns):
     if foreign:
         fails.append(f"{where}: {name} sounds foreign "
                      f"{sorted(CHROM[p] for p in foreign)}")
-    # V2 third
-    if (rt + spec["third"]) % 12 not in sounding:
+    # V2 third — skipped where the quality HAS no third (sus4, 7sus4, 5). That
+    # is a property of the chord, not a hole in the check: the 4 standing in the
+    # third's place is the whole identity of a sus chord.
+    if spec["third"] is not None and (rt + spec["third"]) % 12 not in sounding:
         fails.append(f"{where}: {name} contains no third "
                      f"({CHROM[(rt + spec['third']) % 12]} absent)")
     # V3 characteristic tone
@@ -478,6 +584,8 @@ def main(path=None):
     warns = []
     measures_checked = 0
     measures_with_chord = 0
+    measures_with_degrees = 0
+    measures_unchecked = 0
     shape_index = defaultdict(list)
 
     # V6a is a property of the two source files, not of any one measure, so it
@@ -493,7 +601,13 @@ def main(path=None):
         # §7.1 — absent means 0, and 0 makes every term below a no-op, so a
         # pre-v2 tab reads exactly as it did. `.get` is the whole migration.
         capo = tab.get("capo", 0) or 0
+        shift, shift_why = frame_shift(tab["tuning"], capo)
+        if shift_why == "non_uniform_tuning" and tab["tuning"] != STANDARD_TUNING:
+            warns.append(f"{song['title']}: {tab['tuning']} is not a uniform "
+                         f"retune, so chord names are read as already-sounding "
+                         f"(§7.3) and only the capo shifts")
         seq = song["chord_sequence"]
+        degree_seq = song.get("degree_sequence") or []
         for mi, meas in enumerate(tab["measures"]):
             measures_checked += 1
             where = f"{song['title']} m{mi + 1}"
@@ -551,9 +665,47 @@ def main(path=None):
             # chord checks
             name = seq[mi] if mi < len(seq) else None
             if not name:
+                # V10 — no chord name. Either the bar declares its degrees and
+                # is checked against them, or it is unmeasured and says so.
+                # Silence here is how a riff bar would get into ground truth
+                # with nothing checking its pitch content at all.
+                spec = degree_seq[mi] if mi < len(degree_seq) else None
+                if spec:
+                    measures_with_degrees += 1
+                    check_degrees(spec, beats, opens, capo, shift, where, fails)
+                    # Index riff bars too. They were skipped until 2026-10-25
+                    # because the index was built inside the chord branch, so
+                    # the 16 bars Sweet Home Chicago and Pride and Joy share
+                    # note-for-note were invisible to the one report whose job
+                    # is to notice exactly that. I had written the duplication
+                    # into Pride and Joy's `cannot_verify` by hand — which is
+                    # the wrong way round: if a claim about this file can be
+                    # machine-checked, my prose must not be the only place it
+                    # appears.
+                    label = f"{spec['root']} {'/'.join(spec['degrees'])} figure"
+                    key = json.dumps([[sorted((n["string"], n["fret"])
+                                              for n in b["notes"])]
+                                      for b in beats])
+                    shape_index[key].append((song["title"], mi + 1, label))
+                else:
+                    # WARNING, not a failure, and the distinction took a
+                    # regression to find. `chord_sequence: [None]` already meant
+                    # "this bar is deliberately not a chord bar" — it is how the
+                    # fixtures isolate the meter and fret checks, and how FLE-107
+                    # runs candidate generator output through here. Failing on it
+                    # conflated "nothing checks this bar" with "this bar is
+                    # wrong", and broke six tests that were right.
+                    #
+                    # The guarantee I actually wanted — the COMMITTED set has no
+                    # unchecked bar — belongs to the committed set, so it is a
+                    # test over the real file (test_the_widened_set_has_no_
+                    # unchecked_bars), not a rule that misfires on every fixture.
+                    measures_unchecked += 1
+                    warns.append(f"{where}: no chord name and no declared "
+                                 f"degrees — nothing checks this bar's pitches")
                 continue
             measures_with_chord += 1
-            check_chord(name, beats, opens, capo, where, fails, warns)
+            check_chord(name, beats, opens, capo, where, fails, warns, shift)
 
             key = json.dumps([[sorted((n["string"], n["fret"])
                                       for n in b["notes"])] for b in beats])
@@ -626,7 +778,9 @@ def main(path=None):
     # ---- verdict -----------------------------------------------------------
     print(f"\n=== VERDICT ===")
     print(f"  measures checked: {measures_checked} "
-          f"({measures_with_chord} carry a declared chord)")
+          f"({measures_with_chord} against a chord name, "
+          f"{measures_with_degrees} against declared degrees, "
+          f"{measures_unchecked} unchecked)")
     print(f"  songs: {len(songs)}")
     print(f"  warnings: {len(warns)}")
     if fails:

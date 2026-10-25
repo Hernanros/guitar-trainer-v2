@@ -13,6 +13,13 @@ Artefacts:
 **Result: 10 songs, 80 measures, 80/80 passing eight independent checks.** But the deliverable is
 not shaped the way the issue assumed, and the reason matters more than the set does.
 
+> **WIDENED 2026-10-25 — the set is now 15 songs and 124 measures, 124/124 green.** Hernan answered
+> §5 with `widen-first`, and **§7 is the record of it**: five rock/blues songs added, three more
+> deliberately refused, and the real cause of the genre skew found to be **neither** the renderer
+> (that was F1, now expired) **nor** the limits of my ear — it was that the ruler could only measure
+> **chords**, so the set could only contain chord-changes music. Read §2's filters and §3's numbers
+> as the state at ten songs; **§7 supersedes them wherever they conflict.**
+
 ---
 
 ## 1. Three findings that reshape the task
@@ -126,6 +133,12 @@ straight grid is a different rhythm, and the renderer shows no rhythm to correct
 > past ten and past six-of-ten jazz and classical; it is not in this issue's scope and is the first
 > thing to pick up if Hernan's answer on §5 is "widen it". What has NOT changed is F2: a renderer that
 > can draw a bend does not make me able to certify one cold.
+>
+> **ACTED ON 2026-10-25.** Hernan answered "widen it", F1 was re-run against the current renderer,
+> and §7 is the result — five songs added, including the two shuffles this filter names. One
+> correction to the paragraph above, though: re-running F1 was **not** what unblocked the shuffles.
+> The renderer had been able to draw them since FLE-116; what was missing was any way for the
+> VERIFIER to state a figure's ground truth. See §7.1.
 
 **F2 — I must be able to certify it cold.** No song where I would need the record to publish a
 bar-by-bar reading. This is why *Everlong* is out despite being renderer-safe and drop-D (I am not
@@ -368,10 +381,157 @@ not the same set, and finishing this one does not unblock that one.** Writing sh
 truth still needs the schema (FLE-105) — otherwise the ground truth is written in the same lossy
 form as the thing it is meant to catch.
 
+> **AMENDED 2026-10-25.** The two sets are still different and still must be — this one is chosen
+> for songs a stranger can practise, that one for songs that make a generator fail. But the
+> widening took FLE-107's transcriptions for *Sweet Home Chicago*, *Pride and Joy*, *Wonderwall* and
+> *Sultans of Swing* **unchanged**, deliberately: two of my own files disagreeing about the same
+> eight bars of the same song would be worse than either being wrong, because then neither is ground
+> truth. Different purposes, different scoring, one transcription.
+
 What this set *does* give FLE-107 immediately: a scoring harness and 80 machine-checked bars for the
 defect classes that need no articulation — T1 mode flip, T2 missing third, T3 position, T4 wrong
 voicing, T10 bars that don't add up. Those five are checkable today against committed ground truth.
 The articulation classes are not.
+
+---
+
+## 7. The widening — 2026-10-25, five rock/blues songs
+
+Hernan answered the §5 question on 2026-10-23: **`widen-first`**, "add rock/blues now that shuffle
+and articulation render", and **`cap-070`**, ratifying the 0.70 `player_level` cap as built. No code
+change for the cap; it is settled, not open. Zero spend on the widening: no LLM, no DB write, no
+build.
+
+### 7.1 The skew was caused by the ruler, not the renderer and not my ear
+
+I had two explanations for why six of the first ten were jazz or classical, and **both were wrong.**
+
+- **F1, the renderer** — expired when FLE-116 landed (see §2). I had already struck it.
+- **F2, what I can certify cold** — still true, but it does not explain the skew. It explains why
+  *Eruption* and *Kashmir* are out; it does not explain why a 12-bar blues was out, because a 12-bar
+  blues is the single most certifiable thing in the catalog.
+
+The actual cause, found by trying to add one: **`fle103_verify_pilot_tabs.py` could only check a bar
+against a declared chord name.** A boogie figure has no chord name that is not a lie —
+
+- call the bar **E5** and its 6 and b7 are "foreign notes";
+- call it **E7** and the verifier demands a G# that must *not* be there.
+
+So a shuffle could not be *stated* as ground truth, let alone checked, and the set could only
+contain music whose content is a chord progression. The genre skew was a **property of my own
+measuring instrument**, and it had been invisible because every song that got in passed.
+
+**V10** fixes it: a bar may declare scale **degrees** against a root instead of a chord, checked as
+**equality** — what the figure refuses matters as much as what it plays. The E shuffle bar is
+`1/5/6/b7`: the b7 must be there (it is what makes it a blues and not a rock fifth) and a third of
+either quality must not.
+
+### 7.2 A second defect, found the same way: the frame bug
+
+FLE-117 left an instruction in the verifier: *"a capo song added here must write the SOUNDING chord
+(`F#m7`), never the shape (`Em7`)."* **Following it would have published a defect**, so it is
+retracted in place:
+
+- `chord_sequence` is **not** internal to my file — `app/verified_tabs.py::_chord_diagrams` reads it
+  straight into `Chord.name`, which §7.2 declares **is the shape as fingered**, and FLE-121 §7.3
+  later declared the same frame for `songs.key` on measured grounds.
+- Measured consequence, not argued: `Breakdown` derives `sounding_name` from `name` + capo, so
+  `name='Em7'` at capo 2 → `F#m7` (**correct**), and `name='F#m7'` at capo 2 → **`Abm7`** — a chord
+  that appears nowhere in *Wonderwall*. The old rule served a player **both** labels wrong with
+  nothing raising an error.
+
+The data stays in the shape frame and the **verifier** moved instead: `frame_shift()` carries a
+declared name into the sounding frame by `uniform_tuning_offset + capo`, importing the model's own
+helper rather than copying it. Shift is 0 for all ten original songs, so they are unaffected
+byte-for-byte; +2 for Wonderwall, −1 for Pride and Joy.
+
+### 7.3 The five, and why each one
+
+| # | song | diff | setup | what it adds that nothing else did |
+|---|---|---|---|---|
+| 11 | Wonderwall | 0.20 | standard, **capo 2** | excluded ONLY because there was no capo field; now the one song exercising §7.1 in committed ground truth |
+| 12 | Sweet Home Chicago | 0.30 | standard, **shuffle** | the first song whose material is a **figure**, not a chord sequence |
+| 13 | Folsom Prison Blues | 0.32 | standard, straight | the **complete 12-bar form**, so the V actually arrives |
+| 14 | Pride and Joy | 0.64 | **Eb standard**, shuffle | a blues at 0.64, and the only song where the shape and sounding frames differ |
+| 15 | Sultans of Swing | 0.74 | standard, straight | the top of the window a pilot user can reach, and the **reverse** mode flip |
+
+Three things worth stating about that table:
+
+- **The eight-bar convention was hiding the dominant.** Bars 1–8 of a 12-bar never reach the V, so
+  every blues excerpt in the set would have been I and IV only. *Folsom* commits all twelve.
+- **Sultans of Swing carries the mode flip pointing the other way.** The fourth chord of a D minor
+  tune is **A major** (C#). FLE-102's T1 was always a major third where a minor belonged, so a
+  generator patched to "use the natural minor in a minor key" passes every older check and fails
+  here.
+- **Sweet Home Chicago and Pride and Joy share all 16 bars, note for note**, and that is a true fact
+  about the figure rather than an error: the differences are the tuning, the tempo and the SRV fills
+  I did not commit. **It is still a curation problem** — two pilot days could serve what looks like
+  the same screen. Flagged for Nadia to sequence; not to be fixed by inventing a difference. The
+  verifier's cross-song index now reports it, which it did not before: the index was built inside
+  the chord branch, so riff bars were invisible to the one report whose job is to notice exactly
+  this. I had written the duplication into `cannot_verify` by hand, which is the wrong way round —
+  if a claim about this file can be machine-checked, my prose must not be the only place it appears.
+
+### 7.4 The three I refused, and what I would need
+
+Hernan's answer was "add rock/blues", and these are the rock/blues titles I did **not** add. F2 has
+not moved: a renderer that can draw a bend does not make me able to certify one.
+
+- **Hey Joe** (0.44) — the C–G–D–A–E cycle is not in dispute. **The tuning is.** The catalog says
+  `eb_standard`; I do not know cold whether that record is down a semitone, and the verified set
+  declares its own tuning array, so I would be publishing a tuning I guessed. Needs the record.
+- **Sunshine of Your Love** (0.40) — I know the riff as a player and I do not know its exact rhythm
+  and note order cold. Needs the record plus a reference transcription.
+- **Message in a Bottle** (0.57) — I am about 80% on C#m–A–B–F#m, and 80% is not cold. This is the
+  one that would have done the most for the genre mix, because **0.47–0.60 is still all jazz and
+  classical** — it is the band where I could not certify a rock song. Needs the record.
+
+### 7.5 Numbers
+
+- **124 measures, 124/124 green** — 108 against a chord name, 16 against declared degrees, **0
+  unchecked**. 15 songs. Zero warnings.
+- **Mutation-tested, because a check that has never gone red is not evidence.** Each of these turns
+  the run red: a major third added to the shuffle; the b7 removed (the figure flattened to a rock
+  fifth); the IV bars left on the I's strings; a riff bar declaring neither chord nor degrees;
+  Dsus4's 4th replaced by its major third; Pride and Joy marked `straight` against its own prose.
+  And the pre-fix frame rule now fails *Wonderwall* across correct tab — which is what proves the
+  frame fix was necessary rather than cosmetic.
+- **Selector coverage improved where it matters.** Thin windows were `0.75–0.79` (only *Hotel
+  California*) and `0.80–1.00` (only *Giant Steps*); the only thin window left is `0.89–1.00`, and
+  under the ratified 0.70 cap that window is **unreachable anyway**. No dead windows.
+- Tests: **119 pass** in `test_fle103_verifier_v2.py` + `test_tab_schema_v2.py`.
+
+### 7.6 Two consequences of the ratified 0.70 cap, for the record
+
+Neither is a request to change it — Hernan ratified 0.70 and it stands. Both are arithmetic that
+moved when the set grew, and someone will otherwise rediscover them as bugs:
+
+1. **Giant Steps (0.95) cannot be served during the pilot at all.** The cap makes the highest
+   reachable window 0.55–0.85. That was already true before the widening; it is just now the only
+   thin window in the report.
+2. **The cap's original justification has weakened.** It existed because a user above ~0.75 saw one
+   song. With *Sultans of Swing* at 0.74 in the set, a 0.80 player would now have three. If the cap
+   is ever revisited, that is the number that changed.
+
+### 7.7 BLOCKING — two production defects the widening found
+
+Both in `app/verified_tabs.py`, both out of my lane (production code → Ripley), both triggered by a
+verified song whose bars are a **figure** rather than a chord progression. **13 of 15 songs load and
+serve today; the two boogie songs crash the loader.**
+
+1. **`_chord_diagrams` raises on a riff bar.** It zips `chord_sequence` with the measures and builds
+   `Chord(name=name)`; for a riff bar `name` is `None` and pydantic raises
+   `ValidationError: name Input should be a valid string`. Measured: *Sweet Home Chicago* and *Pride
+   and Joy* both crash `breakdown_from_verified_song`. The guard belongs in the dict-building loop —
+   skip bars with no chord name rather than keying the dict on `None`.
+2. **`_technique_notes` would then print `1. None · 2. None · …`** as the player-facing "Bar by bar"
+   note, because it formats `chord_sequence` unconditionally. Fixing (1) alone converts a crash into
+   visible nonsense on a player's screen, so these two ship together.
+
+Neither is a data problem: the committed set is green and the pitch content of those bars is
+verified. It is that the FLE-110 serving path was only ever exercised by chord-progression songs.
+
+---
 
 **One warning for FLE-106 (Doro).** The verifier reports cross-song identical measures and
 explicitly does **not** fail on them: *Cm7* legitimately appears in both *Autumn Leaves* and *Blue
