@@ -30,7 +30,7 @@ import pathlib
 import sys
 import uuid
 from decimal import Decimal
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 import pytest
 import pytest_asyncio
@@ -163,7 +163,7 @@ async def _song_identity(db: AsyncSession, song_id: int) -> tuple[str, str]:
 # 1. What the column holds is still ground truth
 # ---------------------------------------------------------------------------
 
-def _chord_sequence_from_notes(breakdown: dict) -> list[str]:
+def _chord_sequence_from_notes(breakdown: dict) -> list[Optional[str]]:
     """Recover the bar-by-bar chord names out of the stored technique note.
 
     `verified_tabs._technique_notes` writes them as "1. Cm7 · 2. Fm7 · ...", so
@@ -171,14 +171,27 @@ def _chord_sequence_from_notes(breakdown: dict) -> list[str]:
     than from the file is the point. The verifier checks every measure's notes
     against the chord name for that bar, so if the stored note and the stored
     tab ever disagreed, this is the test that would catch it.
+
+    FLE-138: the note lists ONLY bars that declare a chord, each under its true
+    bar number, and it is omitted entirely when a song declares none (a figure
+    song — see `_chord_diagrams`). So the prefix is the bar number and must be
+    honoured as one: reading the parts positionally would map the second NAMED
+    bar onto bar 2 of the song, which for a part-figure song silently checks
+    each diagram against the wrong measure. Unnamed bars are restored as None,
+    which is what the file holds for them and what the verifier reads as "this
+    bar is deliberately not a chord bar".
     """
     for note in breakdown.get("technique_notes") or []:
-        if note.get("heading") == "Bar by bar":
-            return [
-                part.split(".", 1)[1].strip()
-                for part in note["body"].split("·")
-                if "." in part
-            ]
+        if note.get("heading") != "Bar by bar":
+            continue
+        by_bar: dict[int, str] = {}
+        for part in note["body"].split("·"):
+            number, _, name = part.partition(".")
+            if name.strip():
+                by_bar[int(number.strip())] = name.strip()
+        if not by_bar:
+            return []
+        return [by_bar.get(bar) for bar in range(1, max(by_bar) + 1)]
     return []
 
 

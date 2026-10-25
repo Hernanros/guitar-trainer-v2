@@ -50,8 +50,19 @@ CHECK 2 — does the stamp agree with the commit prod is actually running?
     landed on 2026-10-04: prod runs 6e8426f, whose chain stops at 0012, and the
     stamp said 0015 — a revision that commit has never heard of.
 
-    Needs the Railway CLI, authenticated and linked (see DEPLOY.md). Skipped with a
-    loud UNVERIFIED line if unavailable, never silently passed.
+    Needs the Railway CLI, authenticated and linked (see DEPLOY.md). It never passes
+    silently; it reports one of four verdicts, and the distinction between the last
+    two matters:
+      AGREES / DIVERGED  — the invariant was tested.
+      UNVERIFIED         — the apparatus failed: no CLI, no link, a timeout, no
+                           active deployment. A fault to fix.
+      INAPPLICABLE       — Railway has no commit for the running deployment, because
+                           it was uploaded with `railway up` instead of built from
+                           the GitHub source. Nothing to compare; not a malfunction.
+    Both of the last two stay out of exit 0, but they are worded differently on
+    purpose. A check whose output reads "failed" every single day on a condition
+    nobody intends to fix is a check people learn to skip — which is this file's own
+    subject matter, so it must not reproduce it.
 
 CHECK 3 — the schema-drift check: are the stamped revision's effects actually there?
     This is the one that answers FLE-133's standing caveat, that `alembic_version`
@@ -99,9 +110,11 @@ throwaway database that is always dropped again.
 EXIT CODES — chosen so a routine or cron can treat this as a check without parsing.
     0  Fully verified clean. Stamp == chain head == head of the deployed commit, and
        prod's schema matches the stamp. Every check ran.
-    1  Nothing broken, but NOT a full clean bill. Either prod is legitimately behind
-       head (an ordinary pending deploy), or a check could not run and was reported
-       UNVERIFIED. Deliberately not 0, so that 0 keeps meaning "actually verified".
+    1  Nothing broken, but NOT a full clean bill. Prod is legitimately behind head (an
+       ordinary pending deploy), or a check could not run (UNVERIFIED), or a check did
+       not apply to this deployment (INAPPLICABLE). Deliberately not 0, so that 0
+       keeps meaning "actually verified". The verdict line says which of the three,
+       because only the UNVERIFIED one is asking anybody to do something.
     2  DRIFT. Prod is undeployable now, or the stamp is not telling the truth, or the
        stamp was written outside the deploy path. This is the alarm.
     3  The check could not run at all (no DATABASE_URL, no connection, no
@@ -421,48 +434,108 @@ def chain_head_at_commit(commit: str) -> tuple[str | None, set[str], str | None]
     return tips.pop(), revisions, None
 
 
-def railway_active_deployment() -> tuple[dict | None, str | None]:
-    """The active production deployment's commit and status, via the Railway CLI."""
+def railway_active_deployment() -> tuple[dict | None, str | None, str | None]:
+    """The active production deployment's commit and status, via the Railway CLI.
+
+    Returns (deployment, does_not_apply, error) with exactly one of the three set.
+
+    The middle one earns its place: "this deployment was not built from a commit" is
+    a different fact from "the lookup failed", and collapsing them is how this check
+    spent 2026-10-22 reporting a permanently degraded verdict that read like broken
+    tooling. See the no-commitHash branch below.
+    """
     try:
         out = subprocess.run(
             ["railway", "status", "--json"],
             check=True, capture_output=True, text=True, timeout=90,
         ).stdout
     except FileNotFoundError:
-        return None, "the `railway` CLI is not installed"
+        return None, None, "the `railway` CLI is not installed"
     except subprocess.TimeoutExpired:
-        return None, "`railway status` timed out"
+        return None, None, "`railway status` timed out"
     except subprocess.CalledProcessError as exc:
         tail = (exc.stderr or "").strip().splitlines()
-        return None, f"`railway status` failed: {tail[-1] if tail else 'unknown'}"
+        return None, None, f"`railway status` failed: {tail[-1] if tail else 'unknown'}"
 
     try:
         data = json.loads(out)
     except json.JSONDecodeError:
-        return None, "`railway status --json` did not return JSON"
+        return None, None, "`railway status --json` did not return JSON"
 
+    prod = None
     for env in data.get("environments", {}).get("edges", []):
         node = env.get("node", {})
-        if node.get("name") != "production":
-            continue
-        for svc in node.get("serviceInstances", {}).get("edges", []):
-            deployments = svc.get("node", {}).get("activeDeployments") or []
-            for dep in deployments:
-                meta = dep.get("meta") or {}
-                if meta.get("commitHash"):
-                    return {
-                        "commit": meta["commitHash"],
-                        "status": dep.get("status"),
-                        "message": (meta.get("commitMessage") or "").splitlines()[:1],
-                    }, None
-    return None, "no active production deployment with a commit hash was reported"
+        if node.get("name") == "production":
+            prod = node
+            break
+    if prod is None:
+        return None, None, "`railway status --json` reported no production environment"
+
+    # Only a repo-sourced service is built from a commit, so only it can carry the
+    # invariant. Postgres is an image (`source.image`), deploys no code and runs no
+    # migrations; picking the first service with a commit hash happened to work only
+    # because the image service has none.
+    repo_services = [
+        svc.get("node") or {}
+        for svc in prod.get("serviceInstances", {}).get("edges", [])
+        if ((svc.get("node") or {}).get("source") or {}).get("repo")
+    ]
+    if not repo_services:
+        return None, (
+            "no production service is built from a git repo, so there is no deployed "
+            "commit for the stamp to agree with"
+        ), None
+
+    active = [
+        (svc.get("serviceName") or "?", dep)
+        for svc in repo_services
+        for dep in (svc.get("activeDeployments") or [])
+    ]
+    if not active:
+        return None, None, (
+            "no active deployment was reported for "
+            + ", ".join(svc.get("serviceName") or "?" for svc in repo_services)
+        )
+
+    active.sort(key=lambda sd: sd[1].get("createdAt") or "", reverse=True)
+    service, dep = active[0]
+    meta = dep.get("meta") or {}
+
+    if not meta.get("commitHash"):
+        # Railway records repo/branch/commitHash only for a build it made itself from
+        # the GitHub source. `railway up` deploys a tarball of whatever is in somebody's
+        # working directory, so no commit appears anywhere in the payload — measured on
+        # deployment 732d345b (2026-10-22), whose meta carries no `repo` and no `branch`
+        # either, while a `reason: redeploy` deployment three minutes earlier carried
+        # all three. So this is not a CLI defect to route around via
+        # `railway deployment list`: that returns the same empty meta. There is
+        # genuinely no commit. Say which deployment and why, and let CHECK 3 carry it.
+        return None, (
+            f"the active {service} deployment ({(dep.get('id') or '?').split('-')[0]}, "
+            f"{dep.get('status')}, {dep.get('createdAt')}) records no commit. Railway "
+            "attaches repo/branch/commitHash only to a build it made from the GitHub "
+            "source, so this one was uploaded from a working tree (`railway up`) "
+            "rather than built from a commit — there is nothing for the deploy-path "
+            "invariant to compare against. Note what that costs: the stamp cannot be "
+            "attributed to a known source tree at all, so CHECK 3 is the only thing "
+            "still holding it honest."
+        ), None
+
+    return {
+        "commit": meta["commitHash"],
+        "status": dep.get("status"),
+        "service": service,
+        "message": (meta.get("commitMessage") or "").splitlines()[:1],
+    }, None, None
 
 
 def check_deploy_path(stamp: str) -> tuple[str, list[str]]:
-    """Verdict is agrees | diverged | unverified."""
-    dep, err = railway_active_deployment()
+    """Verdict is agrees | diverged | inapplicable | unverified."""
+    dep, does_not_apply, err = railway_active_deployment()
     if err:
         return "unverified", [f"could not read the active deployment: {err}"]
+    if does_not_apply:
+        return "inapplicable", [does_not_apply]
 
     commit, status = dep["commit"], dep["status"]
     subject = dep["message"][0] if dep["message"] else ""
@@ -669,7 +742,12 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"  prod alembic_version : {stamp}")
 
+    # Two counters, not one. "could not run" is a fault in the checking apparatus and
+    # wants fixing; "does not apply to this deployment" is a stated, correct outcome.
+    # Both fall short of the full three-check bill, so neither reaches exit 0 — but
+    # reporting them with the same words is what trains a reader to ignore the check.
     unverified = 0
+    inapplicable = 0
 
     chain_verdict, head, chain_lines = check_chain(stamp)
     _section(f"CHECK 1 — the stamp in this checkout's chain [{chain_verdict.upper()}]",
@@ -681,8 +759,10 @@ def main(argv: list[str] | None = None) -> int:
         deploy_verdict, deploy_lines = check_deploy_path(stamp)
     _section(f"CHECK 2 — the stamp vs the commit prod runs [{deploy_verdict.upper()}]",
              deploy_lines)
-    if deploy_verdict in ("unverified", "skipped"):
+    if deploy_verdict == "unverified":
         unverified += 1
+    elif deploy_verdict in ("skipped", "inapplicable"):
+        inapplicable += 1
 
     if args.skip_schema_diff:
         schema_verdict, schema_lines = "skipped", ["skipped by --skip-schema-diff"]
@@ -695,8 +775,10 @@ def main(argv: list[str] | None = None) -> int:
         schema_verdict, schema_lines = check_schema(prod_url, args.ref_url, stamp)
     _section(f"CHECK 3 — the stamp vs prod's actual schema [{schema_verdict.upper()}]",
              schema_lines)
-    if schema_verdict in ("unverified", "skipped"):
+    if schema_verdict == "unverified":
         unverified += 1
+    elif schema_verdict == "skipped":
+        inapplicable += 1
 
     # --- verdict ----------------------------------------------------------
     print()
@@ -715,8 +797,15 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_DRIFT
 
     if unverified:
-        print(f"VERDICT: no fault found, but {unverified} check(s) did not run. "
-              "Not a clean bill of health.")
+        print(f"VERDICT: no fault found, but {unverified} check(s) could not run. "
+              "Not a clean bill of health — and the reason is in the checking "
+              "apparatus, not in prod. Fix it; see the lines above.")
+        return EXIT_ATTENTION
+    if inapplicable:
+        print(f"VERDICT: no fault found, and every check that ran is clean — but "
+              f"{inapplicable} check(s) did not run by design (skipped, or not "
+              "applicable to this deployment), so this is short of the full "
+              "three-check bill. The reason is stated above; nothing is malfunctioning.")
         return EXIT_ATTENTION
     if chain_verdict == "behind":
         print(f"VERDICT: healthy. Prod is stamped {stamp}, behind head {head} — an "

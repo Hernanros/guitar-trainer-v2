@@ -103,10 +103,19 @@ reference **at the stamp, not at head**, is what separates "legitimately behind"
 `verified_tab`, which is simply not deployed yet.
 
 Exit codes, so a routine can treat it as a check without parsing: `0` verified clean ·
-`1` nothing broken but not a full clean bill (behind head, or a check was skipped) ·
-`2` **drift — alert on this** · `3` the check could not run. Checks 2 and 3 need the
-Railway CLI and a non-prod Postgres respectively; without them they report `UNVERIFIED`
-and exit `1` rather than passing silently.
+`1` nothing broken but not a full clean bill (behind head, or a check did not run) ·
+`2` **drift — alert on this** · `3` the check could not run at all. Checks 2 and 3 need
+the Railway CLI and a non-prod Postgres respectively; without them they exit `1` rather
+than passing silently.
+
+Check 2 separates two reasons for not having a verdict, and the wording is load-bearing:
+`UNVERIFIED` means the apparatus failed (no CLI, no link, timeout) and wants fixing,
+while `INAPPLICABLE` means Railway has no commit for the running deployment because it
+was uploaded with `railway up` instead of built from the GitHub source — nothing to
+compare, nothing to fix. Both stay out of exit `0`. Reporting them identically is how
+this check spent 2026-10-22 looking permanently broken, which is the fastest way to
+teach a reader to ignore it. When check 2 is `INAPPLICABLE` the stamp cannot be tied to
+any known source tree, so check 3 is the only thing still holding it honest.
 
 Blind spot, stated plainly: check 3 compares **schema**. A data-only migration (0012's
 seed, 0017's backfill, 0019's inserts) has no schema footprint, so a stamp that skipped
@@ -127,7 +136,12 @@ Railway CLI authenticated and `gt-postgres` on 5433.
 it cannot disturb a shared working tree), starts `gt-postgres` if it is merely stopped,
 re-asserts the Railway link, runs the check, appends to
 `~/Library/Logs/fletcher-alembic-drift.log`, and on exit ≥ 2 raises a desktop
-notification. `scripts/com.fletcher.alembic-drift.plist` schedules it daily at 09:15:
+notification. `scripts/com.fletcher.alembic-drift.plist` schedules it daily at 09:15.
+
+**This job is installed and loaded on Hernan's Mac as of 2026-10-25** (first launchd run
+13:16Z, exit 0, all three checks clean against stamp `0019`). The commands below are for
+reinstalling after a repo move or a fresh machine — check
+`launchctl print gui/$UID/com.fletcher.alembic-drift` before running them again.
 
 ```bash
 sed "s#__REPO__#$HOME/Documents/guitar-trainer-v2#" \

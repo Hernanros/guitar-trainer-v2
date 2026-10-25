@@ -187,15 +187,25 @@ def song_fingerprint(entry: dict) -> str:
 # Shaping: verified-set entry -> Breakdown
 # ---------------------------------------------------------------------------
 
-def _chord_diagrams(tab: Tab, chord_sequence: list[str]) -> list[Chord]:
+def _chord_diagrams(tab: Tab, chord_sequence: list[Optional[str]]) -> list[Chord]:
     """Read one diagram per distinct chord name back off the verified voicing.
 
-    `chord_sequence` is one chord name per measure (FLE-103 commits all ten songs
-    that way, 8 names for 8 measures), and within a measure every beat restates the
-    same voicing. So the first beat of the first measure that declares a name IS
-    the verified shape for that name, and reading it back is arithmetic rather than
-    a second act of transcription — which is the point: a hand-drawn diagram could
-    disagree with the tab printed beside it, and this one cannot.
+    `chord_sequence` is one entry per measure, and within a measure every beat
+    restates the same voicing. So the first beat of the first measure that declares
+    a name IS the verified shape for that name, and reading it back is arithmetic
+    rather than a second act of transcription — which is the point: a hand-drawn
+    diagram could disagree with the tab printed beside it, and this one cannot.
+
+    A bar's entry is None when the bar is a FIGURE rather than a chord: the
+    FLE-103 widening added two boogie songs whose every bar is a riff, and a riff
+    bar legitimately has no chord name. See V10 in
+    `scripts/fle103_verify_pilot_tabs.py` for why naming one would be a lie in
+    either direction — call an E boogie bar `E5` and its 6 and b7 are foreign,
+    call it `E7` and the checker demands a G# that must not be there. Such bars
+    are skipped here, so a figure-only song yields no diagrams (and a song with
+    some named bars yields diagrams for just those). Emitting a diagram requires a
+    name to label it with; it is not available for a figure, and `Chord.name` is
+    non-optional precisely because an unlabelled diagram is unrenderable.
 
     Strings absent from the voicing are emitted as `fret: -1` ("not played" in a
     diagram, §7.1.3) rather than omitted, so the renderer draws the × it draws for
@@ -208,6 +218,8 @@ def _chord_diagrams(tab: Tab, chord_sequence: list[str]) -> list[Chord]:
     """
     first_measure_for: dict[str, Measure] = {}
     for name, measure in zip(chord_sequence, tab.measures):
+        if not name:
+            continue
         if name not in first_measure_for:
             first_measure_for[name] = measure
 
@@ -264,14 +276,22 @@ def _technique_notes(entry: dict) -> list[TechniqueNote]:
     if body:
         notes.append(TechniqueNote(heading="The passage", body=body))
 
+    # Only bars that actually declare a chord name are listed, and each keeps its
+    # TRUE bar number. A figure bar's entry is None (see `_chord_diagrams`), so a
+    # figure-only song drops the "Bar by bar" note entirely rather than printing
+    # "1. None · 2. None · …" on a player's screen. Dropping it loses nothing: the
+    # "The passage" note above already carries the form ("Bars 1-8 of the 12-bar
+    # form: I I I I IV IV I I"), which is the useful statement about a riff anyway.
+    # Numbering is taken from the full sequence rather than from the filtered list
+    # because renumbering the survivors 1..n would silently relabel which bar of
+    # the song a chord falls on — a quieter lie than the one it replaces.
     sequence = entry.get("chord_sequence") or []
-    if sequence:
+    named_bars = [(i, name) for i, name in enumerate(sequence, 1) if name]
+    if named_bars:
         notes.append(
             TechniqueNote(
                 heading="Bar by bar",
-                body=" · ".join(
-                    f"{i}. {name}" for i, name in enumerate(sequence, 1)
-                ),
+                body=" · ".join(f"{i}. {name}" for i, name in named_bars),
             )
         )
     return notes

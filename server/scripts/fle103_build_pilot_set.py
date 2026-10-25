@@ -100,7 +100,36 @@ SHAPES = {
     "Bmaj7":   {5: 2, 4: 4, 3: 3, 2: 4},
     "Gmaj7":   {6: 3, 4: 4, 3: 4, 2: 3},
     "Fmaj7":   {4: 3, 3: 2, 2: 1, 1: 0},
+    # --- FLE-103 widening (2026-10-25) --------------------------------------
+    # A key may carry a "|variant" suffix: the chord NAME is everything before
+    # the bar, and the suffix only distinguishes two voicings of one name.
+    # Needed because Wonderwall's Em7 and G are not the open-position Em7 and G
+    # above — Gallagher holds strings 2 and 1 at the 3rd fret through all four
+    # chords, and that pedal is the sound of the song. Writing the ordinary
+    # shapes would be a different arrangement wearing the same chord names.
+    #
+    # These frets are CAPO-RELATIVE (§7.1): the capoed string is fret 0. So
+    # "6: 0" is the low E string at the capo, sounding F#, not E.
+    "Em7|wonderwall":    {6: 0, 5: 2, 4: 2, 3: 0, 2: 3, 1: 3},
+    "G|wonderwall":      {6: 3, 5: 2, 4: 0, 3: 0, 2: 3, 1: 3},
+    "Dsus4|wonderwall":  {4: 0, 3: 2, 2: 3, 1: 3},
+    "A7sus4|wonderwall": {5: 0, 4: 2, 3: 0, 2: 3, 1: 3},
+    # 12-bar blues in E shapes (Folsom) and the Sultans of Swing intro bed.
+    "B7":      {5: 2, 4: 1, 3: 2, 2: 0, 1: 2},
+    "Dm":      {4: 0, 3: 2, 2: 3, 1: 1},
+    "Bb":      {5: 1, 4: 3, 3: 3, 2: 3, 1: 1},
 }
+
+# The boogie figure: the root droning against 5 - 6 - b7 - 6 on the next string
+# up, in straight eighths, swung by the FEEL MARKING rather than by notation
+# (§2.5). Eight eighths to the bar.
+#
+# This is the same figure, note for note, that FLE-107's regression set commits
+# for Sweet Home Chicago and Pride and Joy. Deliberately one transcription: two
+# of my own files disagreeing about the same eight bars of the same song would
+# be worse than either of them being wrong, because then neither is ground truth.
+BOOGIE_FRETS = [2, 2, 4, 4, 5, 5, 4, 4]
+BOOGIE_DEGREES = ["1", "5", "6", "b7"]
 
 
 def chord_measure(name, beats=4, duration="quarter", time_sig="4/4"):
@@ -110,7 +139,41 @@ def chord_measure(name, beats=4, duration="quarter", time_sig="4/4"):
              for s, f in sorted(shape.items(), reverse=True)]
     return {"beats": [{"notes": list(notes)} for _ in range(beats)],
             "time_signature": time_sig,
-            "_chord": name}
+            # Everything before "|" — the NAME is a chord, the variant is only
+            # this file's way of telling two voicings of it apart.
+            "_chord": name.split("|", 1)[0]}
+
+
+def boogie_measure(root_string, root_fret=0, duration="eighth", time_sig="4/4"):
+    """One bar of the shuffle boogie: a drone plus the 5-6-b7-6 movement.
+
+    Each column is a DOUBLE STOP — the root and the moving note together, which
+    is what the hand actually does and what FLE-102 found the generator
+    flattening into a single line. The moving voice sits on the next string up
+    from the drone, so an E-rooted bar is strings 6+5 and the IV is strings 5+4.
+
+    There is no chord name for this bar, by design — see V10 in the verifier.
+    """
+    moving_string = root_string - 1
+    beats = [
+        {"notes": [
+            {"string": root_string, "fret": root_fret, "duration": duration},
+            {"string": moving_string, "fret": f, "duration": duration},
+        ]}
+        for f in BOOGIE_FRETS
+    ]
+    return {"beats": beats, "time_signature": time_sig, "_chord": None,
+            "_degrees": {"root": None, "degrees": list(BOOGIE_DEGREES)}}
+
+
+def boogie_bars(root_note, root_string, n):
+    """`n` identical boogie bars rooted on `root_string`, degrees named."""
+    out = []
+    for _ in range(n):
+        m = boogie_measure(root_string)
+        m["_degrees"]["root"] = root_note
+        out.append(m)
+    return out
 
 
 def riff_measure(events, time_sig="4/4"):
@@ -401,6 +464,215 @@ SONGS = [
             "split it. Harmonically identical, so either should score as correct."
         ],
     },
+
+    # =======================================================================
+    # THE WIDENING — five rock/blues songs, 2026-10-25.
+    #
+    # Hernan chose `widen-first` over shipping the original ten (answered
+    # 2026-10-23): six of ten were jazz or classical standards while the roster
+    # was recruited as serious intermediate/advanced ROCK players.
+    #
+    # What made the first ten skew was NOT, in the end, the renderer — that was
+    # my F1 filter and it expired when FLE-116 landed. It was that the ruler
+    # could only measure CHORDS. A blues shuffle is a figure, not a chord
+    # progression, so there was no way to state its ground truth and no way to
+    # check it; the set could therefore only contain chord-changes music. V10
+    # (declared scale degrees, checked as equality) is what removes that, and
+    # these five are what it buys.
+    # =======================================================================
+    {
+        "title": "Wonderwall",
+        "artist": "Oasis",
+        "catalog_difficulty": 0.20,
+        "tuning": ["E", "A", "D", "G", "B", "e"],
+        "tuning_catalog_tag": "standard",
+        # §7.1 — frets are capo-relative; the capoed string is fret 0.
+        "capo": 2,
+        # §7.3 — the key NAMES THE SHAPES. The sounding key is not stored here;
+        # `Breakdown._resolve_sounding_names` derives F#m7 etc. from the capo.
+        # The parenthetical is for the player reading the setup line, who needs
+        # to know what the thing sounds like if they play along with the record.
+        "key": "E minor shapes — sounds F# minor with the capo at 2",
+        "time_signature": "4/4",
+        "feel": "straight eighths",
+        "tab_feel": "straight",
+        "bpm": 87,
+        "passage": "Verse — Em7 G Dsus4 A7sus4, one bar each, twice.",
+        "why_in_set": "The song the original ten could not hold: it was excluded "
+                      "ONLY because there was no capo field, and §7 added one. "
+                      "It is also the lowest-barrier rock song in the catalog, so "
+                      "it anchors the bottom of the window with something the "
+                      "roster actually asked for.",
+        "mode_flip_guard": "Em7 needs G natural and D. The two sus chords must "
+                           "contain NO third at all — a Dsus4 with an F# in it is "
+                           "a D major chord and the suspension is the sound of "
+                           "the verse.",
+        "measures": (
+            bars("Em7|wonderwall", "G|wonderwall",
+                 "Dsus4|wonderwall", "A7sus4|wonderwall")
+            + bars("Em7|wonderwall", "G|wonderwall",
+                   "Dsus4|wonderwall", "A7sus4|wonderwall")
+        ),
+        "corrections": [],
+        "cannot_verify": [
+            "The strum pattern. Nothing recording-side would help: the schema has "
+            "no strum direction, so there is no way to write down "
+            "down-down-up-up-down-up. The pitches and the capo position are what "
+            "is committed; the right hand is not.",
+        ],
+    },
+    {
+        "title": "Sweet Home Chicago",
+        "artist": "Robert Johnson",
+        "catalog_difficulty": 0.30,
+        "tuning": ["E", "A", "D", "G", "B", "e"],
+        "tuning_catalog_tag": "standard",
+        "key": "E",
+        "time_signature": "4/4",
+        "feel": "shuffle — the eighths are swung, hard",
+        "tab_feel": "shuffle",
+        "bpm": 92,
+        "passage": "Bars 1-8 of the 12-bar form: I I I I IV IV I I, boogie figure "
+                   "on the two lowest strings.",
+        "why_in_set": "The most-played form in the music this roster plays, and "
+                      "the first song in the set whose material is a FIGURE "
+                      "rather than a chord sequence. It is also the pair to "
+                      "Folsom Prison Blues on purpose: identical harmony, "
+                      "opposite feel, so a player meets shuffle and straight over "
+                      "the same changes.",
+        "mode_flip_guard": "No third anywhere in this figure, in either "
+                           "direction. The b7 (D) must be present — it is what "
+                           "makes this a blues rather than a rock fifth — and a "
+                           "G# or G natural appearing here is wrong.",
+        "measures": (
+            boogie_bars("E", 6, 4)      # I
+            + boogie_bars("A", 5, 2)    # IV, same figure one string up
+            + boogie_bars("E", 6, 2)    # I
+        ),
+        "corrections": [],
+        "cannot_verify": [
+            "Whether the form takes the quick change (bar 2 to the IV). Both "
+            "readings are standard; this commits the straight four bars of I. "
+            "It is a product decision about which reading we teach, not a "
+            "question about the record.",
+            "Johnson's own 1936 solo performance, note for note. What is "
+            "committed is the standard BAND reading — the electric arrangement "
+            "every blues player means by this title. Johnson's is a fingerpicked "
+            "country-blues part and a different guitar part entirely; the catalog "
+            "credits him, and which of the two Fletcher teaches is Junie's call.",
+        ],
+    },
+    {
+        "title": "Folsom Prison Blues",
+        "artist": "Johnny Cash",
+        "catalog_difficulty": 0.32,
+        "tuning": ["E", "A", "D", "G", "B", "e"],
+        "tuning_catalog_tag": "standard",
+        "key": "E",
+        "time_signature": "4/4",
+        "feel": "straight — boom-chick, bass note then strum",
+        "tab_feel": "straight",
+        "bpm": 105,
+        "passage": "The complete 12-bar form: I I I I IV IV I I V V I I.",
+        "why_in_set": "The only song in the set other than Canon in D whose "
+                      "excerpt is a COMPLETE musical unit rather than a slice — "
+                      "all twelve bars, so the V actually arrives. Bars 1-8 of a "
+                      "12-bar never reach the dominant, which means the eight-bar "
+                      "convention had been quietly hiding the chord that resolves "
+                      "the form.",
+        "mode_flip_guard": "B7 must contain D# (its third) and A (its b7). Flatten "
+                           "the D# to D and the V stops being a dominant, which is "
+                           "the one chord in a 12-bar that cannot be fudged.",
+        "measures": bars(("E", 4), ("A", 2), ("E", 2), ("B7", 2), ("E", 2)),
+        "corrections": [],
+        "cannot_verify": [
+            "WHICH RECORDING. This is the 1955 Sun reading, in E. The 1968 Folsom "
+            "Prison live version is a tone higher and is the one most people have "
+            "heard. The 12-bar harmony is identical either way, so a player "
+            "practising this learns the right thing; the absolute key is the only "
+            "thing at stake, and I am not going to assert one from memory.",
+            "The boom-chick itself. These are quarter-note chord stabs, so what "
+            "is committed is the harmony and the form, not Luther Perkins' "
+            "alternating bass-and-strum — which is most of what the song SOUNDS "
+            "like. Same class of gap as the swing comping on Autumn Leaves.",
+        ],
+    },
+    {
+        "title": "Pride and Joy",
+        "artist": "Stevie Ray Vaughan",
+        "catalog_difficulty": 0.64,
+        # Down a semitone, every string by the same interval — so the shape frame
+        # and the sounding frame differ by exactly -1 and `frame_shift` derives it.
+        "tuning": ["Eb", "Ab", "Db", "Gb", "Bb", "eb"],
+        "tuning_catalog_tag": "eb_standard",
+        "key": "E shapes — sounds Eb, tuned down a semitone",
+        "time_signature": "4/4",
+        "feel": "shuffle — a Texas shuffle, swung hard",
+        "tab_feel": "shuffle",
+        "bpm": 110,
+        "passage": "Bars 1-8 of the 12-bar form: I I I I IV IV I I, the shuffle "
+                   "bass figure.",
+        "why_in_set": "It puts a blues at 0.64, in the band where the set was "
+                      "all jazz standards, and it is the one song here whose "
+                      "tuning makes the shape and sounding frames differ — so it "
+                      "is the only end-to-end evidence that a down-tuned song is "
+                      "checked in the right frame rather than scored a semitone "
+                      "flat across the board.",
+        "mode_flip_guard": "Same as Sweet Home Chicago, one semitone down: no "
+                           "third, b7 present. In the SOUNDING frame that is "
+                           "Eb-Bb-C-Db, so a checker that forgets the tuning will "
+                           "read every note of it as foreign.",
+        "measures": (
+            boogie_bars("E", 6, 4)
+            + boogie_bars("A", 5, 2)
+            + boogie_bars("E", 6, 2)
+        ),
+        "corrections": [],
+        "cannot_verify": [
+            "SRV's upper-voice fills, the rake, and the double-stop bends. What "
+            "is committed is the bass figure only. That is the honest half: the "
+            "shuffle under the song is this, and everything above it is the part "
+            "I would need the record and a reference transcription to write.",
+            "NOTE, not a caveat about the record: these eight bars are IDENTICAL "
+            "to Sweet Home Chicago's, note for note, because the figure genuinely "
+            "is the same one — the differences are the tuning, the tempo and the "
+            "fills I did not commit. That is a real fact about the music and a "
+            "real curation problem: two pilot days could serve what looks like "
+            "the same screen. Flagged for Nadia to sequence, not to be fixed by "
+            "inventing a difference.",
+        ],
+    },
+    {
+        "title": "Sultans of Swing",
+        "artist": "Dire Straits",
+        "catalog_difficulty": 0.74,
+        "tuning": ["E", "A", "D", "G", "B", "e"],
+        "tuning_catalog_tag": "standard",
+        "key": "D minor",
+        "time_signature": "4/4",
+        "feel": "straight eighths",
+        "tab_feel": "straight",
+        "bpm": 148,
+        "passage": "Intro, bars 1-8: Dm C Bb A, one bar each, twice.",
+        "why_in_set": "The top of the window a pilot user can actually reach. "
+                      "With player_level capped at 0.70 the highest window is "
+                      "0.55-0.85, and before this the only rock in it was Hotel "
+                      "California. It also carries the mode flip pointing the "
+                      "OTHER way — the fourth chord of a D minor tune is A MAJOR.",
+        "mode_flip_guard": "A must contain C# — a natural C makes it Am and the "
+                           "turnaround loses its pull. This is the reverse of "
+                           "FLE-102's T1 (a major third where a minor belonged), "
+                           "so a generator patched to 'use the natural minor in a "
+                           "minor key' fails exactly here.",
+        "measures": bars("Dm", "C", "Bb", "A", "Dm", "C", "Bb", "A"),
+        "corrections": [],
+        "cannot_verify": [
+            "Knopfler's arpeggiation figure and his fills, note for note. The "
+            "harmony Dm-C-Bb-A is not in dispute and is what is committed; the "
+            "fingerpicked pattern that makes it sound like this record is not, "
+            "and would need the record plus a reference transcription.",
+        ],
+    },
 ]
 
 
@@ -441,6 +713,12 @@ def main():
         song = dict(s)
         measures = song.pop("measures")
         song["chord_sequence"] = [m.get("_chord") for m in measures]
+        # One entry per measure, parallel to chord_sequence: exactly one of the
+        # two is set for any bar. A bar with neither is a bar nothing checks,
+        # which the verifier now fails rather than skipping (V10).
+        degree_sequence = [m.get("_degrees") for m in measures]
+        if any(degree_sequence):
+            song["degree_sequence"] = degree_sequence
         song["tab"] = {
             "tuning": song["tuning"],
             # §2.5 — the enum, inside `tab`, because that is the object
@@ -452,6 +730,13 @@ def main():
             "measures": [{"beats": m["beats"], "time_signature": m["time_signature"]}
                          for m in measures],
         }
+        # §7.1 — written only when there is one. `Tab.capo` defaults to 0, and
+        # unlike `feel` that default is SAFE here: a 0 means "no capo", which is
+        # true of every song that omits it. The feel default was unsafe because
+        # "straight" is a positive instruction about how to play; "no capo" is
+        # not an instruction at all.
+        if song.get("capo"):
+            song["tab"]["capo"] = song["capo"]
         out["songs"].append(song)
 
     dest = pathlib.Path(__file__).resolve().parents[1] / "data" / "verified_tabs"

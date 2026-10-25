@@ -9,6 +9,14 @@ are plain `quarter` on an uncapoed neck. A green run there is real evidence for
 the pitch/harmony half and *zero* evidence for the two changes that were the
 point. These tests are the only thing standing behind them.
 
+AMENDED 2026-10-25 (FLE-103 widening). The paragraph above was true when
+written. The committed set now contains a capo song (Wonderwall, capo 2) and two
+songs written in eighths, so the capo path IS exercised by the real data and the
+set is no longer all-quarters. **Bends are still unexercised there**, so for
+that path this file remains the only evidence. The widening also reversed one
+rule these tests encoded — see
+`test_capo_tab_is_declared_in_the_shape_frame_not_the_sounding_one`.
+
 Each test below also asserts the PRE-CHANGE behaviour it replaced, because the
 spec's claim is specifically that the old code failed *correct* tab. A test that
 only shows the new code passing cannot tell "fixed" from "never broken".
@@ -137,23 +145,62 @@ def test_wonderwall_em7_shape_at_capo_2_spells_fsharp_m7():
     assert pcs == {6, 9, 1, 4}
 
 
-def test_correct_capo_tab_passes_v1_v4_and_failed_before_the_capo_term(tmp_path):
-    """The regression §7.1 consequence 2 predicted, both directions.
+def test_capo_tab_is_declared_in_the_shape_frame_not_the_sounding_one(tmp_path):
+    """REWRITTEN 2026-10-25 (FLE-103 widening). It asserted the opposite.
 
-    Same notes, same declared chord. With the capo read, correct tab is green;
-    with the capo ignored — which is literally what the pre-FLE-117 script did,
-    since it had no `capo` term at all — the same correct tab goes red. This is
-    the test that distinguishes "the fix works" from "there was nothing wrong".
+    This test used to declare the Em7-at-capo-2 shape as `F#m7` and require
+    that to pass, encoding FLE-117's rule that "a capo song added here must
+    write the SOUNDING chord". That rule is retracted — see the docstring on
+    `sounding_pcs` — because `chord_sequence` is not internal to the verifier:
+    `app/verified_tabs.py::_chord_diagrams` reads it straight into `Chord.name`,
+    which §7.2 declares is THE SHAPE AS FINGERED, and FLE-121 §7.3 later
+    declared the same frame for `songs.key` on measured grounds.
+
+    The consequence, measured rather than argued — `Breakdown` derives
+    `sounding_name` from `name` plus the capo, so:
+
+        name='Em7'  at capo 2 -> sounding_name='F#m7'   correct
+        name='F#m7' at capo 2 -> sounding_name='Abm7'   a chord not in the song
+
+    Following the old rule therefore served a player BOTH labels wrong, with
+    nothing raising an error, which is why the data stays in the shape frame and
+    the verifier moved instead.
     """
     measures = [_measure([_beat(EM7_SHAPE)] * 4) for _ in range(2)]
-    chords = ["F#m7", "F#m7"]
 
-    assert _run(tmp_path, [_song(measures, chords, capo=2)]) == 0
+    # The shape, as fingered — green.
+    assert _run(tmp_path, [_song(measures, ["Em7", "Em7"], capo=2)]) == 0
 
-    # capo omitted -> the pre-v2 derivation, scored two semitones flat. The
-    # foreign notes it names are the Em7 pitches: the shape, not the sound.
-    _run(tmp_path, [_song(measures, chords, capo=None)],
-         expect_fail="F#m7 sounds foreign ['B', 'D', 'G']")
+    # The sounding name, which the old rule demanded — now correctly red. At
+    # capo 2 an F#m7 would have to sound G#m7, and these strings sound F#m7.
+    _run(tmp_path, [_song(measures, ["F#m7", "F#m7"], capo=2)],
+         expect_fail="F#m7 sounds foreign")
+
+
+def test_the_capo_term_still_earns_its_place(tmp_path):
+    """The §7.1 consequence-2 regression, preserved from the test above.
+
+    Correct shape-frame tab with the capo READ is green; the same tab with the
+    capo ignored — literally the pre-FLE-117 script, which had no capo term —
+    goes red. Rewriting the frame rule must not quietly delete the evidence
+    that reading the capo at all is necessary.
+    """
+    measures = [_measure([_beat(EM7_SHAPE)] * 4)]
+    assert _run(tmp_path, [_song(measures, ["Em7"], capo=2)]) == 0
+
+    # A shape whose fingering only makes sense under the capo: at capo 2 these
+    # frets sound F#m7, and with the capo dropped they sound Em7 — so a tab
+    # declared in the shape frame is still frame-shifted by the capo, and
+    # omitting the term moves the expectation while the strings stay put.
+    import scripts.fle103_verify_pilot_tabs as V
+    assert V.frame_shift(["E", "A", "D", "G", "B", "e"], 2)[0] == 2
+    assert V.frame_shift(["E", "A", "D", "G", "B", "e"], 0)[0] == 0
+    assert V.frame_shift(["Eb", "Ab", "Db", "Gb", "Bb", "eb"], 0)[0] == -1
+    # Drop D moves strings by different intervals, so no single number maps a
+    # shape onto its sound; §7.3 says the names in use there are already
+    # sounding names, so only the capo shifts.
+    assert V.frame_shift(["D", "A", "D", "G", "B", "e"], 0) == (0,
+                                                               "non_uniform_tuning")
 
 
 def test_absent_capo_reads_exactly_as_it_did_before(tmp_path):
@@ -446,7 +493,8 @@ def test_the_renderer_draws_the_feel_it_is_sent():
 
 def test_the_committed_pilot_set_is_still_green():
     """Deliverable 3's stated verification. See the module docstring for what
-    this does NOT prove: the set has no capo, no bend and no rhythm."""
+    this does NOT prove — as of the widening that list is just BENDS: the set
+    now has a capo song and two songs in eighths, and no bend at all."""
     assert main() == 0
 
 
@@ -460,18 +508,57 @@ def test_the_pilot_set_no_longer_carries_the_dead_renderer_constraint():
     assert "MEASURE_WIDTH" not in json.dumps(conventions)
 
 
-def test_the_pilot_set_is_still_all_quarter_notes():
-    """Pins the caveat so it stays true or gets noticed.
-
-    If FLE-107 lands a re-notation and this test still passes, the re-notation
-    did not happen. If it fails, the set has rhythm in it for the first time and
-    every "the pilot set proves no rhythm" caveat in this repo needs rereading.
-    """
+def _committed_set():
     path = (Path(__file__).resolve().parents[1] / "data" / "verified_tabs"
             / "pilot_verified_set.json")
-    durations = {n["duration"]
-                 for s in json.loads(path.read_text())["songs"]
-                 for m in s["tab"]["measures"]
-                 for b in m["beats"]
-                 for n in b["notes"]}
-    assert durations == {"quarter"}
+    return json.loads(path.read_text())
+
+
+def test_the_pilot_set_has_rhythm_in_it_and_only_where_it_should():
+    """REWRITTEN 2026-10-25. This used to assert `durations == {"quarter"}`.
+
+    It was a tripwire with an instruction attached: "if it fails, the set has
+    rhythm in it for the first time and every 'the pilot set proves no rhythm'
+    caveat in this repo needs rereading." The FLE-103 widening made it fail, the
+    instruction was followed and those caveats were struck — so the tripwire is
+    replaced by what is now true rather than deleted.
+
+    Eighths come from the boogie figure (Sweet Home Chicago, Pride and Joy) and
+    from nowhere else. The chord-stab songs are still all quarters, which is
+    correct and is still a stated limit: a stab per beat is the harmony without
+    the comping rhythm.
+    """
+    doc = _committed_set()
+    by_song = {s["title"]: {n["duration"]
+                            for m in s["tab"]["measures"]
+                            for b in m["beats"]
+                            for n in b["notes"]}
+               for s in doc["songs"]}
+    riff = {"Sweet Home Chicago", "Pride and Joy"}
+    assert riff <= set(by_song), "the riff songs left the set; rereview this test"
+    for title, durations in by_song.items():
+        want = {"eighth"} if title in riff else {"quarter"}
+        assert durations == want, f"{title}: {durations}"
+
+
+def test_the_widened_set_has_no_unchecked_bars():
+    """Every bar is checked against a chord name or against declared degrees.
+
+    This guarantee briefly lived in the verifier as a blocking failure, which
+    was wrong: `chord_sequence: [None]` legitimately means "not a chord bar" in
+    the fixtures above and in FLE-107's candidate files, so the rule misfired on
+    six correct tests. It belongs to the COMMITTED set, so it is asserted here —
+    the one file where a bar nothing verifies is a hole in ground truth rather
+    than a deliberate test isolation.
+    """
+    doc = _committed_set()
+    holes = []
+    for s in doc["songs"]:
+        chords = s.get("chord_sequence") or []
+        degrees = s.get("degree_sequence") or []
+        for i in range(len(s["tab"]["measures"])):
+            has_chord = i < len(chords) and chords[i]
+            has_degrees = i < len(degrees) and degrees[i]
+            if not has_chord and not has_degrees:
+                holes.append(f"{s['title']} m{i + 1}")
+    assert holes == [], f"bars with nothing checking their pitches: {holes}"
