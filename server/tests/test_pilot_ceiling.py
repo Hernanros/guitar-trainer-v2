@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.ai.governor import (
     PILOT_DOLLAR_CEILING,
+    BudgetExceededError,
     PilotBudgetExhaustedError,
     RESERVATION_USD,
     effective_pilot_ceiling,
@@ -628,6 +629,126 @@ async def test_concurrent_dispatches_cannot_all_slip_under_the_ceiling(monkeypat
 
     async with _make_session() as db:
         await _cleanup(db, *user_ids)
+
+
+# ---------------------------------------------------------------------------
+# FLE-140 — a refusal must not leave the global advisory lock held
+#
+# Both tests below hold the refused caller's session OPEN across the second call.
+# That is the whole point and it is why the suite missed this for two issues: every
+# refusal test above closes its session inside `async with`, and SQLAlchemy rolls
+# back on close, which released the leaked lock incidentally. A real request can
+# outlive its refusal, and then the lock is still held when the next call arrives.
+#
+# `_LOCK_WAIT_S` turns a hang into a failure. Pre-fix both tests raise
+# TimeoutError here; post-fix both return in milliseconds.
+# ---------------------------------------------------------------------------
+
+_LOCK_WAIT_S = 10.0
+
+
+@pytest.mark.asyncio
+async def test_a_ceiling_refusal_does_not_block_the_next_call(monkeypatch):
+    """Two sequential ceiling refusals must BOTH return promptly.
+
+    The first refusal takes the global pilot-ceiling advisory lock and then raises,
+    so before FLE-140 nothing released it: the COMMIT in _reserve_call_slot was the
+    only release and the raise skipped it, and @governed calls the reservation
+    outside its own try/except so no arm rolled back either. The second caller then
+    blocked on pg_advisory_xact_lock indefinitely.
+
+    That is the prod failure this guards: at the ceiling, the first request 429s
+    PILOT_BUDGET_SPENT as designed and every request after it hangs instead — which
+    defeats the reason PILOT_BUDGET_SPENT exists as a product surface at all.
+    """
+    user_id = str(uuid.uuid4())
+    monkeypatch.setenv("FLETCHER_PILOT_CEILING_USD", "1.00")
+
+    async with _make_session() as db:
+        await _seed_user(db, user_id)
+        await _spend(db, user_id, "1.00")
+
+    refused = _make_session()
+    try:
+        with pytest.raises(PilotBudgetExhaustedError):
+            await _governed_probe(db=refused, user_id=uuid.UUID(user_id))
+
+        # Separate connection, so it can only be held up by a lock the refusal above
+        # left behind.
+        async with _make_session() as second:
+            with pytest.raises(PilotBudgetExhaustedError):
+                await asyncio.wait_for(
+                    _governed_probe(db=second, user_id=uuid.UUID(user_id)),
+                    timeout=_LOCK_WAIT_S,
+                )
+    except asyncio.TimeoutError:
+        pytest.fail(
+            f"The call after a ceiling refusal blocked >{_LOCK_WAIT_S}s instead of "
+            f"refusing. The refusal is leaking the global pilot-ceiling advisory "
+            f"lock — _reserve_call_slot must end its transaction on the raising path."
+        )
+    finally:
+        await refused.close()
+
+    assert _dispatches["n"] == 0, "Neither refused call may reach the wrapped body"
+
+    async with _make_session() as db:
+        await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_a_per_user_cap_refusal_does_not_block_a_different_user(monkeypatch):
+    """A per-user cap refusal must not block an unrelated user's governed call.
+
+    The nastier half of FLE-140, and the one no test covered. The locks are taken
+    global-then-per-user, so BudgetExceededError raises at _check_cap while the
+    GLOBAL ceiling lock is still held. One user's by-design "you've had your five
+    breakdowns today" refusal — pilot spend nowhere near $25 — then wedged every
+    governed call for every user and every feature.
+
+    Not live today only because prod runs FLETCHER_CAP_BREAKDOWN=off (FLE-58).
+    FLE-92's rollout flips it back on, which is why this lands first: a routine
+    daily-cap refusal is far more likely than crossing the dollar ceiling.
+
+    The ceiling is set high rather than off, because `off` skips the global lock
+    entirely and there would be nothing left to leak.
+    """
+    capped, bystander = str(uuid.uuid4()), str(uuid.uuid4())
+    monkeypatch.setenv("FLETCHER_PILOT_CEILING_USD", "1000000")
+    monkeypatch.setenv("FLETCHER_CAP_BREAKDOWN", "5")
+
+    async with _make_session() as db:
+        await _seed_user(db, capped)
+        await _seed_user(db, bystander)
+        # A full local day's allowance for `capped`, so the 6th call refuses. These
+        # are delivered, unerrored rows, so they count against the cap.
+        for _ in range(5):
+            await _spend(db, capped, "0.19")
+
+    refused = _make_session()
+    try:
+        with pytest.raises(BudgetExceededError):
+            await _governed_probe(db=refused, user_id=uuid.UUID(capped))
+
+        # A different user, so no per-(feature, user) lock is shared with the
+        # refusal — only the global ceiling lock is, and it should be long gone.
+        async with _make_session() as second:
+            result = await asyncio.wait_for(
+                _governed_probe(db=second, user_id=uuid.UUID(bystander)),
+                timeout=_LOCK_WAIT_S,
+            )
+        assert result == "dispatched"
+    except asyncio.TimeoutError:
+        pytest.fail(
+            f"A governed call for a DIFFERENT user blocked >{_LOCK_WAIT_S}s behind "
+            f"another user's per-user cap refusal. The cap refusal is leaking the "
+            f"global pilot-ceiling advisory lock taken before it."
+        )
+    finally:
+        await refused.close()
+
+    async with _make_session() as db:
+        await _cleanup(db, capped, bystander)
 
 
 # ---------------------------------------------------------------------------

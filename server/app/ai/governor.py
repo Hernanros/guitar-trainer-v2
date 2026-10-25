@@ -758,28 +758,62 @@ async def _reserve_call_slot(
     That is a real serialization point and it is the right trade at pilot scale:
     the critical section is two indexed queries and an INSERT, and the alternative
     is a ceiling that holds only when nobody taps at the same time.
+
+    FLE-140 — EVERY exit from this function past the first lock must end the
+    transaction, which is why the body below is wrapped. Both checks here raise by
+    design, and a raise skipped the COMMIT that was the only release for a global
+    lock every governed call contends on: the refusal 429'd and then the next
+    governed call, for any user and any feature, blocked on pg_advisory_xact_lock
+    until its connection was reclaimed. A designed budget refusal became a hang.
+
+    The rollback lives here rather than in the wrapper's try/except on purpose:
+      - It covers the per-user cap path too. BudgetExceededError raises at
+        _check_cap while the GLOBAL lock from above is still held, so an ordinary
+        "you've had your five breakdowns today" refusal leaked the global lock as
+        well — and that path is one env flip away from live (FLE-92 turns
+        FLETCHER_CAP_BREAKDOWN back on; FLE-58 is the only reason it is off).
+      - It covers future raisers by construction, including ones that are not
+        refusals: a bad DB query or a CancelledError from a client disconnect
+        mid-COUNT leaked the same lock. Hence BaseException, not Exception.
+      - The wrapper's except arms all call _update_error on call_id, which only
+        exists after the INSERT below. Routing a pre-INSERT refusal through them
+        would stamp a row that was never written, and arm (h)'s detached session
+        would not touch this transaction at all.
     """
-    # Global ceiling first: it is the harder floor, and refusing here means the
-    # per-user count is never even read.
-    ceiling = effective_pilot_ceiling()
-    if ceiling is not None:
-        # hashtext() -> int4; the two-arg pg_advisory_xact_lock(int4, int4) variant
-        # keeps the key in one namespace (classid 0) without needing int8 casting.
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:key), 0)"),
-            {"key": _PILOT_CEILING_LOCK_KEY},
-        )
-        await _check_pilot_ceiling(db, ceiling)
+    try:
+        # Global ceiling first: it is the harder floor, and refusing here means the
+        # per-user count is never even read.
+        ceiling = effective_pilot_ceiling()
+        if ceiling is not None:
+            # hashtext() -> int4; the two-arg pg_advisory_xact_lock(int4, int4) variant
+            # keeps the key in one namespace (classid 0) without needing int8 casting.
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:key), 0)"),
+                {"key": _PILOT_CEILING_LOCK_KEY},
+            )
+            await _check_pilot_ceiling(db, ceiling)
 
-    if cap is not None:
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:key), 0)"),
-            {"key": f"{feature}:{user_id}"},
-        )
-        await _check_cap(db, user_id, feature, cap)
+        if cap is not None:
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:key), 0)"),
+                {"key": f"{feature}:{user_id}"},
+            )
+            await _check_cap(db, user_id, feature, cap)
 
-    await _insert_governor_call(db, call_id, user_id, feature)
-    await db.commit()   # releases both advisory locks
+        await _insert_governor_call(db, call_id, user_id, feature)
+        await db.commit()   # releases both advisory locks
+
+    except BaseException:
+        # Ends the transaction, releasing both advisory locks, then re-raises
+        # unchanged — the caller's 429 is the designed behaviour and must survive.
+        try:
+            await db.rollback()
+        except BaseException:
+            logger.exception(
+                "Failed to roll back a refused call-slot reservation; the global "
+                "pilot-ceiling advisory lock may still be held by this connection"
+            )
+        raise
 
 
 async def _update_success(
@@ -1011,7 +1045,8 @@ def governed(feature: str, cap: int | None = None):
           PilotBudgetExhaustedError) and the per-user cap (raises
           BudgetExceededError), then INSERT the governor_calls row and COMMIT. One
           atomic step so both limits hold under concurrency (FLE-23 §6, FLE-92);
-          the locks are released before dispatch.
+          the locks are released before dispatch, and on either refusal by the
+          rollback in _reserve_call_slot rather than by any arm below (FLE-140).
     (d) Set _current_call_id ContextVar so wrapped fn can retrieve call_id via current_call_id().
     (e) Await fn — wrapped fn calls record_estimate() + record_actuals() internally.
     (f) On anthropic.APIError status_code==429: UPDATE error_code; raise AnthropicQuotaExceededError.
