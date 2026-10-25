@@ -416,6 +416,72 @@ async def test_ceiling_refuses_a_governed_call(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_the_real_twenty_five_dollar_ceiling_still_refuses(monkeypatch):
+    """The $25 default refuses on its own, with no FLETCHER_PILOT_CEILING_USD override.
+
+    FLE-139's guard, and the one refusal here that is NOT against a stand-in. Every
+    other refusal test above sets the ceiling to $1 so it can trip cheaply, so the
+    real $25 is only ever asserted as a constant by
+    test_ceiling_defaults_to_twenty_five_dollars — never shown actually refusing a
+    dispatch. That left the gap FLE-139 needs closed: the window isolation added in
+    conftest.py changes which rows count toward the ceiling, and the thing to prove is
+    that $25 of a test's OWN rows still reaches it. A $1 override cannot show that,
+    because it would trip at a twentieth of the real distance.
+
+    delenv rather than setenv: this asserts the behaviour of the unmodified default,
+    so an ambient FLETCHER_PILOT_CEILING_USD from a shell or CI config must not be
+    able to turn it into a test of something else.
+    """
+    user_id = str(uuid.uuid4())
+    monkeypatch.delenv("FLETCHER_PILOT_CEILING_USD", raising=False)
+    assert effective_pilot_ceiling() == PILOT_DOLLAR_CEILING, (
+        "This test is only meaningful against the unmodified default; something has "
+        "set FLETCHER_PILOT_CEILING_USD"
+    )
+
+    async with _make_session() as db:
+        await _seed_user(db, user_id)
+        # Its own spend, inside its own window — not the dev DB's history.
+        await _spend(db, user_id, str(PILOT_DOLLAR_CEILING))
+
+    async with _make_session() as db:
+        with pytest.raises(PilotBudgetExhaustedError) as exc_info:
+            await _governed_probe(db=db, user_id=uuid.UUID(user_id))
+
+    assert exc_info.value.ceiling == PILOT_DOLLAR_CEILING
+    assert _dispatches["n"] == 0, "A refused call must never reach the wrapped body"
+
+    async with _make_session() as db:
+        await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
+async def test_window_isolation_does_not_hide_a_tests_own_spend():
+    """The FLE-139 conftest fixture must scope the window, not blind the sum.
+
+    The isolation is "count only the rows this test made", and the failure mode to
+    pin is an implementation that counts nothing at all — which would make every
+    refusal test here pass for the wrong reason while the ceiling was in fact dead.
+    """
+    user_id = str(uuid.uuid4())
+
+    async with _make_session() as db:
+        await _seed_user(db, user_id)
+        opening = await pilot_spend(db)
+        assert opening == Decimal("0"), (
+            f"A freshly pinned window must open at $0 regardless of what the dev "
+            f"database holds; measured ${opening}"
+        )
+        await _spend(db, user_id, "3.00")
+        assert await pilot_spend(db) == Decimal("3.00"), (
+            "Rows written after the window opened must still be counted"
+        )
+
+    async with _make_session() as db:
+        await _cleanup(db, user_id)
+
+
+@pytest.mark.asyncio
 async def test_ceiling_holds_with_the_per_user_cap_switched_off(monkeypatch):
     """FLETCHER_CAP_BREAKDOWN=off must not disable the ceiling.
 
