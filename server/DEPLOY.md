@@ -136,7 +136,26 @@ Railway CLI authenticated and `gt-postgres` on 5433.
 it cannot disturb a shared working tree), starts `gt-postgres` if it is merely stopped,
 re-asserts the Railway link, runs the check, appends to
 `~/Library/Logs/fletcher-alembic-drift.log`, and on exit ≥ 2 raises a desktop
-notification. `scripts/com.fletcher.alembic-drift.plist` schedules it daily at 09:15.
+notification **and comments the alarm onto the board**.
+`scripts/com.fletcher.alembic-drift.plist` schedules it daily at 09:15.
+
+That board comment is the delivery path that actually reaches an agent, and it was added
+because the log alone was not one: on 2026-10-29 this check caught prod going down on the
+first morning, with the right verdict and severity, and wrote `exit=3` into a file nobody
+read — the outage then sat three days. The comment goes to **FLE-81**, the standing
+watchdog channel, because a comment there wakes the lead; it deliberately does not go to
+FLE-134, which is walled in `recovery_needed` where comment-wakes are recorded `SKIPPED`.
+It posts unauthenticated to the local board at `http://127.0.0.1:3100`, the same route the
+`ops/` watchdogs use, so launchd needs no secret in its environment.
+
+Three properties worth keeping if this is ever rewritten. A failed post **warns in one
+line and leaves the exit code alone** — a board that is down must not change what we
+report about the database, and a traceback in this log buries the verdict the log exists
+to carry. The repeat stamp is written **only after a confirmed post**, so a failed
+delivery retries rather than being suppressed as already-reported. And the same exit code
+is re-posted at most once per `ALEMBIC_DRIFT_ALARM_REPEAT_SEC` (6 h), so a sustained
+outage stays visible daily instead of once per manual `kickstart` — but a *changed* exit
+code always posts, and an unreadable stamp file posts rather than suppressing.
 
 **This job is installed and loaded on Hernan's Mac as of 2026-10-25** (first launchd run
 13:16Z, exit 0, all three checks clean against stamp `0019`). The commands below are for
