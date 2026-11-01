@@ -34,10 +34,16 @@
 #   breakdown reads back unchanged.
 import logging
 from fractions import Fraction
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, get_args
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +68,7 @@ logger = logging.getLogger(__name__)
 #     - a fret outside 0..24-capo             -> the bound    (§7.1)
 #     - a beat with neither notes nor rest    -> a quarter rest (§3)
 #     - simultaneous notes that disagree on duration -> the longest (§2.4)
+#     - an unrecognised articulation value    -> dropped        (§6.2, FLE-143)
 #
 #   RAISE on a RELATIONSHIP that contradicts itself, where any repair would be
 #   an invention:
@@ -214,6 +221,54 @@ Technique = Literal[
 Effect = Literal[
     "vibrato", "wide_vibrato", "palm_mute", "staccato", "accent", "let_ring", "dead",
 ]
+
+
+# --- §6.2 Unrecognised articulation values (FLE-143) ----------------------
+# Every articulation slot in §4/§5/§6 is optional with a default, so an
+# unrecognised value HAS a nearest-legal answer — "not stated" — which puts it
+# on the CLAMP side of the repair policy. It was on neither side before, so it
+# fell through to a ValidationError, and §8.2's warning came true: the tab has
+# no soft-fail path, so refusing one flag refused the whole song.
+#
+# The defect that forced this (FLE-143, measured live 2026-11-01): Sonnet
+# emitted `link_to_next="bend"` — a legal `Bend.kind` value in the wrong slot —
+# and the 503 cost two complete sessions, Pride and Joy at m6 b4 and
+# Comfortably Numb at m2 b1, out of ten breakdowns. A dropped articulation
+# costs an articulation. A raise costs the session, the ~$0.145 the call spent,
+# and for a cached row it costs the song permanently.
+#
+# What this deliberately does NOT do is RE-ROUTE the value. Reading
+# `link_to_next="bend"` as `bend={"kind": "bend", "semitones": ...}` means
+# inventing a bend AMOUNT, and §5.1 is explicit that a bend amount is a pitch,
+# not an ornament — so guessing one is our musical judgement standing in for
+# the model's, which is exactly what the RAISE side of the policy exists to
+# prevent. The flag is dropped, the note is played straight, and
+# app/ai/breakdown.py tightens the prompt so the two slots stop being confused
+# at the source.
+# §2.5 — named for the same reason as _BEND_KIND, so the clamp and the field
+# cannot drift apart.
+_FEEL = Literal["straight", "swing", "shuffle"]
+
+_LINK_VALUES = frozenset(get_args(Link))
+_TECHNIQUE_VALUES = frozenset(get_args(Technique))
+_EFFECT_VALUES = frozenset(get_args(Effect))
+
+
+def _drop_unknown(value: object, allowed: frozenset, field: str, hint: str = "") -> object:
+    """§6.2 — `value` if `allowed` recognises it, else None, with a warning.
+
+    Non-string input falls through untouched so Pydantic's own type error is
+    still the thing the caller sees — this repairs a wrong VALUE, not a wrong
+    SHAPE.
+    """
+    if not isinstance(value, str) or value in allowed:
+        return value
+    logger.warning(
+        "Unrecognised %s=%r — ignored (FLE-115 §6.2); the rest of the tab is "
+        "served unchanged. Legal values: %s.%s",
+        field, value, ", ".join(sorted(allowed)), hint,
+    )
+    return None
 
 
 # --- §7.2 chord-name transposition ----------------------------------------
@@ -391,6 +446,12 @@ def sounding_key_from_breakdown(
     )
 
 
+# §5 — the four standard forms. Named so §6.2's misrouting hint can
+# spell them without a second copy of the list; `"bend"` appearing both here
+# and (wrongly) in `link_to_next` is the whole of FLE-143.
+_BEND_KIND = Literal["bend", "pre_bend", "bend_release", "pre_bend_release"]
+
+
 class Bend(BaseModel):
     """§5 — where the pitch goes from the fingered fret.
 
@@ -410,7 +471,20 @@ class Bend(BaseModel):
     as a foreign note.
     """
     semitones: Literal[0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
-    kind: Literal["bend", "pre_bend", "bend_release", "pre_bend_release"] = "bend"
+    kind: _BEND_KIND = "bend"
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _clamp_kind(cls, v: object) -> object:
+        """§6.2 — an unrecognised kind falls back to the documented default.
+
+        Unlike `semitones` this one has an honest nearest-legal answer: plain
+        `"bend"` is already what the field means when it is omitted, and
+        keeping a bend of the stated amount is strictly better than dropping
+        the bend because its form was misspelled.
+        """
+        kind = _drop_unknown(v, frozenset(get_args(_BEND_KIND)), "bend.kind")
+        return "bend" if kind is None and v is not None else kind
 
     @field_validator("semitones", mode="before")
     @classmethod
@@ -479,6 +553,61 @@ class Note(BaseModel):
             fret, " with effects:['dead']" if fret == -1 else "",
         )
         return {**data, "fret": 0, "effects": effects}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_unrecognised_articulations(cls, data: object) -> object:
+        """§6.2 — an unrecognised articulation costs its own flag, not the song.
+
+        A clamp, not a raise (see the repair-policy block). All four slots are
+        optional with a default, so dropping one leaves a plainly picked note
+        still at the right fret for the right duration, which is a far better
+        answer than the 503 that FLE-143 measured.
+
+        `bend` is dropped WHOLE rather than part-repaired: `kind` has a
+        documented default so `Bend` clamps that itself, but `semitones` is a
+        pitch (§5.1) with no honest fallback, and a `bend` that is a bare
+        string rather than an object has no amount in it to keep. Either way
+        the note survives; the bend does not.
+        """
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+
+        # The known FLE-143 confusion, called out by name in the log so the next
+        # occurrence is one grep rather than another live measurement.
+        link = out.get("link_to_next")
+        hint = ""
+        if isinstance(link, str) and link in get_args(_BEND_KIND):
+            hint = (
+                f" NOTE: {link!r} is a Bend.kind, not a link — a bent note sets "
+                f"the `bend` field; `link_to_next` is only for the four §4 "
+                f"no-fresh-pick relationships."
+            )
+        out["link_to_next"] = _drop_unknown(link, _LINK_VALUES, "link_to_next", hint)
+        out["technique"] = _drop_unknown(
+            out.get("technique"), _TECHNIQUE_VALUES, "technique"
+        )
+
+        effects = out.get("effects")
+        if isinstance(effects, list):
+            out["effects"] = [
+                e for e in effects
+                if _drop_unknown(e, _EFFECT_VALUES, "effects[]") is not None
+            ]
+
+        bend = out.get("bend")
+        if bend is not None:
+            try:
+                Bend.model_validate(bend)
+            except ValidationError as exc:
+                logger.warning(
+                    "Unusable bend %r — dropped (FLE-115 §6.2); the note is "
+                    "served at its fingered fret with no bend. %s",
+                    bend, exc,
+                )
+                out["bend"] = None
+        return out
 
     @field_validator("duration", mode="before")
     @classmethod
@@ -640,7 +769,22 @@ class Tab(BaseModel):
     # subdivision whose omitted middle triplet IS the groove. No `bossa`/`latin`
     # value: it would let the model emit a label in place of the pattern, which
     # is the substitution that produced this schema change in the first place.
-    feel: Literal["straight", "swing", "shuffle"] = "straight"
+    feel: _FEEL = "straight"
+
+    @field_validator("feel", mode="before")
+    @classmethod
+    def _clamp_feel(cls, v: object) -> object:
+        """§6.2 — an unrecognised feel falls back to the documented default.
+
+        The weakest of the §6.2 clamps and the one to watch: serving a shuffle
+        as `straight` misstates the groove, where a dropped `link_to_next` only
+        omits one. It is still the right trade against a 503 for the whole
+        song, and the docstring above names the substitution — a label in place
+        of the pattern — that this field exists to refuse, so the warning is
+        the signal that it happened.
+        """
+        feel = _drop_unknown(v, frozenset(get_args(_FEEL)), "tab.feel")
+        return "straight" if feel is None and v is not None else feel
 
     @model_validator(mode="after")
     def _clamp_frets_to_capo(self) -> "Tab":

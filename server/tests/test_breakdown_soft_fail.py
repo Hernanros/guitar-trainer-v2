@@ -334,3 +334,171 @@ async def test_structural_failure_still_raises(monkeypatch):
                 )
     finally:
         await _cleanup_user(user_id)
+
+
+# ---------------------------------------------------------------------------
+# FLE-143 — the same degrade path, generalised from `drills` to the tab
+#
+# The soft-fail above covered drills only, so ONE unrecognised articulation
+# value anywhere in the tab still 503'd the whole session. The live FLE-89
+# measurement caught it twice in ten breakdowns: link_to_next="bend" (a legal
+# Bend.kind in the wrong slot) killed Pride and Joy and Comfortably Numb.
+#
+# The repair lives in the model (app/models/song.py §6.2) rather than in a
+# second strip-and-re-parse here, because that is where every other value
+# clamp in the schema lives and it covers the cached-read and drill-snippet
+# paths too, which a fix at this layer would miss.
+# ---------------------------------------------------------------------------
+
+def _tab_dict_with_misrouted_bend() -> dict:
+    """`_valid_tab_dict` with the exact defect from both FLE-143 casualties."""
+    tab = _valid_tab_dict()
+    tab["measures"][0]["beats"][0]["notes"][0]["link_to_next"] = "bend"
+    return tab
+
+
+@pytest.mark.asyncio
+async def test_a_misrouted_link_to_next_no_longer_503s_the_breakdown(monkeypatch, caplog):
+    """FLE-143: the session is served, and it keeps its drills.
+
+    The drills assertion is the one that proves the fix is at the right layer.
+    A tab defect used to fail the FIRST parse, which sent the request down the
+    drills-strip path, where it failed again and raised — so the old behaviour
+    cost the user the tab AND the drills AND the session. Now the first parse
+    succeeds and nothing is stripped.
+    """
+    import logging
+    from app.ai.breakdown import run_technique_breakdown
+
+    payload = _breakdown_dict_with_drills([_valid_drill_dict(), _valid_drill_dict()])
+    payload["tab"] = _tab_dict_with_misrouted_bend()
+    _install_fake_client(monkeypatch, payload)
+
+    user_id = str(uuid.uuid4())
+    await _seed_user(user_id)
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="app.models.song"):
+            async with _make_session() as db:
+                breakdown = await run_technique_breakdown(
+                    "Pride and Joy",
+                    "Stevie Ray Vaughan",
+                    [{"id": str(uuid.uuid4()), "name": "Bending"}],
+                    0.5,
+                    db=db,
+                    user_id=uuid.UUID(user_id),
+                )
+
+        note = breakdown.tab.measures[0].beats[0].notes[0]
+        assert note.link_to_next is None, "the unrecognised value must be dropped"
+        assert note.fret == 0 and note.duration == "quarter", "the note itself survives"
+        assert len(breakdown.drills) == 2, (
+            "FLE-143: a TAB defect must not cost the drills — that was the old "
+            "behaviour, where the tab failure fell into the drills-strip path"
+        )
+        assert any("link_to_next" in r.getMessage() for r in caplog.records), (
+            "the drop must warn, per the repair policy"
+        )
+    finally:
+        await _cleanup_user(user_id)
+
+
+@pytest.mark.asyncio
+async def test_a_genuinely_broken_tab_still_raises(monkeypatch):
+    """§6.2 repairs a wrong VALUE, never a wrong SHAPE — that still refuses."""
+    from app.ai.breakdown import AIBreakdownError, run_technique_breakdown
+
+    payload = _breakdown_dict_with_drills([_valid_drill_dict(), _valid_drill_dict()])
+    # A note with no string at all has nothing to serve and no honest repair.
+    payload["tab"]["measures"][0]["beats"][0]["notes"][0].pop("string")
+    _install_fake_client(monkeypatch, payload)
+
+    user_id = str(uuid.uuid4())
+    await _seed_user(user_id)
+
+    try:
+        async with _make_session() as db:
+            with pytest.raises(AIBreakdownError):
+                await run_technique_breakdown(
+                    "Lenny",
+                    "SRV",
+                    [{"id": str(uuid.uuid4()), "name": "Slide"}],
+                    0.5,
+                    db=db,
+                    user_id=uuid.UUID(user_id),
+                )
+    finally:
+        await _cleanup_user(user_id)
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_persists_the_raw_payload_when_the_dir_is_set(
+    monkeypatch, tmp_path
+):
+    """FLE-143: make the next refusal diagnosable without re-spending.
+
+    The eight refusals in the FLE-89 measurement threw away the only copy of
+    what Sonnet said, so the follow-up questions could not be answered without
+    paying for the same calls again.
+    """
+    import json
+    from app.ai.breakdown import AIBreakdownError, run_technique_breakdown
+
+    monkeypatch.setenv("FLETCHER_RAW_PAYLOAD_DIR", str(tmp_path))
+
+    payload = _breakdown_dict_with_drills([_valid_drill_dict(), _valid_drill_dict()])
+    payload["tab"]["measures"] = "not a list at all"
+    _install_fake_client(monkeypatch, payload)
+
+    user_id = str(uuid.uuid4())
+    await _seed_user(user_id)
+
+    try:
+        async with _make_session() as db:
+            with pytest.raises(AIBreakdownError):
+                await run_technique_breakdown(
+                    "Comfortably Numb",
+                    "Pink Floyd",
+                    [{"id": str(uuid.uuid4()), "name": "Bending"}],
+                    0.5,
+                    db=db,
+                    user_id=uuid.UUID(user_id),
+                )
+
+        dumps = list(tmp_path.glob("*.json"))
+        assert len(dumps) == 1, f"expected one persisted payload, got {dumps}"
+        saved = json.loads(dumps[0].read_text())
+        assert saved["song_title"] == "Comfortably Numb"
+        assert saved["raw_input"]["tab"]["measures"] == "not a list at all", (
+            "the point is the RAW payload, verbatim"
+        )
+        assert saved["error_type"] and saved["error"]
+    finally:
+        await _cleanup_user(user_id)
+
+
+@pytest.mark.asyncio
+async def test_nothing_is_written_when_the_dir_is_unset(monkeypatch, tmp_path):
+    """Opt-in per environment — it must never write to a path nobody chose."""
+    from app.ai.breakdown import AIBreakdownError, run_technique_breakdown
+
+    monkeypatch.delenv("FLETCHER_RAW_PAYLOAD_DIR", raising=False)
+
+    payload = _breakdown_dict_with_drills([_valid_drill_dict(), _valid_drill_dict()])
+    payload["tab"]["measures"] = "not a list at all"
+    _install_fake_client(monkeypatch, payload)
+
+    user_id = str(uuid.uuid4())
+    await _seed_user(user_id)
+
+    try:
+        async with _make_session() as db:
+            with pytest.raises(AIBreakdownError):
+                await run_technique_breakdown(
+                    "Lenny", "SRV",
+                    [{"id": str(uuid.uuid4()), "name": "Slide"}],
+                    0.5, db=db, user_id=uuid.UUID(user_id),
+                )
+        assert list(tmp_path.iterdir()) == []
+    finally:
+        await _cleanup_user(user_id)

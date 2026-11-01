@@ -6,7 +6,12 @@ Sonnet during breakdown fetch. Do not sprinkle client.messages.create() calls
 anywhere else. Wrapped with @governed(feature='breakdown', cap=BREAKDOWN_CAP).
 """
 import asyncio
+import json
 import logging
+import os
+import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -390,6 +395,14 @@ One field, four values, and each one is checked against the fret it reaches:
   "pull_off"   the next note on this string is a LOWER fret
   "slide"      the next note on this string is a DIFFERENT fret
 
+THOSE FOUR ARE THE ONLY LEGAL VALUES. In particular `link_to_next` is NEVER
+"bend". Every value here names a FRET-TO-FRET move to the next note; a bend
+goes nowhere on the fretboard — it stays on the fingered fret and pushes the
+PITCH up, which is why it is the separate `bend` field described below. The two
+are independent and stack: a note bent up and then hammered to the next fret
+sets both. Writing "bend" here instead of filling in `bend` loses the amount
+and the kind, which is most of what a bend is.
+
 The target is implicit: the next note on the SAME string in beat order,
 crossing the barline if necessary (that is how a note held past the bar is
 written). A link whose target contradicts it, or that has no next note on that
@@ -408,6 +421,10 @@ FINGERED fret; the bend says where the pitch goes from there.
   Kinds: "bend" (struck, bent up, held), "pre_bend" (already bent at the
   attack), "bend_release" (struck, bent up, released to the fretted pitch),
   "pre_bend_release" (bent at the attack, released to the fretted pitch).
+
+  These four kinds belong to THIS object and nowhere else. A plain held bend is
+  `"bend": {"semitones": 1.0, "kind": "bend"}` — the word "bend" goes in `kind`
+  here, never in `link_to_next`.
 
 Write a unison bend as two notes, one of them bent. There is no object for a
 bend released to a different non-zero amount.
@@ -720,6 +737,69 @@ def _normalize_tuning_notes(notes: list[str]) -> list[str]:
     return out
 
 
+def _persist_raw_payload(
+    raw_input: object, song_title: str, song_artist: str, exc: BaseException
+) -> None:
+    """FLE-143: dump the model's raw tool_use input when we refuse to serve it.
+
+    Why this exists. Every refusal path in `_call` throws away the only copy of
+    what Sonnet actually said. The FLE-89 live measurement spent $1.41 on ten
+    breakdowns, eight of which refused, and not one of the eight payloads
+    survived — so the follow-up questions ("is that C# really wrong over
+    Wonderwall's progression?") could not be answered at all without paying for
+    the same ten calls again. A refusal that cost real money should leave
+    something behind.
+
+    Best-effort by construction: any failure here is swallowed and logged,
+    because a diagnostic that can mask the defect it is diagnosing is worse
+    than no diagnostic. Off unless FLETCHER_RAW_PAYLOAD_DIR is set, so it is
+    opt-in per environment and writes nothing in tests or on a read-only
+    filesystem; the log line below is what tells you where to look.
+    """
+    if raw_input is None:
+        # The call failed before a tool_use block existed (no API key, a timeout,
+        # a truncation so early nothing parsed) — there is nothing to keep.
+        return
+    target = os.environ.get("FLETCHER_RAW_PAYLOAD_DIR", "").strip()
+    if not target:
+        logger.info(
+            "Not persisting the raw payload for %r — FLETCHER_RAW_PAYLOAD_DIR is "
+            "unset. Set it to make this refusal diagnosable without re-spending.",
+            song_title,
+        )
+        return
+    try:
+        directory = Path(target)
+        directory.mkdir(parents=True, exist_ok=True)
+        slug = re.sub(r"[^a-z0-9]+", "-", f"{song_title} {song_artist}".lower()).strip("-")
+        path = directory / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{slug[:60]}.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "song_title": song_title,
+                    "song_artist": song_artist,
+                    "refused_at": datetime.now(timezone.utc).isoformat(),
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "raw_input": raw_input,
+                },
+                indent=2,
+                default=str,
+            ),
+            encoding="utf-8",
+        )
+        logger.error(
+            "Refused the breakdown for %r by %r — raw Sonnet payload written to %s "
+            "(FLE-143). Diagnose from that file rather than re-running the call.",
+            song_title, song_artist, path,
+        )
+    except Exception as dump_exc:
+        logger.warning(
+            "Could not persist the raw payload for %r: %s: %s",
+            song_title, type(dump_exc).__name__, dump_exc,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tool definition
 # ---------------------------------------------------------------------------
@@ -884,6 +964,12 @@ async def run_technique_breakdown(
     # Retrieve call_id set by @governed decorator via ContextVar (D-03 two-step protocol)
     call_id = current_call_id()
 
+    # FLE-143: the last raw tool_use input seen, so the refusal handlers at the
+    # bottom can persist it. A one-element list rather than a `nonlocal` because
+    # `_call` runs twice on the retry path and the second attempt's payload is
+    # the one that produced the error being handled.
+    last_raw: list[object] = [None]
+
     async def _call(timeout: float) -> Breakdown:
         # get_client() MUST be called inside _call (hotfix 843e226 pattern from Phase 2).
         # If ANTHROPIC_API_KEY is missing, get_client() raises RuntimeError here —
@@ -999,6 +1085,7 @@ async def run_technique_breakdown(
         # Structural failures in tab/chords/technique_notes (pre-existing Phase 3
         # failure surface) still propagate as ValidationError → AIBreakdownError.
         raw_input = tool_use.input
+        last_raw[0] = raw_input
         try:
             parsed = Breakdown.model_validate(raw_input)
         except pydantic.ValidationError as ve:
@@ -1101,12 +1188,20 @@ async def run_technique_breakdown(
         # Let Anthropic APIErrors (including 429) propagate to the @governed decorator
         # without wrapping — the decorator handles AnthropicQuotaExceededError mapping (D-08).
         raise
-    except AIBreakdownError:
+    except AIBreakdownError as e:
         # FLE-43: BreakdownTruncatedError is already the precise diagnosis. Re-wrapping
         # it in a generic AIBreakdownError would flatten it back into the vague message
         # this issue exists to remove. The endpoint catches the base class either way.
+        #
+        # FLE-143: both handlers persist first. This is the path every refusal
+        # that reached a payload takes — the §6.2 clamps above mean an unknown
+        # articulation no longer arrives here, so what is left is the genuinely
+        # unservable (truncation, tuning mismatch, a failed verification), which
+        # is exactly the set worth having on disk.
+        _persist_raw_payload(last_raw[0], song_title, song_artist, e)
         raise
     except Exception as e:
+        _persist_raw_payload(last_raw[0], song_title, song_artist, e)
         raise AIBreakdownError(
             f"Sonnet breakdown failed: {type(e).__name__}: {e}"
         ) from e

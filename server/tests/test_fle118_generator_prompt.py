@@ -346,3 +346,21 @@ def test_audit_c8_fires_on_a_raw_jsonb_measure():
     codes = [c for c, _ in audit.check_measure(measure, "shuffle")]
     assert "C8" in codes
     assert "C8" not in [c for c, _ in audit.check_measure(measure, "straight")]
+
+
+def test_prompt_separates_the_bend_field_from_link_to_next():
+    """FLE-143 — the misrouting this text exists to prevent.
+
+    Sonnet put `"bend"` into `link_to_next`, where it is not legal, instead of
+    filling in the `bend` field, where `"bend"` IS a legal kind. That returned
+    a 503 for two of ten live breakdowns. The schema now drops the stray value
+    rather than refusing the song (app/models/song.py §6.2), but the prompt is
+    where the confusion gets fixed at the source, so the distinction must stay
+    stated rather than left for the model to infer from two adjacent lists.
+    """
+    assert "THOSE FOUR ARE THE ONLY LEGAL VALUES" in SYSTEM_PROMPT
+    assert '`link_to_next` is NEVER\n"bend"' in SYSTEM_PROMPT
+    # The reason, not just the rule — a bend moves the pitch, not the fret.
+    assert "goes nowhere on the fretboard" in SYSTEM_PROMPT
+    # And the pointer back from the bend block to the right slot.
+    assert "never in `link_to_next`" in SYSTEM_PROMPT

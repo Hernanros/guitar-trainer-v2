@@ -9,7 +9,14 @@ fields, because that split is the thing most likely to be broken by a later
 edit: a VALUE with a nearest-legal answer is coerced and warns, a RELATIONSHIP
 that contradicts itself raises. Getting that backwards is not a style error —
 coercing a contradiction hides a two-semitone pitch bug (§7.1.4), and raising on
-a value drops a whole cached song (§8.2), since `tab` has no soft-fail path.
+a value drops a whole cached song (§8.2).
+
+FLE-143 (2026-11-01) added §6.2 to the CLAMP side: an unrecognised articulation
+VALUE is dropped. It is what the sentence above warned about, measured — an
+unknown `link_to_next` was on neither side of the policy, so it fell through to
+a ValidationError and 503'd two of ten live breakdowns. The closedness the old
+tests asserted is unchanged; no illegal value is ever STORED. What changed is
+that an illegal value now costs its own flag instead of the song.
 
 Run with `server/.venv/bin/python -m pytest` — bare python3 is 3.9.6 here and
 fails on the 3.10+ syntax in this package with a misleading error.
@@ -453,15 +460,23 @@ def test_effects_are_deduplicated_first_occurrence_wins():
 
 
 def test_technique_is_exclusive_and_closed():
+    """A wrong SHAPE still raises; a wrong VALUE is now dropped (§6.2, FLE-143).
+
+    `technique` stays exclusive and closed — the guarantee the original test
+    protected — but the two halves fail differently now. A list where a single
+    value belongs is a shape error with no honest repair, so it still raises.
+    An unrecognised name has one ("not stated"), so it is dropped and the note
+    survives; see test_an_unrecognised_articulation_costs_its_own_flag.
+    """
     with pytest.raises(ValidationError):
         _note(technique=["tap", "slap"])
-    with pytest.raises(ValidationError):
-        _note(technique="strummed")
+    assert _note(technique="strummed").technique is None
 
 
-def test_unknown_effect_is_rejected():
-    with pytest.raises(ValidationError):
-        _note(effects=["reverb"])
+def test_unknown_effect_is_dropped_not_rejected():
+    """§6.2 — `effects` is still closed: the illegal value never lands in it."""
+    assert _note(effects=["reverb"]).effects == []
+    assert _note(effects=["vibrato", "reverb", "accent"]).effects == ["vibrato", "accent"]
 
 
 def test_legacy_negative_fret_becomes_a_dead_note(caplog):
@@ -498,12 +513,137 @@ def test_chord_position_keeps_minus_one_as_not_played():
 
 
 def test_feel_defaults_to_straight_and_has_exactly_three_values():
+    """§2.5 still admits exactly three values — a fourth now clamps (§6.2).
+
+    `feel` refuses a label in place of a pattern by never STORING one, which
+    this still checks. What changed in FLE-143 is that "bossa" costs the groove
+    marking instead of the whole song. It is the weakest of the §6.2 clamps —
+    serving a shuffle as straight misstates the feel — so it warns.
+    """
     assert _tab().feel == "straight"
     for f in ("straight", "swing", "shuffle"):
         assert _tab(feel=f).feel == f
-    for rejected in ("bossa", "latin", "triplet"):
-        with pytest.raises(ValidationError):
-            _tab(feel=rejected)
+    for clamped in ("bossa", "latin", "triplet"):
+        assert _tab(feel=clamped).feel == "straight"
+
+
+# ---------------------------------------------------------------------------
+# §6.2 — an unrecognised articulation value (FLE-143)
+#
+# The live defect: Sonnet emitted link_to_next="bend", which is a legal
+# Bend.kind value in the wrong slot, and the ValidationError returned a 503 for
+# the entire session. Pride and Joy died at m6 b4 and Comfortably Numb at
+# m2 b1 — both songs Hernan actually plays — out of ten breakdowns that cost
+# $1.41. The fix drops the flag, not the song.
+# ---------------------------------------------------------------------------
+
+
+def test_misrouted_link_to_next_bend_is_dropped_and_the_note_survives(caplog):
+    """The exact payload from both FLE-143 casualties."""
+    with caplog.at_level(logging.WARNING):
+        n = Note.model_validate(
+            {"string": 3, "fret": 7, "duration": "eighth", "link_to_next": "bend"}
+        )
+    # The flag is gone and NOTHING else is.
+    assert n.link_to_next is None
+    assert (n.string, n.fret, n.duration) == (3, 7, "eighth")
+    msg = " ".join(r.getMessage() for r in caplog.records)
+    assert "link_to_next='bend'" in msg
+    # The log names the confusion, so the next occurrence is one grep.
+    assert "Bend.kind" in msg
+
+
+def test_the_misrouted_value_is_not_re_routed_into_a_bend():
+    """§6.2 — reading it as a bend would mean inventing an AMOUNT.
+
+    A bend amount is a pitch (§5.1), so guessing one is our musical judgement
+    standing in for the model's — the thing the RAISE side of the policy
+    exists to prevent. The note is played straight instead, and the prompt in
+    app/ai/breakdown.py is where the confusion gets fixed at the source.
+    """
+    n = Note.model_validate(
+        {"string": 3, "fret": 7, "duration": "eighth", "link_to_next": "bend"}
+    )
+    assert n.bend is None
+
+
+def test_an_unrecognised_articulation_costs_its_own_flag():
+    n = Note.model_validate(
+        {
+            "string": 1,
+            "fret": 5,
+            "duration": "quarter",
+            "link_to_next": "trill",
+            "technique": "sweep",
+            "effects": ["vibrato", "gallop", "palm_mute"],
+        }
+    )
+    assert n.link_to_next is None and n.technique is None
+    # The two LEGAL effects are kept, in order — one bad item is not the list.
+    assert n.effects == ["vibrato", "palm_mute"]
+    assert (n.string, n.fret) == (1, 5)
+
+
+def test_legal_articulations_are_untouched():
+    """The guard against an over-eager clamp: §6.2 must be invisible normally."""
+    for link in ("tie", "hammer_on", "pull_off", "slide"):
+        assert _note(link_to_next=link).link_to_next == link
+    for tech in ("tap", "slap", "pop", "rake", "natural_harmonic"):
+        assert _note(technique=tech).technique == tech
+    n = Note.model_validate(
+        {
+            "string": 2,
+            "fret": 10,
+            "duration": "quarter",
+            "bend": {"semitones": 1.0, "kind": "bend_release"},
+        }
+    )
+    assert n.bend is not None
+    assert (n.bend.semitones, n.bend.kind) == (1.0, "bend_release")
+
+
+def test_an_unusable_bend_is_dropped_whole_rather_than_part_repaired(caplog):
+    """§5.1 — `semitones` is a pitch, so there is no honest fallback for it."""
+    with caplog.at_level(logging.WARNING):
+        n = Note.model_validate(
+            {"string": 1, "fret": 5, "duration": "quarter", "bend": {"semitones": 0.3}}
+        )
+    assert n.bend is None
+    assert (n.fret, n.duration) == (5, "quarter")
+    assert "bend" in " ".join(r.getMessage() for r in caplog.records)
+
+
+def test_a_bend_emitted_as_a_bare_string_is_dropped():
+    """The other half of the same confusion — the word in the right field, no object."""
+    assert Note.model_validate(
+        {"string": 1, "fret": 5, "duration": "quarter", "bend": "bend"}
+    ).bend is None
+
+
+def test_bend_kind_clamps_to_the_default_and_keeps_the_amount():
+    """Unlike `semitones`, `kind` HAS a nearest-legal answer: its own default."""
+    b = Bend.model_validate({"semitones": 1.5, "kind": "bendy"})
+    assert (b.semitones, b.kind) == (1.5, "bend")
+
+
+def test_a_whole_tab_is_served_despite_a_misrouted_link():
+    """The point of the card: the session survives, which is what the user sees."""
+    tab = Tab.model_validate(
+        {
+            "measures": [
+                {
+                    "beats": [
+                        {"notes": [{"string": 3, "fret": 7, "duration": "eighth",
+                                    "link_to_next": "bend"}]},
+                        {"notes": [{"string": 3, "fret": 9, "duration": "eighth"}]},
+                    ]
+                }
+            ]
+        }
+    )
+    notes = tab.measures[0].beats[0].notes
+    assert notes[0].link_to_next is None and notes[0].fret == 7
+    assert tab.measures[0].beats[1].notes[0].fret == 9
 
 
 # ---------------------------------------------------------------------------
