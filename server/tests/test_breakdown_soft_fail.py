@@ -478,6 +478,78 @@ async def test_a_refusal_persists_the_raw_payload_when_the_dir_is_set(
 
 
 @pytest.mark.asyncio
+async def test_a_verification_refusal_persists_the_payload_and_its_defects(
+    monkeypatch, tmp_path
+):
+    """FLE-143 amendment: the path that actually cost us the evidence.
+
+    An OWN_CHORDS or METER refusal is NOT a ValidationError — the payload parses
+    cleanly and `verify_tab(parsed)` raises afterwards. Four of the eight
+    refusals in the FLE-89 measurement were that path, so persisting only on a
+    validation failure would still have thrown away the one payload FLE-144
+    needs to rule on whether that C# is genuinely foreign over Wonderwall's
+    progression. The defects are recorded as a list, not only joined into the
+    message, because they have to be read next to the tab that caused them.
+
+    The refusal itself is unchanged and deliberately so: log the evidence, then
+    refuse. A blocking defect means a wrong note or a wrong bar, and serving it
+    would trade "no session" for "a session with a wrong tab".
+    """
+    import json
+    from app.ai import breakdown as breakdown_mod
+    from app.ai.breakdown import TabVerificationError, run_technique_breakdown
+    from app.ai.tab_verification import VerificationResult
+
+    monkeypatch.setenv("FLETCHER_RAW_PAYLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        breakdown_mod,
+        "verify_tab",
+        lambda _parsed: VerificationResult(
+            blocking=["OWN_CHORDS: m2 b1 C is foreign to Bm", "METER: m3 sums to 4.5"],
+            warnings=["UNIFORM_DURATION: every note is an eighth"],
+        ),
+    )
+
+    payload = _breakdown_dict_with_drills([_valid_drill_dict(), _valid_drill_dict()])
+    _install_fake_client(monkeypatch, payload)
+
+    user_id = str(uuid.uuid4())
+    await _seed_user(user_id)
+
+    try:
+        async with _make_session() as db:
+            with pytest.raises(TabVerificationError) as caught:
+                await run_technique_breakdown(
+                    "Wonderwall",
+                    "Oasis",
+                    [{"id": str(uuid.uuid4()), "name": "Bending"}],
+                    0.5,
+                    db=db,
+                    user_id=uuid.UUID(user_id),
+                )
+
+        assert caught.value.defects == [
+            "OWN_CHORDS: m2 b1 C is foreign to Bm",
+            "METER: m3 sums to 4.5",
+        ], "the refusal must carry the defect list, not just a joined sentence"
+
+        dumps = list(tmp_path.glob("*.json"))
+        assert len(dumps) == 1, f"expected one persisted payload, got {dumps}"
+        saved = json.loads(dumps[0].read_text())
+        assert saved["error_type"] == "TabVerificationError"
+        assert saved["defects"] == [
+            "OWN_CHORDS: m2 b1 C is foreign to Bm",
+            "METER: m3 sums to 4.5",
+        ]
+        assert saved["warnings"] == ["UNIFORM_DURATION: every note is an eighth"]
+        assert saved["raw_input"]["tab"]["measures"][0]["beats"], (
+            "the refused tab itself is the evidence — it has to be in the file"
+        )
+    finally:
+        await _cleanup_user(user_id)
+
+
+@pytest.mark.asyncio
 async def test_nothing_is_written_when_the_dir_is_unset(monkeypatch, tmp_path):
     """Opt-in per environment — it must never write to a path nobody chose."""
     from app.ai.breakdown import AIBreakdownError, run_technique_breakdown

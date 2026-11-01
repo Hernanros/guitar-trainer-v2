@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -133,7 +134,23 @@ class TabVerificationError(AIBreakdownError):
     gave the renderer width-from-content. Only `result.blocking` reaches here,
     so warnings — UNIFORM_DURATION, DOUBLE_SWING, RENDERER_WIDTH — are recorded
     and served, never raised. See tab_verification._check_renderer_width.
+
+    Carries the verification result alongside the message (FLE-143): the defect
+    strings are in the message too, but joined into one sentence. Adjudicating
+    "is that C# genuinely foreign over this progression?" means reading the
+    defects next to the payload that caused them, so _persist_raw_payload writes
+    them as a list rather than leaving the reader to re-split prose.
     """
+
+    def __init__(
+        self,
+        message: str,
+        defects: Sequence[str] = (),
+        warnings: Sequence[str] = (),
+    ) -> None:
+        super().__init__(message)
+        self.defects = list(defects)
+        self.warnings = list(warnings)
 
 
 class BreakdownTruncatedError(AIBreakdownError):
@@ -781,6 +798,11 @@ def _persist_raw_payload(
                     "refused_at": datetime.now(timezone.utc).isoformat(),
                     "error_type": type(exc).__name__,
                     "error": str(exc),
+                    # Present only on TabVerificationError; the other refusals
+                    # have no defect list to record, and an empty one would read
+                    # as "verified clean" rather than "never verified".
+                    "defects": getattr(exc, "defects", None),
+                    "warnings": getattr(exc, "warnings", None),
                     "raw_input": raw_input,
                 },
                 indent=2,
@@ -1165,7 +1187,9 @@ async def run_technique_breakdown(
             raise TabVerificationError(
                 f"Sonnet's breakdown for {song_title!r} failed {len(result.blocking)} "
                 f"recording-free check(s), not serving a defective tab: "
-                f"{'; '.join(result.blocking)}"
+                f"{'; '.join(result.blocking)}",
+                defects=result.blocking,
+                warnings=result.warnings,
             )
 
         return parsed
