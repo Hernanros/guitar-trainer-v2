@@ -99,6 +99,71 @@ def test_meter_mismatch_blocks():
 
 
 # ---------------------------------------------------------------------------
+# FLE-145 — the METER defect has to carry the columns it summed.
+#
+# The live measurement on 2026-11-01 refused Lenny and Cause We've Ended as
+# Lovers on "durations sum to 5 beats, bar is 4/4 (4)", and that message could
+# not say whether the model wrote a fifth beat of music or the server guessed a
+# length for a spelling it did not recognise (see _normalise_duration_spelling).
+# Settling it would have cost a re-run of the same paid call. These pin the
+# evidence into the defect string so it cannot cost that again.
+# ---------------------------------------------------------------------------
+
+def _meter_defect(measures: list[Measure]) -> str:
+    result = verify(_breakdown(measures, [_chord("E")]))
+    hits = [d for d in result.blocking if d.startswith("METER:")]
+    assert len(hits) == 1, result.blocking
+    return hits[0]
+
+
+def test_meter_defect_names_the_columns_it_summed():
+    """The 5-beats-in-4/4 shape this card was opened for, spelled out."""
+    beats = [Beat(notes=[_note(6, 0, "quarter")]) for _ in range(4)]
+    beats += [Beat(notes=[_note(6, 0, "eighth")]) for _ in range(2)]
+    defect = _meter_defect([Measure(beats=beats, time_signature="4/4")])
+    assert "durations sum to 5 beats, bar is 4/4 (4)" in defect
+    assert "6 columns: 4x quarter, 2x eighth" in defect
+
+
+def test_meter_defect_distinguishes_a_rest_column():
+    """A rest counts toward the bar, so it has to be legible in the evidence."""
+    beats = [Beat(rest="half"), Beat(notes=[_note(6, 0, "whole")])]
+    defect = _meter_defect([Measure(beats=beats, time_signature="4/4")])
+    assert "2 columns: rest half, whole" in defect
+
+
+def test_meter_defect_elides_a_long_bar_but_states_the_count():
+    """A truncated list must never be readable as a complete one."""
+    beats = [
+        Beat(notes=[_note(6, 0, "quarter" if i % 2 else "eighth")])
+        for i in range(40)
+    ]
+    defect = _meter_defect([Measure(beats=beats, time_signature="4/4")])
+    assert "40 columns:" in defect
+    assert "+24 more" in defect
+
+
+def test_meter_reads_a_noncanonical_triplet_spelling_as_a_triplet():
+    """FLE-145's root-cause candidate, end to end through the parse.
+
+    Three triplet-quarters plus two quarters is exactly four beats. Spelled with
+    underscores it used to parse as five quarters — 5.0 in a 4/4 bar, the exact
+    defect string this card reported — because `triplet_quarter` and its
+    permutations were absent from the §8.2 alias table while `dotted_quarter`
+    was present. The bar is correct music and must verify as such.
+    """
+    raw = {
+        "time_signature": "4/4",
+        "beats": (
+            [{"notes": [{"string": 3, "fret": 5, "duration": "triplet_quarter"}]}] * 3
+            + [{"notes": [{"string": 3, "fret": 5, "duration": "quarter"}]}] * 2
+        ),
+    }
+    result = verify(_breakdown([Measure(**raw)], [_chord("E")]))
+    assert not [d for d in result.blocking if d.startswith("METER:")], result.blocking
+
+
+# ---------------------------------------------------------------------------
 # C2 / UNPLAYABLE
 # ---------------------------------------------------------------------------
 

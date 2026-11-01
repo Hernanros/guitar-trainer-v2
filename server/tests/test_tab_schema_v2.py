@@ -226,6 +226,77 @@ def test_aliases_canonicalise(raw, want):
     assert _note(duration=raw).duration == want
 
 
+# ---------------------------------------------------------------------------
+# FLE-145 — a recoverable spelling must not be paid for in beats.
+#
+# The alias table above was derived from what the audit SCRIPTS accepted, so it
+# holds `dotted_quarter` (modifier first, underscore) and `eighth-triplet` (base
+# first, hyphen) but held no `triplet_eighth`. That one gap coerced a 1/3-beat
+# note to a 1-beat quarter and over-summed the bar, which METER blocks — so §8.2
+# coerced in order not to lose the song and lost it anyway. Normalisation now
+# follows the prompt's stated `<modifier>-<base>` grammar instead of a list of
+# observed typos, so an unlisted permutation cannot reintroduce this.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw,want", [
+    # the permutations the grammar recovers, none of them previously listed
+    ("triplet_eighth", "triplet-eighth"),
+    ("triplet_quarter", "triplet-quarter"),
+    ("triplet_sixteenth", "triplet-sixteenth"),
+    ("triplet_half", "triplet-half"),
+    ("eighth_triplet", "triplet-eighth"),
+    ("sixteenth_triplet", "triplet-sixteenth"),
+    ("half_triplet", "triplet-half"),
+    ("quarter-dotted", "dotted-quarter"),
+    ("dotted_sixteenth", "dotted-sixteenth"),
+    ("triplet eighth", "triplet-eighth"),
+    ("TRIPLET--EIGHTH", "triplet-eighth"),
+    # numeric shorthand, which tab notation uses far more often than words
+    ("16th", "sixteenth"),
+    ("8th", "eighth"),
+    ("4th", "quarter"),
+    ("2nd", "half"),
+])
+def test_recoverable_spellings_keep_their_length(raw, want):
+    assert canonical_duration(raw) == want
+    assert _note(duration=raw).duration == want
+    # The point of the fix: the LENGTH survives, on both paths, identically.
+    assert duration_beats(raw) == DURATION_BEATS[want]
+
+
+@pytest.mark.parametrize("raw", [
+    "dotted-whole",            # parses under the grammar, absent from the table
+    "dotted-thirty-second",    # ditto
+    "dotted-dotted-quarter",   # two modifiers is not the grammar
+    "quintuplet-eighth",       # §2.2 says quintuplets are inexpressible
+    "semihemidemisemiquaver",
+    "",
+    "---",
+])
+def test_unrecoverable_spellings_still_coerce_and_report(raw):
+    """The closed 14-value vocabulary is still exactly the contract.
+
+    Widening the SPELLINGS must not widen the VALUES: anything that does not
+    land on a real key still costs a quarter on the write path and still reports
+    None on the audit path, which is the §8.2 split the audit depends on.
+    """
+    assert canonical_duration(raw) == "quarter"
+    assert duration_beats(raw) is None
+
+
+def test_the_fle145_bar_sums_correctly_once_the_spelling_is_recovered():
+    """Three triplet-quarters and two quarters is 4 beats, not 5.
+
+    This is the arithmetic behind the defect FLE-145 reported: the same bar used
+    to parse as five quarters and refuse the whole breakdown with "durations sum
+    to 5 beats, bar is 4/4 (4)".
+    """
+    beats = [Beat(notes=[_note(duration="triplet_quarter")]) for _ in range(3)]
+    beats += [Beat(notes=[_note(duration="quarter")]) for _ in range(2)]
+    assert measure_beats(Measure(beats=beats, time_signature="4/4")) == Fraction(4)
+
+
 def test_unknown_duration_coerces_and_does_not_raise(caplog):
     """§8.2 — the governing constraint: `tab` has NO soft-fail path.
 
