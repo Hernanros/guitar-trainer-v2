@@ -34,6 +34,7 @@
 #   breakdown reads back unchanged.
 import logging
 import re
+from contextvars import ContextVar
 from fractions import Fraction
 from typing import Any, Literal, Optional, get_args
 from uuid import UUID
@@ -363,20 +364,49 @@ _TECHNIQUE_VALUES = frozenset(get_args(Technique))
 _EFFECT_VALUES = frozenset(get_args(Effect))
 
 
+# FLE-148 defect 2 — count the clamp once, not twice.
+#
+# `Note._drop_unrecognised_articulations` validates a candidate `bend` through
+# `Bend.model_validate` purely to ask "is this structurally usable?". That probe
+# runs `Bend._clamp_kind`, which warns; Pydantic then parses the field for real
+# and warns again. Measured in the prod log during the FLE-143 probe:
+# `link_to_next`, `technique`, `effects[]` and `tab.feel` each warned ONCE,
+# `bend.kind='wobble'` warned TWICE.
+#
+# This is not a cosmetic fix. Harmless for serving — the clamp is idempotent and
+# the bend survives either way — but FLE-148's option B makes `railway logs` the
+# measurement channel for per-song defect tallies, and FLE-89 counts defects per
+# song. A 2x on one check is a wrong number inside a quality verdict.
+#
+# A contextvar rather than a `warn=False` parameter threaded through
+# `_drop_unknown`: the suppression belongs to the PROBE, not to the rule. `Bend`
+# keeps one definition of what a legal `kind` is and one place that says so, and
+# the probe declares "I am asking a structural question, do not tally my
+# answer". Context-local, so it cannot leak across concurrent requests.
+_probing_bend_structure: ContextVar[bool] = ContextVar(
+    "_probing_bend_structure", default=False
+)
+
+
 def _drop_unknown(value: object, allowed: frozenset, field: str, hint: str = "") -> object:
     """§6.2 — `value` if `allowed` recognises it, else None, with a warning.
 
     Non-string input falls through untouched so Pydantic's own type error is
     still the thing the caller sees — this repairs a wrong VALUE, not a wrong
     SHAPE.
+
+    The warning is suppressed inside a structural probe (FLE-148) — the repair
+    itself is NOT: the caller gets the same None either way, so what changes is
+    the tally, not the served tab.
     """
     if not isinstance(value, str) or value in allowed:
         return value
-    logger.warning(
-        "Unrecognised %s=%r — ignored (FLE-115 §6.2); the rest of the tab is "
-        "served unchanged. Legal values: %s.%s",
-        field, value, ", ".join(sorted(allowed)), hint,
-    )
+    if not _probing_bend_structure.get():
+        logger.warning(
+            "Unrecognised %s=%r — ignored (FLE-115 §6.2); the rest of the tab is "
+            "served unchanged. Legal values: %s.%s",
+            field, value, ", ".join(sorted(allowed)), hint,
+        )
     return None
 
 
@@ -707,13 +737,29 @@ class Note(BaseModel):
 
         bend = out.get("bend")
         if bend is not None:
+            # FLE-148: this is a question, not a parse — the answer we keep is
+            # "usable / not usable", and Pydantic parses the field for real
+            # immediately after. Silence the §6.2 warning for the probe only so
+            # one unrecognised `bend.kind` is counted once, like every other
+            # clamp. The "unusable bend" warning below is outside the rule and
+            # still fires; the suppression is lifted before `out` is returned.
+            probe = _probing_bend_structure.set(True)
             try:
                 Bend.model_validate(bend)
             except ValidationError as exc:
+                unusable: Optional[ValidationError] = exc
+            else:
+                unusable = None
+            finally:
+                _probing_bend_structure.reset(probe)
+            # Deliberately OUTSIDE the suppression window: this warning is the
+            # one record that a bend was dropped, and it must survive even if
+            # someone later routes it through `_drop_unknown`.
+            if unusable is not None:
                 logger.warning(
                     "Unusable bend %r — dropped (FLE-115 §6.2); the note is "
                     "served at its fingered fret with no bend. %s",
-                    bend, exc,
+                    bend, unusable,
                 )
                 out["bend"] = None
         return out

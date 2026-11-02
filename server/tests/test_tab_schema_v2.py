@@ -697,6 +697,82 @@ def test_bend_kind_clamps_to_the_default_and_keeps_the_amount():
     assert (b.semitones, b.kind) == (1.5, "bend")
 
 
+# ---------------------------------------------------------------------------
+# FLE-148 defect 2 — one unrecognised value, one warning
+# ---------------------------------------------------------------------------
+# `Note._drop_unrecognised_articulations` validates a candidate bend through
+# `Bend.model_validate` to ask whether it is structurally usable, and that probe
+# runs `Bend._clamp_kind` before Pydantic parses the field for real. Measured in
+# the prod log during the FLE-143 probe: `link_to_next`, `technique`,
+# `effects[]` and `tab.feel` each warned once, `bend.kind='wobble'` warned
+# twice.
+#
+# Harmless for serving — the clamp is idempotent and the bend survives either
+# way. It matters because FLE-148 option B makes `railway logs` the measurement
+# channel for per-song defect tallies and FLE-89 counts defects per song, so a
+# 2x on one check is a wrong number inside a quality verdict. These tests pin
+# the COUNT, which is the thing FLE-89 reads, rather than the contextvar that
+# produces it.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "note, needle",
+    [
+        ({"link_to_next": "trill"}, "link_to_next='trill'"),
+        ({"technique": "sweep"}, "technique='sweep'"),
+        ({"effects": ["chorus"]}, "effects[]='chorus'"),
+        ({"bend": {"semitones": 1.0, "kind": "wobble"}}, "bend.kind='wobble'"),
+    ],
+)
+def test_one_unrecognised_value_warns_exactly_once(note, needle, caplog):
+    """All four §6.2 slots tally the same, which is the whole fix."""
+    with caplog.at_level(logging.WARNING):
+        Note.model_validate({"string": 2, "fret": 7, "duration": "quarter", **note})
+    hits = [r for r in caplog.records if needle in r.getMessage()]
+    assert len(hits) == 1, (
+        f"expected exactly one warning for {needle}, got {len(hits)}: "
+        f"{[r.getMessage()[:80] for r in hits]}"
+    )
+
+
+def test_the_clamp_still_applies_during_the_structural_probe(caplog):
+    """The probe is silenced, NOT disabled — suppression must not become repair.
+
+    Dropping the warning is a tally fix. If it also changed what `_drop_unknown`
+    RETURNS inside the probe, a bend whose kind is misspelled would read as
+    unusable and get dropped whole — a §5.1 pitch thrown away over a spelling,
+    which is the opposite of what the clamp exists to do.
+    """
+    with caplog.at_level(logging.WARNING):
+        n = Note.model_validate(
+            {"string": 2, "fret": 7, "duration": "quarter",
+             "bend": {"semitones": 1.5, "kind": "wobble"}}
+        )
+    assert n.bend is not None, "the bend survives a misspelled kind"
+    assert (n.bend.semitones, n.bend.kind) == (1.5, "bend")
+
+
+def test_the_probe_does_not_silence_the_next_note(caplog):
+    """The suppression is reset — an under-count is the same defect, sign flipped.
+
+    A probe that leaked would silence every clamp after the first bend in the
+    same context, i.e. the rest of the song. One tab, two notes, two warnings.
+    """
+    with caplog.at_level(logging.WARNING):
+        Note.model_validate(
+            {"string": 2, "fret": 7, "duration": "quarter",
+             "bend": {"semitones": 1.5, "kind": "wobble"}}
+        )
+        n2 = Note.model_validate(
+            {"string": 3, "fret": 9, "duration": "eighth", "technique": "sweep"}
+        )
+    assert n2.technique is None
+    msgs = " ".join(r.getMessage() for r in caplog.records)
+    assert "bend.kind='wobble'" in msgs
+    assert "technique='sweep'" in msgs
+
+
 def test_a_whole_tab_is_served_despite_a_misrouted_link():
     """The point of the card: the session survives, which is what the user sees."""
     tab = Tab.model_validate(

@@ -6,6 +6,7 @@ Sonnet during breakdown fetch. Do not sprinkle client.messages.create() calls
 anywhere else. Wrapped with @governed(feature='breakdown', cap=BREAKDOWN_CAP).
 """
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -754,6 +755,141 @@ def _normalize_tuning_notes(notes: list[str]) -> list[str]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# FLE-148: the log is the retrieval path, because nothing else is
+# ---------------------------------------------------------------------------
+# FLE-143 built the file dump below and it could not be read in prod. Measured
+# on the `guitar-trainer-v2` service 2026-11-02: FLETCHER_RAW_PAYLOAD_DIR is
+# unset, the project's only volume (`postgres-volume`) is attached to Postgres
+# so the app service has no durable path to set it to, and `railway ssh` refuses
+# for want of an SSH key only Hernan can register. A dump written to the
+# container FS dies at the next deploy and nobody ever sees it — which is the
+# same failure the card exists to fix: it looks like evidence and produces none.
+#
+# So when there is no payload directory, the payload goes to the logger, which
+# IS proven to come back: the §6.2 clamp warnings from the FLE-143 prod probe
+# read cleanly out of `railway logs` the same morning.
+#
+# Both numbers below are measured, not guessed.
+#
+# LINE LENGTH. `main.py` calls logging.basicConfig(level=INFO), so a line
+# renders as `WARNING:app.ai.breakdown:` (25 chars) + the message. Railway
+# documents no per-line cap, so this budget stays inside what is PROVEN to
+# survive: the longest line in the prod window is the FLE-143 link_to_next
+# clamp at 315 chars, and it arrived whole (it still ends in
+# "...no-fresh-pick relationships."). 240 payload chars + a 39-char fenced
+# marker + the 25-char prefix = 304 rendered chars, under that. Chunking small
+# also means a mangled line costs 240 bytes of a ~15 KB payload, not the
+# payload.
+#
+# TOTAL SIZE. The densest of the ten cached prod breakdowns is 14,833 bytes of
+# compact JSON (`select max(length(breakdown::text)) from songs` — Pride and
+# Joy), and _MAX_OUTPUT_TOKENS caps what Sonnet can emit at 20,000 tokens,
+# which this schema tokenizes at roughly 2.5 chars/token — call the hard
+# ceiling ~50 KB. 64 KiB sits above that ceiling and at 4.3x the densest real
+# payload, so a MODEL-produced payload cannot reach the cap. The cap is a guard
+# against `default=str` stringifying something pathological into the log, not a
+# working limit, and it bounds the burst at 274 lines — one refusal stays well
+# inside Railway's per-second log budget.
+#
+# The cap is therefore expected to be unreachable, and the reassembler VERIFIES
+# that rather than trusting it: every dump carries its own byte count and
+# sha256, so a truncation — by the cap or by a log pipeline — is reported, never
+# silently handed back as mangled JSON. If one ever fires, that is the signal to
+# take option C (a `refused_payloads` table) instead of widening this.
+_LOG_PAYLOAD_CHUNK_CHARS = 240
+_LOG_PAYLOAD_MAX_CHARS = 64 * 1024
+_LOG_PAYLOAD_MARKER = "FLE148-PAYLOAD"
+
+
+def _payload_envelope(
+    raw_input: object, song_title: str, song_artist: str, exc: BaseException
+) -> dict[str, Any]:
+    """The record of one refusal, in the order a reader needs it.
+
+    Key order is load-bearing for the log channel (FLE-148): the diagnosis
+    comes first and the bulky `raw_input` last, so if the size cap ever does
+    bite, what it takes is the tail of the tab and not the reason we refused.
+    """
+    return {
+        "song_title": song_title,
+        "song_artist": song_artist,
+        "refused_at": datetime.now(timezone.utc).isoformat(),
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+        # Present only on TabVerificationError; the other refusals
+        # have no defect list to record, and an empty one would read
+        # as "verified clean" rather than "never verified".
+        "defects": getattr(exc, "defects", None),
+        "warnings": getattr(exc, "warnings", None),
+        "raw_input": raw_input,
+    }
+
+
+def _log_raw_payload(envelope: dict[str, Any]) -> None:
+    """FLE-148 option B — emit the refusal to the one channel prod can read.
+
+    Shape of what lands in `railway logs`, for whoever greps it next:
+
+        FLE148-REFUSAL dump=<id> song=... error=... parts=N bytes=N sha256=...
+        FLE148-REFUSAL dump=<id> reassemble: ...
+        FLE148-ERROR   dump=<id> <the refusal message>
+        FLE148-DEFECT  dump=<id> i/n <one blocking defect>      (xN)
+        FLE148-PAYLOAD dump=<id> 001/0NN <240 chars of compact JSON>  (xN)
+
+    The header, the error and the defects are duplicated out of the envelope
+    onto their own short lines on purpose. They are what FLE-144 needs in order
+    to be adjudicated at all, they fit inside one proven-safe line each, and
+    keeping them independent of the chunk stream means a payload that chunks
+    badly still leaves a usable refusal record behind.
+    """
+    # Compact (and ASCII-escaped, json.dumps' default) so the blob is guaranteed
+    # single-line: a literal newline inside a chunk would split one log line
+    # into two and break reassembly.
+    blob = json.dumps(envelope, separators=(",", ":"), default=str)
+    dropped = max(0, len(blob) - _LOG_PAYLOAD_MAX_CHARS)
+    if dropped:
+        blob = blob[:_LOG_PAYLOAD_MAX_CHARS]
+    # Hash what is actually emitted, not what we started with, so the
+    # reassembler checks the transport and reports the cap separately.
+    digest = hashlib.sha256(blob.encode("ascii", "replace")).hexdigest()[:16]
+    dump_id = os.urandom(4).hex()
+    chunks = [
+        blob[i:i + _LOG_PAYLOAD_CHUNK_CHARS]
+        for i in range(0, len(blob), _LOG_PAYLOAD_CHUNK_CHARS)
+    ] or [""]
+
+    logger.error(
+        "FLE148-REFUSAL dump=%s song=%.40r by=%.30r error=%s parts=%d chars=%d "
+        "sha256=%s%s",
+        dump_id, envelope["song_title"], envelope["song_artist"],
+        envelope["error_type"], len(chunks), len(blob), digest,
+        f" TRUNCATED_BY={dropped}" if dropped else "",
+    )
+    logger.error(
+        "FLE148-REFUSAL dump=%s reassemble: railway logs | python3 "
+        "server/scripts/reassemble_refusal_payload.py",
+        dump_id,
+    )
+    logger.error("FLE148-ERROR dump=%s %.200s", dump_id, envelope["error"])
+    defects = envelope.get("defects") or []
+    for i, defect in enumerate(defects, 1):
+        logger.error(
+            "FLE148-DEFECT dump=%s %d/%d %.200s", dump_id, i, len(defects), defect
+        )
+    for idx, chunk in enumerate(chunks, 1):
+        # The `|...|` fence is not decoration. A chunk boundary can fall inside
+        # a JSON string, so a chunk may legitimately END in a space — and if the
+        # log transport adds or trims trailing whitespace, an unfenced body
+        # cannot be told apart from one that really ended that way. The fence
+        # makes the chunk's exact extent unambiguous, so whitespace damage shows
+        # up as a hash mismatch instead of a silently altered payload.
+        logger.warning(
+            "%s dump=%s %03d/%03d |%s|", _LOG_PAYLOAD_MARKER, dump_id, idx,
+            len(chunks), chunk,
+        )
+
+
 def _persist_raw_payload(
     raw_input: object, song_title: str, song_artist: str, exc: BaseException
 ) -> None:
@@ -767,49 +903,33 @@ def _persist_raw_payload(
     the same ten calls again. A refusal that cost real money should leave
     something behind.
 
+    Two channels, and the fallback is the one prod actually uses.
+    FLETCHER_RAW_PAYLOAD_DIR still wins when it is set — a file is the better
+    artefact where there is somewhere durable to put one, which locally and in
+    tests there is. Where it is unset the payload goes to the logger instead
+    (FLE-148): an unset variable used to mean the refusal left NOTHING behind,
+    and prod has no volume to set it to, so "off" was silently the production
+    configuration.
+
     Best-effort by construction: any failure here is swallowed and logged,
     because a diagnostic that can mask the defect it is diagnosing is worse
-    than no diagnostic. Off unless FLETCHER_RAW_PAYLOAD_DIR is set, so it is
-    opt-in per environment and writes nothing in tests or on a read-only
-    filesystem; the log line below is what tells you where to look.
+    than no diagnostic.
     """
     if raw_input is None:
         # The call failed before a tool_use block existed (no API key, a timeout,
         # a truncation so early nothing parsed) — there is nothing to keep.
         return
+    envelope = _payload_envelope(raw_input, song_title, song_artist, exc)
     target = os.environ.get("FLETCHER_RAW_PAYLOAD_DIR", "").strip()
-    if not target:
-        logger.info(
-            "Not persisting the raw payload for %r — FLETCHER_RAW_PAYLOAD_DIR is "
-            "unset. Set it to make this refusal diagnosable without re-spending.",
-            song_title,
-        )
-        return
     try:
+        if not target:
+            _log_raw_payload(envelope)
+            return
         directory = Path(target)
         directory.mkdir(parents=True, exist_ok=True)
         slug = re.sub(r"[^a-z0-9]+", "-", f"{song_title} {song_artist}".lower()).strip("-")
         path = directory / f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{slug[:60]}.json"
-        path.write_text(
-            json.dumps(
-                {
-                    "song_title": song_title,
-                    "song_artist": song_artist,
-                    "refused_at": datetime.now(timezone.utc).isoformat(),
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                    # Present only on TabVerificationError; the other refusals
-                    # have no defect list to record, and an empty one would read
-                    # as "verified clean" rather than "never verified".
-                    "defects": getattr(exc, "defects", None),
-                    "warnings": getattr(exc, "warnings", None),
-                    "raw_input": raw_input,
-                },
-                indent=2,
-                default=str,
-            ),
-            encoding="utf-8",
-        )
+        path.write_text(json.dumps(envelope, indent=2, default=str), encoding="utf-8")
         logger.error(
             "Refused the breakdown for %r by %r — raw Sonnet payload written to %s "
             "(FLE-143). Diagnose from that file rather than re-running the call.",
@@ -820,6 +940,20 @@ def _persist_raw_payload(
             "Could not persist the raw payload for %r: %s: %s",
             song_title, type(dump_exc).__name__, dump_exc,
         )
+        if not target:
+            # The log channel is itself what failed; there is nowhere left to go.
+            return
+        # A set-but-unwritable directory (a read-only mount, a path that is a
+        # file, a full disk) is exactly the case where the payload would be
+        # lost for a reason the operator did not choose. Fall back rather than
+        # settle for a one-line "could not persist".
+        try:
+            _log_raw_payload(envelope)
+        except Exception as log_exc:
+            logger.warning(
+                "Could not log the raw payload for %r either: %s: %s",
+                song_title, type(log_exc).__name__, log_exc,
+            )
 
 
 # ---------------------------------------------------------------------------
