@@ -398,6 +398,12 @@ def test_bailing_threshold_round_trips_through_mode_selection():
 
 
 def test_generator_version_is_pinned():
-    """§13 — a constant change in the spec is a version bump, not a silent edit."""
-    assert GENERATOR_VERSION == "session-gen/1.0.0"
+    """§13 — a constant change in the spec is a version bump, not a silent edit.
+
+    1.1.0 is FLE-75's §9.1 ladder_stretch rescale, landed by FLE-146. It moves every
+    drill's `tier_raw_score` and, for three rows in the prod bank, the `tier` the
+    rubric reads — so sessions generated before and after it are not interchangeable
+    and the stamp on `practice_sessions.generator_version` has to say which one it is.
+    """
+    assert GENERATOR_VERSION == "session-gen/1.1.0"
     assert [b.value for b in Block] == ["warmup", "technique", "repertoire", "consolidation"]

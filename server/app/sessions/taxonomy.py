@@ -225,7 +225,14 @@ _SPEED_LOAD_BUCKETS = ((1.5, 0), (3.0, 1), (5.0, 2), (8.0, 3))
 _DENSITY_BUCKETS = ((1.0, 0), (1.5, 1), (2.5, 2), (4.0, 3))
 _SPAN_BUCKETS = ((3, 0), (5, 1), (7, 2), (10, 3))
 _SIMULTANEITY_BUCKETS = ((1, 0), (2, 1), (3, 2), (5, 3))
-_LADDER_STRETCH_BUCKETS = ((2, 0), (4, 1), (6, 2), (8, 3))
+#
+# FLE-75: rescaled against the FLE-72 span cap (MAX_LADDER_SPAN_BPM = 15,
+# app/models/song.py). ladder_stretch = (target_bpm - start_bpm) / 5, so a capped
+# span's raw value tops out at 3.0, not the ~8.0 the pre-cap (2,4,6,8) boundaries
+# assumed. Boundaries at 0.6/1.2/1.8/2.4 split the 1-15 BPM span a capped drill can
+# actually have into five equal 3-BPM bands (1-3, 4-6, 7-9, 10-12, 13-15), so the
+# feature uses its full 0-4 range again instead of being stuck at 0-1.
+_LADDER_STRETCH_BUCKETS = ((0.6, 0), (1.2, 1), (1.8, 2), (2.4, 3))
 
 # raw score -> tier. Upper bounds, walked in order, else D5.
 _RAW_TIER_BANDS = ((3, Tier.D1), (7, Tier.D2), (11, Tier.D3), (15, Tier.D4))
