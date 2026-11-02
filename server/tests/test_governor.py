@@ -518,22 +518,88 @@ async def test_yesterdays_calls_do_not_count_today(monkeypatch):
         await _cleanup_user(db, user_id)
 
 
+def _local_day_start_utc(tz_offset_minutes: int, now_utc: datetime) -> datetime:
+    """The UTC instant at which the user's current local day began.
+
+    Spelled out from the definition rather than imported from governor.py. This
+    test's whole job is to disagree with a UTC-day window, so borrowing the
+    implementation's own boundary would make it agree with whatever that boundary
+    happens to be — including a wrong one.
+    """
+    local_now = now_utc + timedelta(minutes=tz_offset_minutes)
+    local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return local_midnight - timedelta(minutes=tz_offset_minutes)
+
+
+def _freeze_governor_clock(monkeypatch, instant: datetime) -> None:
+    """Pin count_window_calls' notion of "now" to `instant`.
+
+    Only the Python clock needs pinning: the one `now()` left in
+    COUNTS_AGAINST_CAP_SQL is the in-flight grace clause, which is OR'd behind
+    the actual-token columns that _insert_governor_call stamps, so a seeded row
+    counts regardless of where the DB thinks the wall clock is.
+    """
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):  # noqa: D102 - matches datetime.now
+            return instant if tz is not None else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr("app.ai.governor.datetime", _Frozen)
+
+
 @pytest.mark.asyncio
-async def test_day_boundary_follows_the_users_timezone():
+@pytest.mark.parametrize(
+    # One offset either side of UTC. An offset of 0 (or ±1min) cannot appear here:
+    # the local-day and UTC-day windows coincide there, so nothing distinguishes
+    # them and the `_premise` assertion below will say so rather than pass hollowly.
+    "tz_offset_minutes",
+    [-660, 180],
+    ids=["utc-minus-11", "utc-plus-3"],
+)
+@pytest.mark.parametrize(
+    "utc_hour,utc_minute",
+    [(None, None), (0, 15), (9, 0), (16, 13), (23, 50)],
+    ids=["live-clock", "00:15Z", "09:00Z", "16:13Z", "23:50Z"],
+)
+async def test_day_boundary_follows_the_users_timezone(
+    monkeypatch, tz_offset_minutes, utc_hour, utc_minute
+):
     """FLE-92: "today" is the USER's local day, not the server's UTC day.
 
     Hernan's device reports +180 (UTC+3), so for three hours after 21:00 UTC his
     local day has already turned over while the server's has not. A UTC-day window
     would hold his wall up through those hours.
 
-    Constructed so the two interpretations disagree: the row sits just inside today
-    in UTC but inside YESTERDAY for a user at -660 (UTC-11), whose local midnight is
-    11:00 UTC. A UTC-based window would count it.
+    Constructed so the two interpretations disagree, by seeding two calls one minute
+    either side of the user's LOCAL midnight. Exactly one of them is inside the
+    user's current local day; a UTC-day window lands both on the same side of its
+    own boundary and so can only answer 0 or 2. `_premise` below asserts that
+    disagreement holds, so the construction cannot quietly stop discriminating.
+
+    FLE-147: the earlier version hardcoded the seeded instant at 00:30 UTC and
+    assumed the user's local date equalled the UTC date. That holds only once the
+    UTC clock passes `|offset|`, so it asserted something false from 00:30 to 11:00
+    UTC every day and left its `resets_at` checks unreached in that window. The
+    seeded instants are now derived from the user's local midnight, and the clock is
+    simulated at hours both inside and outside that window, so the result no longer
+    depends on when the suite runs.
     """
     from app.ai.governor import count_window_calls
 
     user_id = str(uuid.uuid4())
-    tz_far_west = -660  # UTC-11
+
+    now_utc = datetime.now(timezone.utc)
+    if utc_hour is not None:
+        now_utc = now_utc.replace(
+            hour=utc_hour, minute=utc_minute, second=0, microsecond=0
+        )
+    # Pinned even in the live-clock case, where it is the real current hour. The
+    # seeded instants are a minute either side of the user's local midnight, so if
+    # that midnight fell between this snapshot and the governor's own now() the
+    # window would advance a day and both rows would land in yesterday. That race is
+    # only milliseconds wide, but a test filed for being clock-dependent should not
+    # keep a last sliver of it.
+    _freeze_governor_clock(monkeypatch, now_utc)
 
     async with _make_session() as db:
         await _seed_user(db, user_id)
@@ -547,34 +613,53 @@ async def test_day_boundary_follows_the_users_timezone():
                 "VALUES (gen_random_uuid(), :uid, :sid, NULL, "
                 "        DATE((now() AT TIME ZONE 'UTC') + (:tz * INTERVAL '1 minute')), :tz)"
             ),
-            {"uid": user_id, "sid": song_id, "tz": tz_far_west},
+            {"uid": user_id, "sid": song_id, "tz": tz_offset_minutes},
         )
         await db.commit()
 
-    # 00:30 UTC today: inside the UTC day, but 13:30 YESTERDAY at UTC-11.
-    utc_today_early = datetime.now(timezone.utc).replace(
-        hour=0, minute=30, second=0, microsecond=0
+    local_day_start = _local_day_start_utc(tz_offset_minutes, now_utc)
+    before_local_midnight = local_day_start - timedelta(minutes=1)
+    after_local_midnight = local_day_start + timedelta(minutes=1)
+
+    # The test's own premise: these two instants have to straddle the user's local
+    # boundary WITHOUT straddling the UTC one, or there is no distinction left to
+    # draw and a UTC-day governor would pass by accident.
+    utc_day_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    utc_day_end = utc_day_start + timedelta(days=1)
+    count_under_a_utc_day_window = sum(
+        utc_day_start <= ts < utc_day_end
+        for ts in (before_local_midnight, after_local_midnight)
+    )
+    assert count_under_a_utc_day_window != 1, (
+        f"Premise broken: at {now_utc} a UTC-day window would also answer 1 for "
+        f"offset {tz_offset_minutes}, so this test proves nothing"
     )
 
     async with _make_session() as db:
-        await _insert_governor_call(db, user_id, created_at=utc_today_early)
+        await _insert_governor_call(db, user_id, created_at=before_local_midnight)
+        await _insert_governor_call(db, user_id, created_at=after_local_midnight)
 
     async with _make_session() as db:
         count, resets_at = await count_window_calls(db, user_id, "breakdown")
 
-    # The suite can legitimately run before 00:30 UTC, in which case the row is in
-    # the future for every timezone and there is no distinction left to draw.
-    if datetime.now(timezone.utc) >= utc_today_early:
-        assert count == 0, (
-            f"A call at 00:30 UTC is yesterday for a user at UTC-11 and must not "
-            f"count against their today, got count={count}"
-        )
-
-    assert resets_at.hour == 11 and resets_at.minute == 0, (
-        f"Next local midnight for UTC-11 is 11:00 UTC, got {resets_at}"
+    assert count == 1, (
+        f"At {now_utc} a user at offset {tz_offset_minutes} began their local day at "
+        f"{local_day_start}, so exactly one of the two seeded calls ("
+        f"{before_local_midnight}, {after_local_midnight}) counts against today — "
+        f"got count={count}, which is what a UTC-day window would answer"
     )
-    assert resets_at > datetime.now(timezone.utc), "resets_at must be in the future"
-    assert resets_at - datetime.now(timezone.utc) <= timedelta(days=1), (
+
+    assert resets_at == local_day_start + timedelta(days=1), (
+        f"The window must reset at the user's NEXT local midnight, got {resets_at}"
+    )
+    # Same claim as "11:00 UTC for a UTC-11 user", stated for any offset: local
+    # midnight sits |offset| minutes away from UTC midnight.
+    assert resets_at.hour * 60 + resets_at.minute == (-tz_offset_minutes) % 1440, (
+        f"Local midnight for offset {tz_offset_minutes} is "
+        f"{(-tz_offset_minutes) % 1440} minutes into the UTC day, got {resets_at}"
+    )
+    assert resets_at > now_utc, f"resets_at must be in the future, got {resets_at}"
+    assert resets_at - now_utc <= timedelta(days=1), (
         f"A daily window cannot reset more than 24h out, got {resets_at}"
     )
 
