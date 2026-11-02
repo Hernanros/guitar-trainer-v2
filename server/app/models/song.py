@@ -33,6 +33,7 @@
 #   picked note stays exactly {string, fret, duration} and every cached JSONB
 #   breakdown reads back unchanged.
 import logging
+import re
 from fractions import Fraction
 from typing import Any, Literal, Optional, get_args
 from uuid import UUID
@@ -132,6 +133,28 @@ DURATION_BEATS: dict[str, Fraction] = {
 
 # §8.2 — the alternate spellings the two existing audit scripts already accept.
 # Nothing that passes today's audit may fail tomorrow's parse.
+#
+# FLE-145: this table is kept, but it is NO LONGER the whole normaliser, and the
+# reason is the defect this card was opened for. The list was derived from what
+# the audit SCRIPTS accepted, not from what the model EMITS, and the two sets
+# differ in a way that is not cosmetic. It spells out `dotted_quarter` (modifier
+# first, underscore) and `eighth-triplet` (base first, hyphen) but not
+# `triplet_eighth` — modifier first, underscore — which fell through to
+# `_FALLBACK_DURATION`. A triplet-eighth is 1/3 of a beat and a quarter is 1, so
+# one unlisted underscore turned a correct bar into one that over-sums, silently,
+# with nothing left in the Measure to say a substitution had happened.
+#
+# That inflation defeats the very policy §8.2 exists to serve. Coercion is there
+# so a spelling variant costs a note's nuance rather than the whole song — but
+# METER (C1) is a HARD BLOCK in app/ai/tab_verification.py, so an inflated bar
+# raises and the song is lost anyway, now with a defect message that blames the
+# model's beat counting for the server's substitution. Every such coercion is
+# biased the same way (quarter is longer than any of the six values a short
+# spelling plausibly meant), which is the signature FLE-145 recorded: the sums
+# are consistently OVER, never under.
+#
+# So the fallback stays the last resort it was always meant to be, and the
+# spellings are recovered structurally instead — see `_normalise_duration_spelling`.
 _DURATION_ALIASES = {
     "dotted_half": "dotted-half",
     "dotted_quarter": "dotted-quarter",
@@ -145,7 +168,76 @@ _DURATION_ALIASES = {
     "32nd": "thirty-second",
 }
 
+# The grammar the SYSTEM_PROMPT states in as many words: "Canonical spelling is
+# `<modifier>-<base>`: lowercase, one hyphen, modifier first." Normalising
+# against the grammar rather than against a list of observed typos is what keeps
+# the next unlisted permutation from inflating a bar.
+_DURATION_MODIFIERS = frozenset({"dotted", "triplet"})
+_DURATION_BASES = frozenset({
+    "whole", "half", "quarter", "eighth", "sixteenth", "thirty-second",
+})
+# Numeric shorthand. Guitar tab writes "16th" far more often than "sixteenth",
+# and every one of these was coerced to a quarter before FLE-145.
+_DURATION_NUMERIC_BASES = {
+    "1st": "whole",
+    "2nd": "half",
+    "4th": "quarter",
+    "8th": "eighth",
+    "16th": "sixteenth",
+    "32nd": "thirty-second",
+}
+
 _FALLBACK_DURATION = "quarter"
+
+
+def _normalise_duration_spelling(value: str) -> Optional[str]:
+    """A duration string -> one of the 14 keys of DURATION_BEATS, or None.
+
+    FLE-145. The single normaliser behind BOTH `canonical_duration` (write path,
+    coerces) and `duration_beats` (audit path, reports). They used to carry a
+    copy of this logic each, which is how they could disagree about what a
+    string means; sharing it means a spelling is recovered identically on both
+    or on neither.
+
+    Recovery is by the prompt's own grammar, in four steps, and NOTHING here
+    guesses at a length:
+
+      1. separators — `_` and whitespace become `-`, runs collapse. "triplet
+         eighth" and "triplet_eighth" are the same token sequence as
+         "triplet-eighth".
+      2. the §8.2 alias table, kept verbatim so no pre-v2 audit input regresses.
+      3. the grammar — split into tokens, pull out the at-most-one modifier, and
+         rebuild as `<modifier>-<base>`. This is what recovers an arbitrary
+         permutation: `eighth_triplet`, `triplet_eighth` and `quarter-dotted`
+         all land on their canonical form without being listed.
+      4. numeric shorthand for the base — `16th` -> `sixteenth`.
+
+    The result is returned ONLY if it is a real key of DURATION_BEATS, so the
+    closed 14-value vocabulary is still exactly the contract. `dotted-whole` and
+    `dotted-thirty-second` parse cleanly under the grammar and are still None,
+    because the table does not hold them — the caller decides what that costs.
+    Two modifiers ("dotted-dotted-quarter"), an unknown base ("quintuplet-eighth",
+    which §2.2 of the prompt says is inexpressible) and plain nonsense all give
+    None, which is the honest answer rather than a quarter.
+    """
+    s = re.sub(r"[\s_]+", "-", value.strip().lower())
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    if not s:
+        return None
+    s = _DURATION_ALIASES.get(s, s)
+    if s in DURATION_BEATS:
+        return s
+
+    tokens = s.split("-")
+    modifiers = [t for t in tokens if t in _DURATION_MODIFIERS]
+    if len(modifiers) > 1:
+        return None
+    base = "-".join(t for t in tokens if t not in _DURATION_MODIFIERS)
+    base = _DURATION_NUMERIC_BASES.get(base, base)
+    if base not in _DURATION_BASES:
+        return None
+    candidate = "-".join(modifiers + [base])
+    return candidate if candidate in DURATION_BEATS else None
 
 # §7.1 — there is no way to express a note behind the capo, which is correct:
 # physically there isn't one. The usable range shrinks as the capo climbs.
@@ -161,14 +253,22 @@ def canonical_duration(v: object) -> object:
 
     Non-string input falls through untouched so Pydantic's own type error is
     still the thing the caller sees.
+
+    FLE-145 moved the spelling work into `_normalise_duration_spelling` and left
+    this function's contract alone: a recoverable spelling is recovered, and only
+    a genuinely unrecognisable value becomes a quarter. The warning now says the
+    bar sum is what pays for the guess, because that is the consequence METER
+    reports a few milliseconds later and the thing a reader of the log needs to
+    connect it to.
     """
     if not isinstance(v, str):
         return v
-    s = v.strip().lower().replace(" ", "-").replace("--", "-")
-    s = _DURATION_ALIASES.get(s, s)
-    if s not in DURATION_BEATS:
+    s = _normalise_duration_spelling(v)
+    if s is None:
         logger.warning(
-            "Unknown note duration %r — coerced to %r (FLE-115 §8.2).",
+            "Unknown note duration %r — coerced to %r (FLE-115 §8.2). This is a "
+            "GUESS at a length, so it may put the bar's sum off and trip METER "
+            "(FLE-145).",
             v, _FALLBACK_DURATION,
         )
         return _FALLBACK_DURATION
@@ -187,11 +287,20 @@ def duration_beats(value: object) -> Optional[Fraction]:
     Accepts the §8.2 aliases, because the scripts that call it accepted them
     before this table existed and nothing that passes today's audit may fail
     tomorrow's.
+
+    FLE-145: it now shares `_normalise_duration_spelling` with the write path, so
+    the two can no longer disagree about what a string MEANS while still
+    disagreeing, by design, about what an unrecognisable one COSTS. Widening the
+    spellings does not blunt the audit: `triplet_eighth` is a spelling variant,
+    not a musical defect, and reading it as 1/3 is what lets the audit measure
+    the bar the model actually wrote instead of counting the server's
+    substitution as the model's bad arithmetic. A value with no recoverable
+    spelling is still None here and still coerced there.
     """
     if not isinstance(value, str):
         return None
-    s = value.strip().lower().replace(" ", "-").replace("--", "-")
-    return DURATION_BEATS.get(_DURATION_ALIASES.get(s, s))
+    s = _normalise_duration_spelling(value)
+    return None if s is None else DURATION_BEATS[s]
 
 
 # --- §4 Legato links ------------------------------------------------------

@@ -127,7 +127,15 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-from app.models.song import Breakdown, Drill, Tab, measure_beats, time_signature_beats
+from app.models.song import (
+    DURATION_BEATS,
+    Breakdown,
+    Drill,
+    Measure,
+    Tab,
+    measure_beats,
+    time_signature_beats,
+)
 
 # FLE-128: coherence check imported lazily to avoid circular import risk.
 # The function exists in scripts/ but carries no app dependency — pure logic.
@@ -253,6 +261,22 @@ def _check_meter(tab: Tab) -> list[str]:
     counts toward the bar (`beat_beats`), where the old code saw a beat with no
     notes, set `unknown`, and skipped the measure's check entirely — so a bar of
     rests was never metered at all.
+
+    FLE-145 added the column list to the message, and it is worth saying why a
+    defect string got longer on purpose. "m2: durations sum to 5 beats, bar is
+    4/4 (4)" states the arithmetic and withholds every input to it, so it cannot
+    distinguish the two things that produce it: the model writing a fifth beat of
+    music into a four-beat bar, and the server substituting a length of its own
+    (`canonical_duration` guesses a quarter for an unrecognised spelling — the
+    FLE-145 inflation). Those have opposite fixes, and adjudicating between them
+    took a re-run of the same paid call because the refusal kept no evidence.
+    Now it does: FLE-143 persists this list beside the raw payload, so the
+    columns as VERIFIED sit next to the durations as EMITTED, and one diff names
+    the culprit without spending anything.
+
+    Truncated past `_METER_COLUMNS_SHOWN` because a defect message is read by a
+    human and a bar of thirty-seconds would bury the sum it belongs to; the count
+    is always stated, so a truncated list never reads as a complete one.
     """
     bad = []
     for mi, m in enumerate(tab.measures, 1):
@@ -264,9 +288,39 @@ def _check_meter(tab: Tab) -> list[str]:
         if total != want:
             bad.append(
                 f"m{mi}: durations sum to {float(total):g} beats, bar is {ts} "
-                f"({float(want):g})"
+                f"({float(want):g}) — {_meter_columns(m)}"
             )
     return bad
+
+
+# How many columns a METER defect spells out before it elides the rest.
+_METER_COLUMNS_SHOWN = 16
+
+
+def _meter_columns(measure: Measure) -> str:
+    """The measure's columns as the verifier read them: `3x quarter, rest eighth`.
+
+    Runs are collapsed because the defect is nearly always a run — four quarters
+    where the bar wanted them to be eighths — and `4x quarter` says that where
+    `quarter, quarter, quarter, quarter` makes the reader count.
+    """
+    cells = [
+        f"rest {bt.rest}" if bt.rest is not None
+        else max((n.duration for n in bt.notes), key=lambda d: DURATION_BEATS[d])
+        for bt in measure.beats
+    ]
+    runs: list[tuple[str, int]] = []
+    for cell in cells:
+        if runs and runs[-1][0] == cell:
+            runs[-1] = (cell, runs[-1][1] + 1)
+        else:
+            runs.append((cell, 1))
+    shown = [f"{n}x {cell}" if n > 1 else cell for cell, n in runs[:_METER_COLUMNS_SHOWN]]
+    elided = len(runs) - len(shown)
+    return (
+        f"{len(cells)} columns: " + ", ".join(shown)
+        + (f", +{elided} more" if elided else "")
+    )
 
 
 def _check_unplayable(tab: Tab) -> list[str]:
