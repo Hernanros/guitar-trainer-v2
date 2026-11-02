@@ -131,8 +131,24 @@ def test_empty_snippet_floors_the_three_features_that_need_notes():
     filter."""
     f = tier_features({"measures": []}, start_bpm=60, target_bpm=120)
     assert (f.density, f.span, f.simultaneity) == (0, 0, 0)
-    assert f.ladder_stretch == 4  # (120-60)/5 = 12 rungs, > 8
+    # (120-60)/5 = 12 rungs, > 2.4 (FLE-75). A span this wide can no longer come out
+    # of the FLE-72 cap (<=15 BPM) for a freshly-generated drill, but pre-cap rows
+    # already in the bank still carry one, and the rubric has to floor them at the
+    # top bucket rather than break.
+    assert f.ladder_stretch == 4
     assert f.speed_load == 1      # assumed quarters: 1.0 x 120/60 = 2.0 nps
+
+
+@pytest.mark.parametrize(
+    "span,expected_bucket",
+    [(1, 0), (3, 0), (4, 1), (6, 1), (7, 2), (9, 2), (10, 3), (12, 3), (13, 4), (15, 4)],
+)
+def test_ladder_stretch_buckets_span_the_fle72_cap(span, expected_bucket):
+    """FLE-75: rescaled so a MAX_LADDER_SPAN_BPM-capped drill (1-15 BPM span, see
+    app/models/song.py) spreads evenly over all five buckets — 3 BPM per bucket —
+    instead of being stuck at 0-1 the way the pre-cap (2,4,6,8) boundaries left it."""
+    f = tier_features({"measures": []}, start_bpm=60, target_bpm=60 + span)
+    assert f.ladder_stretch == expected_bucket
 
 
 def test_speed_load_reads_the_shortest_subdivision_present():

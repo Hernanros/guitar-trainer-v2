@@ -22,7 +22,7 @@ import math
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Mapping, Optional, Sequence
 
-GENERATOR_VERSION = "session-gen/1.0.0"
+GENERATOR_VERSION = "session-gen/1.1.0"
 
 # --- §1 Constants -----------------------------------------------------------
 # One block, tunable. These are the numbers to argue with after the pilot.
