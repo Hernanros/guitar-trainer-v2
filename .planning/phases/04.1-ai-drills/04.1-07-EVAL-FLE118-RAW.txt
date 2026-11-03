@@ -1,0 +1,230 @@
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO app.db.session: DB pool sized: pool_size=15 max_overflow=35 (ceiling 50) pool_timeout=30s.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Lenny': stop_reason=tool_use output_tokens=5385 max_tokens=20000
+  [log] WARNING app.models.song: Breakdown sections do not partition the tab's 33 beats — last section ends at beat 47, not 32 (the tab's last beat). Dropping all 2 sections; the song degrades to unsectioned (FLE-101 §1/§5).
+  [log] WARNING app.models.song: drill 0 ('Isolate the b3→3 Slide'): prepares_section 'Intro' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 1 ('Barre to Melody Note — Two-Part Attack'): prepares_section 'Verse' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 2 ('E-Shape Barre Shift: B → A → G'): prepares_section 'Verse' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.ai.breakdown: Breakdown for 'Lenny' passed verification with 1 warning(s): RENDERER_WIDTH: m2: 5 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle
+  [log] ERROR app.ai.breakdown: Breakdown for 'Lenny' by 'Stevie Ray Vaughan' FAILED verification (12 defect(s)): METER: m1: durations sum to 4 beats, bar is 6/8 (3); METER: m3: durations sum to 3.5 beats, bar is 6/8 (3); METER: m5: durations sum to 3.5 beats, bar is 6/8 (3); METER: m7: durations sum to 3.5 beats, bar is 6/8 (3); OWN_CHORDS: m3: notes b3 C#4 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m5: notes b1 G3, b2 G3 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m6: notes b1 G3, b1 C4 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m7: notes b1 G2, b1 C3, b2 G2, b2 C3 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m8: notes b1 G2, b1 C3, b3 G4 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; METER: drill 0 ('Isolate the b3→3 Slide') m1: durations sum to 4.5 beats, bar is 6/8 (3); METER: drill 1 ('Barre to Melody Note — Two-Part Attack') m1: durations sum to 4.5 beats, bar is 6/8 (3); METER: drill 2 ('E-Shape Barre Shift: B → A → G') m1: durations sum to 4.5 beats, bar is 6/8 (3)
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 1 (Lenny) | Landmine gates: 6 per song = 6 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Lenny — Stevie Ray Vaughan
+================================================================================
+
+  Throwaway eval user for this song: da78f777-9357-4337-b487-451de82bdc80
+
+  target_skills provided to Sonnet:
+    id=20470655-e6b6-4a76-a6b2-c6a2f826d39c  name='b3-3 slide E-shape'
+    id=2c214448-a50f-4718-bcf9-5ae5ff31dbea  name='chord-melody attack'
+    id=d0dff0ec-8ed4-4ad1-8e52-fbcb5e40116a  name='E-shape barre voicings'
+
+  Calling run_technique_breakdown for Lenny... (live Anthropic)
+
+  Wall clock before failure: 71.7s
+
+  ERROR (AIBreakdownError) for 'Lenny': Sonnet's breakdown for 'Lenny' failed 12 recording-free check(s), not serving a defective tab: METER: m1: durations sum to 4 beats, bar is 6/8 (3); METER: m3: durations sum to 3.5 beats, bar is 6/8 (3); METER: m5: durations sum to 3.5 beats, bar is 6/8 (3); METER: m7: durations sum to 3.5 beats, bar is 6/8 (3); OWN_CHORDS: m3: notes b3 C#4 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m5: notes b1 G3, b2 G3 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m6: notes b1 G3, b1 C4 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m7: notes b1 G2, b1 C3, b2 G2, b2 C3 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m8: notes b1 G2, b1 C3, b3 G4 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; METER: drill 0 ('Isolate the b3→3 Slide') m1: durations sum to 4.5 beats, bar is 6/8 (3); METER: drill 1 ('Barre to Melody Note — Two-Part Attack') m1: durations sum to 4.5 beats, bar is 6/8 (3); METER: drill 2 ('E-Shape Barre Shift: B → A → G') m1: durations sum to 4.5 beats, bar is 6/8 (3)
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 1
+  Songs with errors   : 1
+    - 'Lenny': TabVerificationError: Sonnet's breakdown for 'Lenny' failed 12 recording-free check(s), not serving a defective tab: METER: m1: durations sum to 4 beats, bar is 6/8 (3); METER: m3: durations sum to 3.5 beats, bar is 6/8 (3); METER: m5: durations sum to 3.5 beats, bar is 6/8 (3); METER: m7: durations sum to 3.5 beats, bar is 6/8 (3); OWN_CHORDS: m3: notes b3 C#4 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m5: notes b1 G3, b2 G3 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m6: notes b1 G3, b1 C4 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m7: notes b1 G2, b1 C3, b2 G2, b2 C3 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; OWN_CHORDS: m8: notes b1 G2, b1 C3, b3 G4 outside this breakdown's own declared chords ['B7#9', 'E-shape barre A', 'E-shape barre B', 'E-shape barre G']; METER: drill 0 ('Isolate the b3→3 Slide') m1: durations sum to 4.5 beats, bar is 6/8 (3); METER: drill 1 ('Barre to Melody Note — Two-Part Attack') m1: durations sum to 4.5 beats, bar is 6/8 (3); METER: drill 2 ('E-Shape Barre Shift: B → A → G') m1: durations sum to 4.5 beats, bar is 6/8 (3)
+  Total run time      : 71.8s
+  Actual tokens used  : input=12827 | output=5385
+  Estimated cost      : $0.1193 (input $0.0385 + output $0.0808)
+  Governor dollars_actual: $0.1193
+  Budget remaining    : $20/mo cap — this eval used ~$0.12
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO app.db.session: DB pool sized: pool_size=15 max_overflow=35 (ceiling 50) pool_timeout=30s.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Kashmir': stop_reason=tool_use output_tokens=8844 max_tokens=20000
+  [log] ERROR app.ai.breakdown: Tuning mismatch for song 'Kashmir' by 'Led Zeppelin': default says 'standard' (['E', 'A', 'D', 'G', 'B', 'E']) but Sonnet emitted tab.tuning=['D', 'A', 'D', 'G', 'A', 'D'].
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 1 (Kashmir) | Landmine gates: 6 per song = 6 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Kashmir — Led Zeppelin
+================================================================================
+
+  Throwaway eval user for this song: 0eabd76f-b3dd-4a27-96ca-e350cf17b9db
+
+  target_skills provided to Sonnet:
+    id=020bab4b-038e-4d34-878a-3dddc10198ce  name='DADGAD sus4 voicings'
+    id=2ddda5b8-b69e-4604-8b5d-a5424461799f  name='cross-rhythm strumming'
+
+  Calling run_technique_breakdown for Kashmir... (live Anthropic)
+
+  Wall clock before failure: 98.2s
+
+  ERROR (AIBreakdownError) for 'Kashmir': Sonnet emitted tab.tuning=['D', 'A', 'D', 'G', 'A', 'D'] for 'Kashmir', but the default tuning is 'standard' (['E', 'A', 'D', 'G', 'B', 'E']). Not serving a silently re-voiced tab.
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 1
+  Songs with errors   : 1
+    - 'Kashmir': TuningMismatchError: Sonnet emitted tab.tuning=['D', 'A', 'D', 'G', 'A', 'D'] for 'Kashmir', but the default tuning is 'standard' (['E', 'A', 'D', 'G', 'B', 'E']). Not serving a silently re-voiced tab.
+  Total run time      : 98.3s
+  Actual tokens used  : input=12779 | output=8844
+  Estimated cost      : $0.1710 (input $0.0383 + output $0.1327)
+  Governor dollars_actual: $0.1710
+  Budget remaining    : $20/mo cap — this eval used ~$0.17
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO app.db.session: DB pool sized: pool_size=15 max_overflow=35 (ceiling 50) pool_timeout=30s.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Little Wing': stop_reason=tool_use output_tokens=4752 max_tokens=20000
+  [log] WARNING app.ai.breakdown: Breakdown for 'Little Wing' passed verification with 6 warning(s): RENDERER_WIDTH: m1: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m2: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m3: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m4: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m5: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m6: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle
+  [log] ERROR app.ai.breakdown: Breakdown for 'Little Wing' by 'Jimi Hendrix' FAILED verification (10 defect(s)): METER: m1: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m2: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m3: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m4: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m5: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m6: durations sum to 3.33333 beats, bar is 12/8 (6); OWN_CHORDS: m1: notes b2 Ab3 outside this breakdown's own declared chords ['Am', 'Bb', 'C', 'Em', 'F', 'G']; OWN_CHORDS: m4: notes b1 F#2 outside this breakdown's own declared chords ['Am', 'Bb', 'C', 'Em', 'F', 'G']; METER: drill 0 ('Anchor the Thumb Bass, Let It Ring') m1: durations sum to 4 beats, bar is 12/8 (6); METER: drill 1 ('Bass-then-Arpeggio: Em Shape') m1: durations sum to 4 beats, bar is 12/8 (6)
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 1 (Little Wing) | Landmine gates: 6 per song = 6 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Little Wing — Jimi Hendrix
+================================================================================
+
+  Throwaway eval user for this song: 47bcd585-171a-4d09-bab9-a7798baebf67
+
+  target_skills provided to Sonnet:
+    id=338b2a85-7ded-4d15-b5ac-32911e9045d7  name='thumb-over bass notes'
+    id=7017a290-17fd-4f42-abc7-187fd700d381  name='chord-melody arpeggios'
+
+  Calling run_technique_breakdown for Little Wing... (live Anthropic)
+
+  Wall clock before failure: 64.2s
+
+  ERROR (AIBreakdownError) for 'Little Wing': Sonnet's breakdown for 'Little Wing' failed 10 recording-free check(s), not serving a defective tab: METER: m1: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m2: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m3: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m4: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m5: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m6: durations sum to 3.33333 beats, bar is 12/8 (6); OWN_CHORDS: m1: notes b2 Ab3 outside this breakdown's own declared chords ['Am', 'Bb', 'C', 'Em', 'F', 'G']; OWN_CHORDS: m4: notes b1 F#2 outside this breakdown's own declared chords ['Am', 'Bb', 'C', 'Em', 'F', 'G']; METER: drill 0 ('Anchor the Thumb Bass, Let It Ring') m1: durations sum to 4 beats, bar is 12/8 (6); METER: drill 1 ('Bass-then-Arpeggio: Em Shape') m1: durations sum to 4 beats, bar is 12/8 (6)
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 1
+  Songs with errors   : 1
+    - 'Little Wing': TabVerificationError: Sonnet's breakdown for 'Little Wing' failed 10 recording-free check(s), not serving a defective tab: METER: m1: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m2: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m3: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m4: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m5: durations sum to 3.33333 beats, bar is 12/8 (6); METER: m6: durations sum to 3.33333 beats, bar is 12/8 (6); OWN_CHORDS: m1: notes b2 Ab3 outside this breakdown's own declared chords ['Am', 'Bb', 'C', 'Em', 'F', 'G']; OWN_CHORDS: m4: notes b1 F#2 outside this breakdown's own declared chords ['Am', 'Bb', 'C', 'Em', 'F', 'G']; METER: drill 0 ('Anchor the Thumb Bass, Let It Ring') m1: durations sum to 4 beats, bar is 12/8 (6); METER: drill 1 ('Bass-then-Arpeggio: Em Shape') m1: durations sum to 4 beats, bar is 12/8 (6)
+  Total run time      : 64.3s
+  Actual tokens used  : input=12776 | output=4752
+  Estimated cost      : $0.1096 (input $0.0383 + output $0.0713)
+  Governor dollars_actual: $0.1096
+  Budget remaining    : $20/mo cap — this eval used ~$0.11
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO app.db.session: DB pool sized: pool_size=15 max_overflow=35 (ceiling 50) pool_timeout=30s.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Beat It': stop_reason=tool_use output_tokens=6385 max_tokens=20000
+  [log] WARNING app.ai.breakdown: Breakdown for 'Beat It' passed verification with 5 warning(s): UNIFORM_DURATION: m1: every note is 'eighth' — a grid, not a rhythm; RENDERER_WIDTH: m1: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m2: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m3: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m4: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle
+  [log] ERROR app.ai.breakdown: Breakdown for 'Beat It' by 'Michael Jackson' FAILED verification (8 defect(s)): METER: m2: durations sum to 5 beats, bar is 4/4 (4); METER: m3: durations sum to 5.5 beats, bar is 4/4 (4); METER: m4: durations sum to 5.5 beats, bar is 4/4 (4); OWN_CHORDS: m3: notes b7 F3, b7 Bb3 outside this breakdown's own declared chords ['A5', 'B5', 'C5', 'D5', 'E5', 'G5']; OWN_CHORDS: m4: notes b7 F3, b7 Bb3 outside this breakdown's own declared chords ['A5', 'B5', 'C5', 'D5', 'E5', 'G5']; DRILL_CHORD: drill 1 ('Shift and Chug: Muted E5 to G5 to A5') m1: notes b5 C3, b6 C3 outside the chord 'Shift and Chug: Muted E5 to G5 to A5' names; METER: drill 2 ('Power Chord Accent: B5–D5–C5 Descent') m1: durations sum to 8 beats, bar is 4/4 (4); DRILL_CHORD: drill 2 ('Power Chord Accent: B5–D5–C5 Descent') m1: notes b1 E3, b5 F3, b5 Bb3 outside the chord 'Power Chord Accent: B5–D5–C5 Descent' names
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 1 (Beat It) | Landmine gates: 6 per song = 6 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Beat It — Michael Jackson
+================================================================================
+
+  Throwaway eval user for this song: 6b8bf3ca-ecda-47ea-b0b4-e9c15f1135d9
+
+  target_skills provided to Sonnet:
+    id=20e31232-198d-4cc9-999f-9d50cf30723a  name='palm-muted eighth notes'
+    id=49851a70-b41d-493c-a7a6-1dfec0f96bc3  name='power-chord riff'
+
+  Calling run_technique_breakdown for Beat It... (live Anthropic)
+
+  Wall clock before failure: 71.8s
+
+  ERROR (AIBreakdownError) for 'Beat It': Sonnet's breakdown for 'Beat It' failed 8 recording-free check(s), not serving a defective tab: METER: m2: durations sum to 5 beats, bar is 4/4 (4); METER: m3: durations sum to 5.5 beats, bar is 4/4 (4); METER: m4: durations sum to 5.5 beats, bar is 4/4 (4); OWN_CHORDS: m3: notes b7 F3, b7 Bb3 outside this breakdown's own declared chords ['A5', 'B5', 'C5', 'D5', 'E5', 'G5']; OWN_CHORDS: m4: notes b7 F3, b7 Bb3 outside this breakdown's own declared chords ['A5', 'B5', 'C5', 'D5', 'E5', 'G5']; DRILL_CHORD: drill 1 ('Shift and Chug: Muted E5 to G5 to A5') m1: notes b5 C3, b6 C3 outside the chord 'Shift and Chug: Muted E5 to G5 to A5' names; METER: drill 2 ('Power Chord Accent: B5–D5–C5 Descent') m1: durations sum to 8 beats, bar is 4/4 (4); DRILL_CHORD: drill 2 ('Power Chord Accent: B5–D5–C5 Descent') m1: notes b1 E3, b5 F3, b5 Bb3 outside the chord 'Power Chord Accent: B5–D5–C5 Descent' names
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 1
+  Songs with errors   : 1
+    - 'Beat It': TabVerificationError: Sonnet's breakdown for 'Beat It' failed 8 recording-free check(s), not serving a defective tab: METER: m2: durations sum to 5 beats, bar is 4/4 (4); METER: m3: durations sum to 5.5 beats, bar is 4/4 (4); METER: m4: durations sum to 5.5 beats, bar is 4/4 (4); OWN_CHORDS: m3: notes b7 F3, b7 Bb3 outside this breakdown's own declared chords ['A5', 'B5', 'C5', 'D5', 'E5', 'G5']; OWN_CHORDS: m4: notes b7 F3, b7 Bb3 outside this breakdown's own declared chords ['A5', 'B5', 'C5', 'D5', 'E5', 'G5']; DRILL_CHORD: drill 1 ('Shift and Chug: Muted E5 to G5 to A5') m1: notes b5 C3, b6 C3 outside the chord 'Shift and Chug: Muted E5 to G5 to A5' names; METER: drill 2 ('Power Chord Accent: B5–D5–C5 Descent') m1: durations sum to 8 beats, bar is 4/4 (4); DRILL_CHORD: drill 2 ('Power Chord Accent: B5–D5–C5 Descent') m1: notes b1 E3, b5 F3, b5 Bb3 outside the chord 'Power Chord Accent: B5–D5–C5 Descent' names
+  Total run time      : 71.9s
+  Actual tokens used  : input=12773 | output=6385
+  Estimated cost      : $0.1341 (input $0.0383 + output $0.0958)
+  Governor dollars_actual: $0.1341
+  Budget remaining    : $20/mo cap — this eval used ~$0.13
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO app.db.session: DB pool sized: pool_size=15 max_overflow=35 (ceiling 50) pool_timeout=30s.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Wonderwall': stop_reason=tool_use output_tokens=11759 max_tokens=20000
+  [log] INFO app.models.song: FLE-44: forcing song_specific=True on drill 'On-Beat Downstroke Groove' for 'Wonderwall' — `what` names the song or artist but Sonnet emitted false.
+  [log] WARNING app.ai.breakdown: Breakdown for 'Wonderwall' passed verification with 16 warning(s): UNIFORM_DURATION: m1: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m2: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m3: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m4: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m5: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m6: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m7: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m8: every note is 'eighth' — a grid, not a rhythm; RENDERER_WIDTH: m1: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m2: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m3: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m4: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m5: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m6: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m7: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m8: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle
+  [log] ERROR app.ai.breakdown: Breakdown for 'Wonderwall' by 'Oasis' FAILED verification (2 defect(s)): OWN_CHORDS: m4: notes b1 C#4, b3 C#4, b4 C#4, b6 C#4, b7 C#4 outside this breakdown's own declared chords ['A7sus4', 'Dsus4', 'Em7', 'G']; OWN_CHORDS: m8: notes b1 C#4, b3 C#4, b4 C#4, b6 C#4, b7 C#4 outside this breakdown's own declared chords ['A7sus4', 'Dsus4', 'Em7', 'G']
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 1 (Wonderwall) | Landmine gates: 6 per song = 6 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Wonderwall — Oasis
+================================================================================
+
+  Throwaway eval user for this song: b4090c19-6f39-4b23-883c-042ae56b372c
+
+  target_skills provided to Sonnet:
+    id=6d0c385b-32e8-41a7-9699-60b6993b60e5  name='G-Em-D-A7sus4 chord changes'
+    id=3363d8cf-93f3-482e-8791-c3dc5017fb88  name='downstroke pattern'
+
+  Calling run_technique_breakdown for Wonderwall... (live Anthropic)
+
+  Wall clock before failure: 122.3s
+
+  ERROR (AIBreakdownError) for 'Wonderwall': Sonnet's breakdown for 'Wonderwall' failed 2 recording-free check(s), not serving a defective tab: OWN_CHORDS: m4: notes b1 C#4, b3 C#4, b4 C#4, b6 C#4, b7 C#4 outside this breakdown's own declared chords ['A7sus4', 'Dsus4', 'Em7', 'G']; OWN_CHORDS: m8: notes b1 C#4, b3 C#4, b4 C#4, b6 C#4, b7 C#4 outside this breakdown's own declared chords ['A7sus4', 'Dsus4', 'Em7', 'G']
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 1
+  Songs with errors   : 1
+    - 'Wonderwall': TabVerificationError: Sonnet's breakdown for 'Wonderwall' failed 2 recording-free check(s), not serving a defective tab: OWN_CHORDS: m4: notes b1 C#4, b3 C#4, b4 C#4, b6 C#4, b7 C#4 outside this breakdown's own declared chords ['A7sus4', 'Dsus4', 'Em7', 'G']; OWN_CHORDS: m8: notes b1 C#4, b3 C#4, b4 C#4, b6 C#4, b7 C#4 outside this breakdown's own declared chords ['A7sus4', 'Dsus4', 'Em7', 'G']
+  Total run time      : 122.4s
+  Actual tokens used  : input=12783 | output=11759
+  Estimated cost      : $0.2147 (input $0.0383 + output $0.1764)
+  Governor dollars_actual: $0.2147
+  Budget remaining    : $20/mo cap — this eval used ~$0.21
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================
