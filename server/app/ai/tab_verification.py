@@ -175,6 +175,22 @@ QUAL = {
     "6": (0, 4, 7, 9), "m6": (0, 3, 7, 9), "7sus4": (0, 5, 7, 10), "sus4": (0, 5, 7),
     "sus2": (0, 2, 7), "5": (0, 7), "dim": (0, 3, 6), "aug": (0, 4, 8),
     "7": (0, 4, 7, 10), "m": (0, 3, 7), "": (0, 4, 7),
+    # FLE-149 additions. Every one of these previously "parsed" by substring
+    # scan into something else — 'Cm9' into Cm, 'Gdim7' into Gdim, 'Gsus' into
+    # G major (a third it does not contain, and no fourth) — and every one of
+    # those is a NARROWER set than the true chord, which in a blocking check
+    # means invented foreign notes. Exact sets, so they re-enable the block
+    # safely.
+    "add9": (0, 4, 7, 2), "madd9": (0, 3, 7, 2), "maj9": (0, 4, 7, 11, 2),
+    "m9": (0, 3, 7, 10, 2), "dim7": (0, 3, 6, 9), "sus": (0, 5, 7),
+    # The rule for adding to this table, since getting it wrong here is how
+    # OWN_CHORDS invents a defect: add a quality only when its pitch content is
+    # CLOSED. The extended and altered dominants are not — a 13th chord is
+    # voiced with or without its 11th, an 11th with or without its 3rd — so
+    # 'F13' and 'Bm11' are deliberately absent and fail open as
+    # CHORD_NAME_UNPARSEABLE instead of blocking against a guess. Which of them
+    # Sonnet actually emits is an empirical question that warning now answers;
+    # extend from that evidence, with Fret on the voicing, not from this list.
 }
 
 
@@ -213,29 +229,135 @@ def _tuning_offset(tuning: list[str]) -> int | None:
     return deltas.pop() if len(deltas) == 1 else None
 
 
-def _chord_pcs(name: str) -> set[int] | None:
-    """pitch classes a chord name asserts; None if unparseable."""
-    s = (name or "").split("(")[0].strip().replace("minor", "m").replace("major", "maj")
+# FLE-149 — the chord-symbol grammar, longest quality first.
+#
+# This regex replaces a scan (`next(k for k in (...) if k in suf)`) over the
+# text AFTER the root letter, and the difference is the whole defect. A scan
+# asks "does this text CONTAIN something chord-shaped?", which any English
+# sentence beginning with A-G answers yes to; a full match asks "IS this text a
+# chord symbol?", which is the only question `_check_own_chords` can act on.
+# Measured on the live module before this change:
+#
+#   'E-shape barre A'       -> E  Ab B    (E major; the name says A major)
+#   'E-shape barre B'       -> E  Ab B    (identical — all three barre shapes
+#   'E-shape barre G'       -> E  Ab B     collapsed to the same wrong chord)
+#   'Barre chord at fret 5' -> B  F#      (B5, from the "5" in "fret 5")
+#   'Dropped D power chord' -> D  F# A    (D major, from "D...power chord")
+#   'C6/9'                  -> C D E G Bb (the scan's tuple put "9" ahead of
+#                                          "6/9", so C6/9 never matched its own
+#                                          key: Bb asserted, A missing)
+#   'Gsus'                  -> D G B      (G major: no "sus4"/"sus2" substring,
+#                                          so the empty key won — a third
+#                                          asserted that the chord does not
+#                                          contain, and the fourth it does
+#                                          contain left foreign)
+#   'F#m7b5'                -> C# E F# A  (the minor branch short-circuited to
+#                                          "m7" before "m7b5" could match, so
+#                                          the flat fifth the name exists to
+#                                          state was replaced by a natural one)
+#
+# The first three are FLE-149's filed defect. The rest are the same bug in
+# the same function, found while confirming it, and they are why the fix is a
+# grammar rather than three more substrings: every one of them is the scan
+# returning a confident answer to a name it did not actually parse.
+#
+# Ordering is longest-first for readability only — `fullmatch` backtracks, so
+# unlike the tuple it replaces, this cannot be broken by getting it wrong.
+_CHORD_SYMBOL_RE = re.compile(
+    r"(?P<root>[A-G])(?P<acc>[#b]?)(?P<qual>"
+    + "|".join(re.escape(q) for q in sorted(QUAL, key=len, reverse=True))
+    + r")",
+    re.IGNORECASE,
+)
+
+# "<X>-shape barre <Y>" — the one prose form we have actually observed in a
+# `chord.name`, and it has an unambiguous reading: the X shape moved so its root
+# is Y names the chord at Y. Parsed rather than refused because refusing it is
+# worse than useless here — see `_check_own_chords` on why a NARROWER `allowed`
+# invents MORE false positives than a wrong one.
+#
+# Deliberately narrow. `SYSTEM_PROMPT` also writes the shape idea as "an E-shape
+# barre at fret 5" (breakdown.py:645), which this does NOT match: resolving a
+# fret to a root needs the string the shape's root sits on AND the tuning, and
+# we have zero samples of that form reaching `chord.name`. It falls through to
+# the CHORD_NAME_UNPARSEABLE warning, which is the right answer for a form we
+# would be guessing at.
+_SHAPE_FORM_RE = re.compile(
+    r"(?P<shape>[A-G][#b]?m?)[-\s]?shape\s+barre\s+(?P<target>[A-G][#b]?\S*)",
+    re.IGNORECASE,
+)
+
+
+def _chord_symbol_parts(name: str) -> tuple[int, str, int | None] | None:
+    """(root pc, QUAL key, slash-bass pc) for a chord SYMBOL, else None.
+
+    Accepts an optional parenthetical gloss (`'B (barre, fret 2)'`, the form 29
+    of prod's 30 distinct stored chord names take — read-only, 2026-11-03) and
+    an optional slash bass (`'C/B'`). The bass note is returned separately
+    because it sounds and so belongs in `allowed`, but is not part of the
+    quality's interval set.
+
+    The 30th is `'A minor pentatonic (XII pos)'`, which is a scale and declines
+    — see `test_fle149_chord_name_parse.py` for what the old parser made of it.
+    """
+    s = (name or "").split("(")[0].strip()
+    s = s.replace("minor", "m").replace("major", "maj")
     if not s:
         return None
-    root = s[0].upper()
-    i = 1
-    if i < len(s) and s[i] in "#b":
-        root += s[i]
-        i += 1
-    pc = NOTE_PC.get(root.upper())
-    if pc is None:
+
+    # A slash bass, but not QUAL's own "6/9": only split when the right side is
+    # a bare note name on its own.
+    bass: int | None = None
+    head, sep, tail = s.rpartition("/")
+    if sep and head and NOTE_PC.get(tail.strip().upper()) is not None:
+        bass = NOTE_PC[tail.strip().upper()]
+        s = head.strip()
+
+    # `'B 7#9'` and `'A minor'` (now `'A m'`) are the same symbol with a space
+    # in it. Tried second so a space can never JOIN two things into a symbol
+    # that neither was — '-shape barre' keeps its hyphen and still cannot match.
+    for cand in (s, s.replace(" ", "")):
+        m = _CHORD_SYMBOL_RE.fullmatch(cand)
+        if m:
+            pc = NOTE_PC.get((m.group("root") + m.group("acc")).upper())
+            if pc is None:
+                return None
+            return pc, m.group("qual").lower(), bass
+    return None
+
+
+def _chord_pcs(name: str) -> set[int] | None:
+    """Pitch classes a chord name asserts; None if it is not a chord name.
+
+    None means "I cannot read this", NOT "this chord has no notes" — the two
+    had the same consequence before FLE-149 (an unreadable name quietly
+    contributed a wrong pitch-class set) and now have opposite ones. Every
+    caller must branch on it; see `_check_own_chords`.
+    """
+    parts = _chord_symbol_parts(name)
+    if parts is None:
+        parts = _shape_form_parts(name)
+    if parts is None:
         return None
-    suf = s[i:].strip()
-    if suf.lower().startswith("m") and not suf.lower().startswith("maj"):
-        key = "m7" if "7" in suf else ("m6" if "6" in suf else "m")
-    else:
-        key = next(
-            (k for k in ("maj7", "m7b5", "7#9", "7b9", "7#11", "7sus4", "sus4", "sus2",
-                         "dim", "aug", "9", "6/9", "7", "6", "5") if k in suf.lower()),
-            "",
-        )
-    return {(pc + iv) % 12 for iv in QUAL[key]}
+    pc, key, bass = parts
+    pcs = {(pc + iv) % 12 for iv in QUAL[key]}
+    if bass is not None:
+        pcs.add(bass)
+    return pcs
+
+
+def _shape_form_parts(name: str) -> tuple[int, str, int | None] | None:
+    """`'E-shape barre A'` -> A major: the shape names the quality, the target
+    names the root. An explicit quality on the target (`'Em-shape barre A7'`)
+    wins over the shape's, being the more specific of two statements."""
+    m = _SHAPE_FORM_RE.fullmatch((name or "").split("(")[0].strip())
+    if not m:
+        return None
+    shape = _chord_symbol_parts(m.group("shape"))
+    target = _chord_symbol_parts(m.group("target"))
+    if shape is None or target is None:
+        return None
+    return target[0], target[1] or shape[1], target[2]
 
 
 @dataclass
@@ -422,22 +544,78 @@ def _check_foreign_notes(tab: Tab, allowed: set[int]) -> dict[int, list[str]]:
     return bad
 
 
-def _check_own_chords(breakdown: Breakdown) -> list[str]:
+# How many offending names a CHORD_NAME_UNPARSEABLE warning spells out.
+_UNPARSEABLE_NAMES_SHOWN = 4
+
+
+def _check_own_chords(breakdown: Breakdown) -> tuple[list[str], list[str]]:
+    """OWN_CHORDS — (blocking defects, warnings).
+
+    FLE-149. OWN_CHORDS blocks, so the breakdown 503s on whatever this returns,
+    so this function is not allowed to guess. It used to, by omission: it
+    skipped a name `_chord_pcs` could not read and carried on with the rest.
+    That reads like fail-safe and is the opposite, because of how `allowed`
+    composes — it is a UNION, so a name that drops out does not weaken the
+    check, it NARROWS the set of pitches the tab is permitted to sound, and
+    every note the dropped chord was the licence for becomes foreign.
+
+    Lenny, measured (FLE-141's eval, `.planning/phases/04.1-ai-drills/
+    04.1-07-EVAL-FLE118-RAW.txt`), declares `['B7#9', 'E-shape barre A',
+    'E-shape barre B', 'E-shape barre G']` and was refused for 5 OWN_CHORDS
+    defects over m3/m5/m6/m7/m8 flagging three pitch classes:
+
+      pitch  before FLE-149       with the shapes parsed   with them dropped
+      G      foreign (blocking)   allowed (root of the G   foreign — worse,
+                                  shape)                   the G shape was
+                                                            its licence
+      C#     foreign (blocking)   allowed (third of the    foreign — same
+                                  A shape)
+      C      foreign (blocking)   foreign — genuine, and   foreign
+                                  Fret's to adjudicate
+
+    So two of the three were the parser's invention, and `allowed` went 7 pitch
+    classes -> 8 by reading the names and 7 -> 5 by dropping them. Returning
+    None from `_chord_pcs` without this branch would have doubled down on the
+    bug it fixes.
+
+    Hence: a chord list is scored only if EVERY name in it parses. One name we
+    cannot read makes the whole list un-scorable, and the honest output is a
+    non-blocking warning naming the offender — coverage lost, loudly, instead of
+    a defect invented, silently. The asymmetry is deliberate: a missed foreign
+    note ships a tab with a wrong pitch in it, which the next eval can catch; an
+    invented one refuses a correct breakdown and burns a paid generation whose
+    verdict then cannot be read. Only the second is unrecoverable.
+    """
     allowed: set[int] = set()
+    unreadable: list[str] = []
     for c in breakdown.chords:
         pcs = _chord_pcs(c.name)
-        if pcs is not None:
+        if pcs is None:
+            unreadable.append(c.name)
+        else:
             allowed |= pcs
+    if unreadable:
+        names = sorted(set(unreadable))
+        shown = ", ".join(repr(n) for n in names[:_UNPARSEABLE_NAMES_SHOWN])
+        if len(names) > _UNPARSEABLE_NAMES_SHOWN:
+            shown += f", +{len(names) - _UNPARSEABLE_NAMES_SHOWN} more"
+        warning = (
+            f"CHORD_NAME_UNPARSEABLE: {len(names)} of "
+            f"{len({c.name for c in breakdown.chords})} declared chord name(s) "
+            f"are not chord symbols ({shown}) — OWN_CHORDS skipped for this "
+            f"breakdown rather than scored against a partial chord list"
+        )
+        return [], [warning]
     if not allowed:
-        # No parseable declared chords at all — nothing to check against.
-        return []
+        # No declared chords at all — nothing to check against.
+        return [], []
     bad = _check_foreign_notes(breakdown.tab, allowed)
     chord_names = sorted({c.name for c in breakdown.chords})
     return [
         f"m{mi}: notes {', '.join(notes)} outside this breakdown's own declared "
         f"chords {chord_names}"
         for mi, notes in sorted(bad.items())
-    ]
+    ], []
 
 
 # --- DRILL_CHORD (FLE-126): does a drill's own NAME match its snippet? -----
@@ -673,7 +851,8 @@ def verify(breakdown: Breakdown) -> VerificationResult:
     blocking += [f"UNPLAYABLE: {d}" for d in _check_unplayable(tab)]
     blocking += [f"FRET_SPAN: {d}" for d in _check_fret_span(tab)]
     blocking += [f"SPLIT_CHORD: {d}" for d in _check_split_chord(tab)]
-    blocking += [f"OWN_CHORDS: {d}" for d in _check_own_chords(breakdown)]
+    own_chord_defects, own_chord_warnings = _check_own_chords(breakdown)
+    blocking += [f"OWN_CHORDS: {d}" for d in own_chord_defects]
 
     # FLE-126 — METER/UNPLAYABLE/FRET_SPAN carry no bar-classifier dependency
     # (unlike V2-third/T11, see module docstring), so they run over every
@@ -692,5 +871,9 @@ def verify(breakdown: Breakdown) -> VerificationResult:
     warnings += [f"RENDERER_WIDTH: {d}" for d in _check_renderer_width(tab)]
     warnings += [f"PITCH_DEGENERACY: {d}" for d in _check_pitch_degeneracy(tab)]
     warnings += _check_tuning_coherence(breakdown)
+    # FLE-149 — OWN_CHORDS' own fail-open notice. Non-blocking by construction:
+    # it reports that the check could not run, which must never be the thing
+    # that refuses a breakdown.
+    warnings += own_chord_warnings
 
     return VerificationResult(blocking=blocking, warnings=warnings)
