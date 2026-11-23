@@ -1,0 +1,1499 @@
+{
+  "song_title": "Sweet Home Chicago",
+  "song_artist": "Robert Johnson",
+  "refused_at": "2026-11-23T10:04:55.340368+00:00",
+  "error_type": "TabVerificationError",
+  "error": "Sonnet's breakdown for 'Sweet Home Chicago' failed 8 recording-free check(s), not serving a defective tab: METER: m7: durations sum to 5 beats, bar is 4/4 (4) \u2014 6 columns: 2x quarter, 2x eighth, quarter, rest quarter; OWN_CHORDS: m4: notes b2 Bb3, b4 Bb3, b6 Bb3, b8 Bb3 outside this breakdown's own declared chords ['A7', 'B7', 'E7']; OWN_CHORDS: m7: notes b3 F2, b4 Bb2 outside this breakdown's own declared chords ['A7', 'B7', 'E7']; DRILL_CHORD: drill 0 ('Lock in the Boogie Pair on E7') m1: notes b2 C#3, b4 C#3, b6 C#3, b8 C#3 outside the chord 'Lock in the Boogie Pair on E7' names; METER: drill 1 ('Move the Boogie Cell Across E7\u2192A7\u2192B7') m1: durations sum to 8 beats, bar is 4/4 (4) \u2014 4 columns: 4x half; METER: drill 1 ('Move the Boogie Cell Across E7\u2192A7\u2192B7') m2: durations sum to 8 beats, bar is 4/4 (4) \u2014 4 columns: 4x half; DRILL_CHORD: drill 1 ('Move the Boogie Cell Across E7\u2192A7\u2192B7') m2: notes b2 Bb3 outside the chord 'Move the Boogie Cell Across E7\u2192A7\u2192B7' names; METER: drill 2 ('Chromatic Walkdown \u2014 Turnaround Descent') m1: durations sum to 5 beats, bar is 4/4 (4) \u2014 6 columns: 2x quarter, 2x eighth, quarter, rest quarter",
+  "defects": [
+    "METER: m7: durations sum to 5 beats, bar is 4/4 (4) \u2014 6 columns: 2x quarter, 2x eighth, quarter, rest quarter",
+    "OWN_CHORDS: m4: notes b2 Bb3, b4 Bb3, b6 Bb3, b8 Bb3 outside this breakdown's own declared chords ['A7', 'B7', 'E7']",
+    "OWN_CHORDS: m7: notes b3 F2, b4 Bb2 outside this breakdown's own declared chords ['A7', 'B7', 'E7']",
+    "DRILL_CHORD: drill 0 ('Lock in the Boogie Pair on E7') m1: notes b2 C#3, b4 C#3, b6 C#3, b8 C#3 outside the chord 'Lock in the Boogie Pair on E7' names",
+    "METER: drill 1 ('Move the Boogie Cell Across E7\u2192A7\u2192B7') m1: durations sum to 8 beats, bar is 4/4 (4) \u2014 4 columns: 4x half",
+    "METER: drill 1 ('Move the Boogie Cell Across E7\u2192A7\u2192B7') m2: durations sum to 8 beats, bar is 4/4 (4) \u2014 4 columns: 4x half",
+    "DRILL_CHORD: drill 1 ('Move the Boogie Cell Across E7\u2192A7\u2192B7') m2: notes b2 Bb3 outside the chord 'Move the Boogie Cell Across E7\u2192A7\u2192B7' names",
+    "METER: drill 2 ('Chromatic Walkdown \u2014 Turnaround Descent') m1: durations sum to 5 beats, bar is 4/4 (4) \u2014 6 columns: 2x quarter, 2x eighth, quarter, rest quarter"
+  ],
+  "warnings": [
+    "UNIFORM_DURATION: m1: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m2: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m3: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m4: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m5: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m6: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m8: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "RENDERER_WIDTH: m1: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m2: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m3: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m4: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m5: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m6: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m7: 6 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m8: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle"
+  ],
+  "raw_input": {
+    "tab": {
+      "tuning": [
+        "E",
+        "A",
+        "D",
+        "G",
+        "B",
+        "E"
+      ],
+      "capo": 0,
+      "feel": "shuffle",
+      "measures": [
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 1,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 3,
+                  "fret": 3,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 3,
+                  "fret": 1,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 3,
+                  "fret": 3,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 3,
+                  "fret": 1,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 3,
+                  "fret": 3,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 3,
+                  "fret": 1,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 3,
+                  "fret": 3,
+                  "duration": "eighth"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 4,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 3,
+                  "duration": "quarter"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 2,
+                  "duration": "quarter"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 1,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 1,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "quarter"
+                }
+              ]
+            },
+            {
+              "rest": "quarter"
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 0,
+                  "duration": "eighth"
+                },
+                {
+                  "string": 5,
+                  "fret": 4,
+                  "duration": "eighth"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "chords": [
+      {
+        "name": "E7",
+        "base_fret": 1,
+        "positions": [
+          {
+            "string": 6,
+            "fret": 0
+          },
+          {
+            "string": 5,
+            "fret": 2,
+            "finger": 2
+          },
+          {
+            "string": 4,
+            "fret": 0
+          },
+          {
+            "string": 3,
+            "fret": 1,
+            "finger": 1
+          },
+          {
+            "string": 2,
+            "fret": 0
+          },
+          {
+            "string": 1,
+            "fret": 0
+          }
+        ]
+      },
+      {
+        "name": "A7",
+        "base_fret": 1,
+        "positions": [
+          {
+            "string": 6,
+            "fret": -1
+          },
+          {
+            "string": 5,
+            "fret": 0
+          },
+          {
+            "string": 4,
+            "fret": 2,
+            "finger": 2
+          },
+          {
+            "string": 3,
+            "fret": 0
+          },
+          {
+            "string": 2,
+            "fret": 2,
+            "finger": 3
+          },
+          {
+            "string": 1,
+            "fret": 0
+          }
+        ]
+      },
+      {
+        "name": "B7",
+        "base_fret": 1,
+        "positions": [
+          {
+            "string": 6,
+            "fret": -1
+          },
+          {
+            "string": 5,
+            "fret": 2,
+            "finger": 1
+          },
+          {
+            "string": 4,
+            "fret": 1,
+            "finger": 1
+          },
+          {
+            "string": 3,
+            "fret": 2,
+            "finger": 2
+          },
+          {
+            "string": 2,
+            "fret": 0
+          },
+          {
+            "string": 1,
+            "fret": 2,
+            "finger": 3
+          }
+        ]
+      }
+    ],
+    "technique_notes": [
+      {
+        "heading": "Shuffle Feel \u2014 Not Straight Eighths",
+        "body": "Every pair of eighth notes in this tab is played as a long-short shuffle: the downbeat note gets roughly two-thirds of the beat, the upbeat gets one-third. This is marked as 'shuffle' feel \u2014 do NOT play the pairs evenly. If your comping sounds mechanical or march-like, you've lost the swing; listen to Robert Johnson and aim to match the lazy, loping groove."
+      },
+      {
+        "heading": "Dominant-7 Boogie Pattern \u2014 Root + 5th/6th",
+        "body": "Each chord is comped using the open root string paired with alternating 5th (fret 2) and 6th (fret 4) on the next string \u2014 this is the foundational Delta blues 'boogie' figure. Keep your index finger planted on the 5th-interval note and use your pinky or ring finger to reach the 6th. The motion is minimal: anchor, stretch, anchor, stretch."
+      },
+      {
+        "heading": "Muting the Unused Strings",
+        "body": "On the E7 shape you're only sounding strings 5 and 6; on A7, strings 4 and 5; on B7, strings 3 and 4. Rest the fleshy underside of your fretting fingers lightly against the unused strings to kill any sympathetic buzz. A muddy low-end ring is the most common beginner trap here \u2014 if it rings, something you're not trying to hit is vibrating."
+      },
+      {
+        "heading": "Turnaround Lick \u2014 Chromatic Walkdown",
+        "body": "Bars 7-8 form the turnaround: a stepwise chromatic descent on the low E (G\u2192F#\u2192F\u2192E) paired with the A string falling from B to A. This resolves the 12-bar back to the top. Play each note deliberately and let the half-step motion speak clearly \u2014 do not rush the descent into a smear. The quarter-note pulse on the first two beats gives the lick its authority before the eighth-note pairs kick in."
+      },
+      {
+        "heading": "12-Bar Form Awareness",
+        "body": "This is a 12-bar blues in E: four bars of E7, two of A7, two of E7, one of B7, one of A7, then two bars of E7 (with the turnaround on bar 11-12). Know where you are at all times \u2014 getting lost on the form is the most common mistake at this level. Count the bars out loud while you play until the shape is automatic."
+      }
+    ],
+    "sections": [
+      {
+        "label": "Verse",
+        "start_beat": 0,
+        "end_beat": 47
+      },
+      {
+        "label": "Turnaround",
+        "start_beat": 48,
+        "end_beat": 63
+      }
+    ],
+    "drills": [
+      {
+        "name": "Lock in the Boogie Pair on E7",
+        "target_skill_temp_id": "addf6699-ad8b-405c-97e4-01741a335ff5",
+        "song_specific": true,
+        "what": "Drill the alternating root-5th/root-6th two-string figure that drives the E7 comping in the verse. This is the core repeating cell you'll loop for four bars at the top of the 12-bar form.",
+        "mechanic_tier": 2,
+        "prepares_section": "Verse",
+        "section_start_beat": 0,
+        "section_end_beat": 15,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 0,
+          "feel": "shuffle",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "eighth"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "eighth"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 4,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "eighth"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "eighth"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 4,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "eighth"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "eighth"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 4,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "eighth"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "eighth"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 4,
+                      "duration": "eighth"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 60,
+        "target_bpm": 70,
+        "repetitions": 8,
+        "common_trap": "Picking both strings with equal force \u2014 the root (low E) should anchor softly while the moving finger string pops slightly on each change.",
+        "success_criterion": "The alternation sounds like a loping groove, not a mechanical drum machine \u2014 there is a clear swing long-short feel on every pair."
+      },
+      {
+        "name": "Move the Boogie Cell Across E7\u2192A7\u2192B7",
+        "target_skill_temp_id": "addf6699-ad8b-405c-97e4-01741a335ff5",
+        "song_specific": true,
+        "what": "Practice shifting the same boogie figure from E7 (strings 6-5) to A7 (strings 5-4) to B7 (strings 4-3), mirroring the chord changes in the verse. The mechanic is identical each time \u2014 the challenge is relocating it instantly without losing the shuffle pulse.",
+        "mechanic_tier": 4,
+        "prepares_section": "Verse",
+        "section_start_beat": 0,
+        "section_end_beat": 47,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 0,
+          "feel": "shuffle",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "half"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "half"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "half"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 4,
+                      "duration": "half"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 5,
+                      "fret": 0,
+                      "duration": "half"
+                    },
+                    {
+                      "string": 4,
+                      "fret": 2,
+                      "duration": "half"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 5,
+                      "fret": 0,
+                      "duration": "half"
+                    },
+                    {
+                      "string": 4,
+                      "fret": 4,
+                      "duration": "half"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "half"
+                    },
+                    {
+                      "string": 3,
+                      "fret": 1,
+                      "duration": "half"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "half"
+                    },
+                    {
+                      "string": 3,
+                      "fret": 3,
+                      "duration": "half"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "half"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "half"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "half"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 4,
+                      "duration": "half"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 55,
+        "target_bpm": 65,
+        "repetitions": 8,
+        "common_trap": "Hesitating between string groups \u2014 the hand should hover directly over the next string pair before the change, not relocate after the beat arrives.",
+        "success_criterion": "All three chord positions flow without a stutter or tempo drop at each string-group transition."
+      },
+      {
+        "name": "Chromatic Walkdown \u2014 Turnaround Descent",
+        "target_skill_temp_id": "5e150005-21d4-4022-9751-9301378292ad",
+        "song_specific": true,
+        "what": "Isolate the chromatic low-E descending line (G\u2192F#\u2192F\u2192E, frets 3-2-1-0) that forms the turnaround in bars 7-8. This is the moment that kicks the 12-bar form back to the top \u2014 nail it clean and the whole song feels resolved.",
+        "mechanic_tier": 1,
+        "prepares_section": "Turnaround",
+        "section_start_beat": 48,
+        "section_end_beat": 55,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 0,
+          "feel": "shuffle",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 3,
+                      "duration": "quarter"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 2,
+                      "duration": "quarter"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 1,
+                      "duration": "eighth"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "eighth"
+                    },
+                    {
+                      "string": 5,
+                      "fret": 1,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 0,
+                      "duration": "quarter"
+                    }
+                  ]
+                },
+                {
+                  "rest": "quarter"
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 55,
+        "target_bpm": 65,
+        "repetitions": 8,
+        "common_trap": "Rushing the half-step pairs at the end \u2014 treat beats 3 and 4 as two distinct eighth-note columns, not a smeared slide.",
+        "success_criterion": "Each chromatic step rings clearly and the final open E lands with authority, feeling like a full stop rather than a stumble."
+      }
+    ]
+  }
+}

@@ -1,0 +1,52 @@
+  [log] WARNING app.ai.governor: FLETCHER_PILOT_CEILING_ALERT 99% of the pilot ceiling is spent: $36.526400 of $36.9264 ($0.400000 left, ~2 breakdowns). Raise FLETCHER_PILOT_CEILING_USD before it hits.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO app.db.session: DB pool sized: pool_size=15 max_overflow=35 (ceiling 50) pool_timeout=30s.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Sweet Home Chicago': stop_reason=tool_use output_tokens=7157 max_tokens=20000
+  [log] WARNING app.models.song: Breakdown sections do not partition the tab's 62 beats — last section ends at beat 63, not 61 (the tab's last beat). Dropping all 2 sections; the song degrades to unsectioned (FLE-101 §1/§5).
+  [log] WARNING app.models.song: drill 0 ('Lock in the Boogie Pair on E7'): prepares_section 'Verse' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 1 ('Move the Boogie Cell Across E7→A7→B7'): prepares_section 'Verse' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 2 ('Chromatic Walkdown — Turnaround Descent'): prepares_section 'Turnaround' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.ai.breakdown: Breakdown for 'Sweet Home Chicago' passed verification with 15 warning(s): UNIFORM_DURATION: m1: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m2: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m3: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m4: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m5: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m6: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m8: every note is 'eighth' — a grid, not a rhythm; RENDERER_WIDTH: m1: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m2: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m3: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m4: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m5: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m6: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m7: 6 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m8: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle
+  [log] ERROR app.ai.breakdown: Breakdown for 'Sweet Home Chicago' by 'Robert Johnson' FAILED verification (8 defect(s)): METER: m7: durations sum to 5 beats, bar is 4/4 (4) — 6 columns: 2x quarter, 2x eighth, quarter, rest quarter; OWN_CHORDS: m4: notes b2 Bb3, b4 Bb3, b6 Bb3, b8 Bb3 outside this breakdown's own declared chords ['A7', 'B7', 'E7']; OWN_CHORDS: m7: notes b3 F2, b4 Bb2 outside this breakdown's own declared chords ['A7', 'B7', 'E7']; DRILL_CHORD: drill 0 ('Lock in the Boogie Pair on E7') m1: notes b2 C#3, b4 C#3, b6 C#3, b8 C#3 outside the chord 'Lock in the Boogie Pair on E7' names; METER: drill 1 ('Move the Boogie Cell Across E7→A7→B7') m1: durations sum to 8 beats, bar is 4/4 (4) — 4 columns: 4x half; METER: drill 1 ('Move the Boogie Cell Across E7→A7→B7') m2: durations sum to 8 beats, bar is 4/4 (4) — 4 columns: 4x half; DRILL_CHORD: drill 1 ('Move the Boogie Cell Across E7→A7→B7') m2: notes b2 Bb3 outside the chord 'Move the Boogie Cell Across E7→A7→B7' names; METER: drill 2 ('Chromatic Walkdown — Turnaround Descent') m1: durations sum to 5 beats, bar is 4/4 (4) — 6 columns: 2x quarter, 2x eighth, quarter, rest quarter
+  [log] ERROR app.ai.breakdown: Refused the breakdown for 'Sweet Home Chicago' by 'Robert Johnson' — raw Sonnet payload written to /tmp/fle89-remeasure-2026-11-23/raw/20261123T100455Z-sweet-home-chicago-robert-johnson.json (FLE-143). Diagnose from that file rather than re-running the call.
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 1 (Sweet Home Chicago) | Landmine gates: 6 per song = 6 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Sweet Home Chicago — Robert Johnson
+================================================================================
+
+  Throwaway eval user for this song: a4722ec0-3d4c-4e1e-8790-6652d6d50be9
+
+  target_skills provided to Sonnet:
+    id=addf6699-ad8b-405c-97e4-01741a335ff5  name='dominant-7 shuffle comping'
+    id=5e150005-21d4-4022-9751-9301378292ad  name='blues turnaround lick'
+
+  Calling run_technique_breakdown for Sweet Home Chicago... (live Anthropic)
+  [fle89] known_tuning for 'Sweet Home Chicago': 'standard' (catalog)
+
+  Wall clock before failure: 80.6s
+
+  ERROR (AIBreakdownError) for 'Sweet Home Chicago': Sonnet's breakdown for 'Sweet Home Chicago' failed 8 recording-free check(s), not serving a defective tab: METER: m7: durations sum to 5 beats, bar is 4/4 (4) — 6 columns: 2x quarter, 2x eighth, quarter, rest quarter; OWN_CHORDS: m4: notes b2 Bb3, b4 Bb3, b6 Bb3, b8 Bb3 outside this breakdown's own declared chords ['A7', 'B7', 'E7']; OWN_CHORDS: m7: notes b3 F2, b4 Bb2 outside this breakdown's own declared chords ['A7', 'B7', 'E7']; DRILL_CHORD: drill 0 ('Lock in the Boogie Pair on E7') m1: notes b2 C#3, b4 C#3, b6 C#3, b8 C#3 outside the chord 'Lock in the Boogie Pair on E7' names; METER: drill 1 ('Move the Boogie Cell Across E7→A7→B7') m1: durations sum to 8 beats, bar is 4/4 (4) — 4 columns: 4x half; METER: drill 1 ('Move the Boogie Cell Across E7→A7→B7') m2: durations sum to 8 beats, bar is 4/4 (4) — 4 columns: 4x half; DRILL_CHORD: drill 1 ('Move the Boogie Cell Across E7→A7→B7') m2: notes b2 Bb3 outside the chord 'Move the Boogie Cell Across E7→A7→B7' names; METER: drill 2 ('Chromatic Walkdown — Turnaround Descent') m1: durations sum to 5 beats, bar is 4/4 (4) — 6 columns: 2x quarter, 2x eighth, quarter, rest quarter
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 1
+  Songs with errors   : 1
+    - 'Sweet Home Chicago': TabVerificationError: Sonnet's breakdown for 'Sweet Home Chicago' failed 8 recording-free check(s), not serving a defective tab: METER: m7: durations sum to 5 beats, bar is 4/4 (4) — 6 columns: 2x quarter, 2x eighth, quarter, rest quarter; OWN_CHORDS: m4: notes b2 Bb3, b4 Bb3, b6 Bb3, b8 Bb3 outside this breakdown's own declared chords ['A7', 'B7', 'E7']; OWN_CHORDS: m7: notes b3 F2, b4 Bb2 outside this breakdown's own declared chords ['A7', 'B7', 'E7']; DRILL_CHORD: drill 0 ('Lock in the Boogie Pair on E7') m1: notes b2 C#3, b4 C#3, b6 C#3, b8 C#3 outside the chord 'Lock in the Boogie Pair on E7' names; METER: drill 1 ('Move the Boogie Cell Across E7→A7→B7') m1: durations sum to 8 beats, bar is 4/4 (4) — 4 columns: 4x half; METER: drill 1 ('Move the Boogie Cell Across E7→A7→B7') m2: durations sum to 8 beats, bar is 4/4 (4) — 4 columns: 4x half; DRILL_CHORD: drill 1 ('Move the Boogie Cell Across E7→A7→B7') m2: notes b2 Bb3 outside the chord 'Move the Boogie Cell Across E7→A7→B7' names; METER: drill 2 ('Chromatic Walkdown — Turnaround Descent') m1: durations sum to 5 beats, bar is 4/4 (4) — 6 columns: 2x quarter, 2x eighth, quarter, rest quarter
+  Total run time      : 80.8s
+  Actual tokens used  : input=13009 | output=7157
+  Estimated cost      : $0.1464 (input $0.0390 + output $0.1074)
+  Governor dollars_actual: $0.1464
+  Budget remaining    : $20/mo cap — this eval used ~$0.15
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================

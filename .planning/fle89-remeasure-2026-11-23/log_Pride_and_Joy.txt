@@ -1,0 +1,55 @@
+  [log] WARNING app.ai.governor: FLETCHER_PILOT_CEILING_ALERT 98% of the pilot ceiling is spent: $36.126400 of $36.9264 ($0.800000 left, ~4 breakdowns). Raise FLETCHER_PILOT_CEILING_USD before it hits.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO app.db.session: DB pool sized: pool_size=15 max_overflow=35 (ceiling 50) pool_timeout=30s.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Pride and Joy': stop_reason=tool_use output_tokens=7601 max_tokens=20000
+  [log] WARNING app.models.song: Breakdown sections do not partition the tab's 57 beats — last section ends at beat 69, not 56 (the tab's last beat). Dropping all 3 sections; the song degrades to unsectioned (FLE-101 §1/§5).
+  [log] WARNING app.models.song: drill 0 ('Shuffle Thumb Downbeat — E Chord'): prepares_section 'Riff' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 1 ('Open-to-4th Double-Stop Shuffle Climb'): prepares_section 'Riff' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 2 ('IV-Chord String Migration — A7 Double-Stops'): prepares_section 'Verse' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 3 ('Turnaround Bass Walk — Low Eb String'): prepares_section 'Turnaround' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] INFO app.models.song: FLE-44: forcing song_specific=True on drill 'Open-to-4th Double-Stop Shuffle Climb' for 'Pride and Joy' — `what` names the song or artist but Sonnet emitted false.
+  [log] WARNING app.ai.breakdown: Breakdown for 'Pride and Joy' passed verification with 8 warning(s): RENDERER_WIDTH: m1: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m2: 7 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m3: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m4: 6 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m5: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m6: 6 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m7: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m8: 6 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle
+  [log] ERROR app.ai.breakdown: Breakdown for 'Pride and Joy' by 'Stevie Ray Vaughan' FAILED verification (10 defect(s)): METER: m1: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m3: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m5: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m7: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m8: durations sum to 4.5 beats, bar is 4/4 (4) — 6 columns: dotted-quarter, eighth, quarter, rest eighth, 2x eighth; METER: drill 0 ('Shuffle Thumb Downbeat — E Chord') m1: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: drill 2 ('IV-Chord String Migration — A7 Double-Stops') m1: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; DRILL_CHORD: drill 2 ('IV-Chord String Migration — A7 Double-Stops') m1: notes b3 Bb3, b3 D4, b5 Bb3, b7 Bb3, b7 D4 outside the chord 'IV-Chord String Migration — A7 Double-Stops' names; METER: drill 3 ('Turnaround Bass Walk — Low Eb String') m1: durations sum to 4.5 beats, bar is 4/4 (4) — 6 columns: dotted-quarter, eighth, quarter, rest eighth, 2x eighth; DRILL_CHORD: drill 3 ('Turnaround Bass Walk — Low Eb String') m1: notes b2 F2, b5 Ab3, b6 F3 outside the chord 'Turnaround Bass Walk — Low Eb String' names
+  [log] ERROR app.ai.breakdown: Refused the breakdown for 'Pride and Joy' by 'Stevie Ray Vaughan' — raw Sonnet payload written to /tmp/fle89-remeasure-2026-11-23/raw/20261123T100507Z-pride-and-joy-stevie-ray-vaughan.json (FLE-143). Diagnose from that file rather than re-running the call.
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 1 (Pride and Joy) | Landmine gates: 6 per song = 6 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Pride and Joy — Stevie Ray Vaughan
+================================================================================
+
+  Throwaway eval user for this song: 82e43e29-0b18-4a56-b504-5a919f24d07e
+
+  target_skills provided to Sonnet:
+    id=e342f508-2fbd-4b06-8de1-7b76fe377b68  name='Texas shuffle double-stops'
+    id=75bdcf22-833b-4055-8f19-cd1f6f3b90ad  name='Eb-tuning blues box'
+    id=11649c03-814d-4aea-830d-447582d3bdf0  name='thumb-and-fingers hybrid picking'
+
+  Calling run_technique_breakdown for Pride and Joy... (live Anthropic)
+  [fle89] known_tuning for 'Pride and Joy': 'eb_standard' (catalog)
+
+  Wall clock before failure: 92.4s
+
+  ERROR (AIBreakdownError) for 'Pride and Joy': Sonnet's breakdown for 'Pride and Joy' failed 10 recording-free check(s), not serving a defective tab: METER: m1: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m3: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m5: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m7: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m8: durations sum to 4.5 beats, bar is 4/4 (4) — 6 columns: dotted-quarter, eighth, quarter, rest eighth, 2x eighth; METER: drill 0 ('Shuffle Thumb Downbeat — E Chord') m1: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: drill 2 ('IV-Chord String Migration — A7 Double-Stops') m1: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; DRILL_CHORD: drill 2 ('IV-Chord String Migration — A7 Double-Stops') m1: notes b3 Bb3, b3 D4, b5 Bb3, b7 Bb3, b7 D4 outside the chord 'IV-Chord String Migration — A7 Double-Stops' names; METER: drill 3 ('Turnaround Bass Walk — Low Eb String') m1: durations sum to 4.5 beats, bar is 4/4 (4) — 6 columns: dotted-quarter, eighth, quarter, rest eighth, 2x eighth; DRILL_CHORD: drill 3 ('Turnaround Bass Walk — Low Eb String') m1: notes b2 F2, b5 Ab3, b6 F3 outside the chord 'Turnaround Bass Walk — Low Eb String' names
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 1
+  Songs with errors   : 1
+    - 'Pride and Joy': TabVerificationError: Sonnet's breakdown for 'Pride and Joy' failed 10 recording-free check(s), not serving a defective tab: METER: m1: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m3: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m5: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m7: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m8: durations sum to 4.5 beats, bar is 4/4 (4) — 6 columns: dotted-quarter, eighth, quarter, rest eighth, 2x eighth; METER: drill 0 ('Shuffle Thumb Downbeat — E Chord') m1: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: drill 2 ('IV-Chord String Migration — A7 Double-Stops') m1: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; DRILL_CHORD: drill 2 ('IV-Chord String Migration — A7 Double-Stops') m1: notes b3 Bb3, b3 D4, b5 Bb3, b7 Bb3, b7 D4 outside the chord 'IV-Chord String Migration — A7 Double-Stops' names; METER: drill 3 ('Turnaround Bass Walk — Low Eb String') m1: durations sum to 4.5 beats, bar is 4/4 (4) — 6 columns: dotted-quarter, eighth, quarter, rest eighth, 2x eighth; DRILL_CHORD: drill 3 ('Turnaround Bass Walk — Low Eb String') m1: notes b2 F2, b5 Ab3, b6 F3 outside the chord 'Turnaround Bass Walk — Low Eb String' names
+  Total run time      : 92.6s
+  Actual tokens used  : input=13124 | output=7601
+  Estimated cost      : $0.1534 (input $0.0394 + output $0.1140)
+  Governor dollars_actual: $0.1534
+  Budget remaining    : $20/mo cap — this eval used ~$0.15
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================

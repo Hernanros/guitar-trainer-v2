@@ -1,0 +1,864 @@
+{
+  "song_title": "Comfortably Numb",
+  "song_artist": "Pink Floyd",
+  "refused_at": "2026-11-23T10:04:43.513403+00:00",
+  "error_type": "TabVerificationError",
+  "error": "Sonnet's breakdown for 'Comfortably Numb' failed 3 recording-free check(s), not serving a defective tab: METER: m4: durations sum to 4.5 beats, bar is 4/4 (4) \u2014 5 columns: dotted-quarter, rest eighth, eighth, 2x quarter; OWN_CHORDS: m3: notes b2 B4 outside this breakdown's own declared chords ['Bb', 'C', 'Dm']; OWN_CHORDS: m7: notes b4 B4 outside this breakdown's own declared chords ['Bb', 'C', 'Dm']",
+  "defects": [
+    "METER: m4: durations sum to 4.5 beats, bar is 4/4 (4) \u2014 5 columns: dotted-quarter, rest eighth, eighth, 2x quarter",
+    "OWN_CHORDS: m3: notes b2 B4 outside this breakdown's own declared chords ['Bb', 'C', 'Dm']",
+    "OWN_CHORDS: m7: notes b4 B4 outside this breakdown's own declared chords ['Bb', 'C', 'Dm']"
+  ],
+  "warnings": [
+    "RENDERER_WIDTH: m1: 5 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m2: 5 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m4: 5 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m5: 5 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m7: 5 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m8: 5 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle"
+  ],
+  "raw_input": {
+    "tab": {
+      "tuning": [
+        "E",
+        "A",
+        "D",
+        "G",
+        "B",
+        "E"
+      ],
+      "capo": 0,
+      "feel": "straight",
+      "measures": [
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "eighth",
+                  "link_to_next": "bend",
+                  "bend": {
+                    "semitones": 1.0,
+                    "kind": "bend"
+                  },
+                  "effects": [
+                    "vibrato"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 13,
+                  "duration": "quarter",
+                  "link_to_next": "pull_off"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 13,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 13,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "eighth",
+                  "link_to_next": "bend",
+                  "bend": {
+                    "semitones": 1.0,
+                    "kind": "bend_release"
+                  },
+                  "effects": [
+                    "vibrato"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "quarter"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 13,
+                  "duration": "quarter",
+                  "link_to_next": "pull_off"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "quarter"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 12,
+                  "duration": "quarter",
+                  "link_to_next": "hammer_on"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 13,
+                  "duration": "half",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "dotted-quarter",
+                  "link_to_next": "bend",
+                  "bend": {
+                    "semitones": 1.0,
+                    "kind": "bend"
+                  },
+                  "effects": [
+                    "vibrato"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 13,
+                  "duration": "quarter",
+                  "link_to_next": "slide"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "quarter"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 13,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 13,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "link_to_next": "hammer_on"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 13,
+                  "duration": "quarter"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "quarter",
+                  "link_to_next": "bend",
+                  "bend": {
+                    "semitones": 1.0,
+                    "kind": "bend"
+                  },
+                  "effects": [
+                    "vibrato"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "dotted-half",
+                  "effects": [
+                    "vibrato"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "quarter"
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 13,
+                  "duration": "eighth",
+                  "link_to_next": "pull_off"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "eighth"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 13,
+                  "duration": "quarter"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 12,
+                  "duration": "quarter",
+                  "link_to_next": "hammer_on"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 13,
+                  "duration": "quarter"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "quarter",
+                  "link_to_next": "bend",
+                  "bend": {
+                    "semitones": 1.0,
+                    "kind": "pre_bend"
+                  }
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 15,
+                  "duration": "eighth",
+                  "effects": [
+                    "vibrato"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 13,
+                  "duration": "quarter",
+                  "link_to_next": "pull_off"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "chords": [
+      {
+        "name": "Dm",
+        "positions": [
+          {
+            "string": 6,
+            "fret": -1
+          },
+          {
+            "string": 5,
+            "fret": -1
+          },
+          {
+            "string": 4,
+            "fret": 0
+          },
+          {
+            "string": 3,
+            "fret": 2,
+            "finger": 2
+          },
+          {
+            "string": 2,
+            "fret": 3,
+            "finger": 3
+          },
+          {
+            "string": 1,
+            "fret": 1,
+            "finger": 1
+          }
+        ],
+        "base_fret": 1
+      },
+      {
+        "name": "C",
+        "positions": [
+          {
+            "string": 6,
+            "fret": -1
+          },
+          {
+            "string": 5,
+            "fret": 3,
+            "finger": 3
+          },
+          {
+            "string": 4,
+            "fret": 2,
+            "finger": 2
+          },
+          {
+            "string": 3,
+            "fret": 0
+          },
+          {
+            "string": 2,
+            "fret": 1,
+            "finger": 1
+          },
+          {
+            "string": 1,
+            "fret": 0
+          }
+        ],
+        "base_fret": 1
+      },
+      {
+        "name": "Bb",
+        "positions": [
+          {
+            "string": 6,
+            "fret": -1
+          },
+          {
+            "string": 5,
+            "fret": 1,
+            "finger": 1
+          },
+          {
+            "string": 4,
+            "fret": 3,
+            "finger": 3
+          },
+          {
+            "string": 3,
+            "fret": 3,
+            "finger": 4
+          },
+          {
+            "string": 2,
+            "fret": 3,
+            "finger": 3
+          },
+          {
+            "string": 1,
+            "fret": 1,
+            "finger": 1
+          }
+        ],
+        "barre_fret": 1,
+        "base_fret": 1
+      }
+    ],
+    "technique_notes": [
+      {
+        "heading": "Full-Step Bend with Sustained Vibrato",
+        "body": "Every bend in this solo is a full step (two frets in pitch) pushed upward with the ring finger, braced by the middle and index fingers behind it. After the bend reaches the top, immediately roll your wrist \u2014 not your fingers \u2014 in a steady oscillation to add vibrato. The trap is releasing the bend before the vibrato settles in; hold the bent pitch and let the vibrato bloom for at least a beat before you decide to let it go."
+      },
+      {
+        "heading": "D Minor Pentatonic Box at the 10th Position",
+        "body": "Gilmour anchors this solo in the D minor pentatonic box starting at fret 10 on the high-e string (D) and reaching up to fret 15 (E\u266d bent to E). Your landmark notes are frets 10 and 13 on string 1 and frets 12 and 13 on string 2 \u2014 internalize those four positions before adding bends. The trap is drifting flat on the 15th fret because the hand hasn't set up early enough; plant the ring finger on 15 before the pick lands, never after."
+      },
+      {
+        "heading": "Pre-Bend Attack",
+        "body": "In measure 8 the note at fret 15 is already bent to pitch before it is struck \u2014 a pre-bend. Silently push the string up a full step, THEN pick it, then apply vibrato. If you pick before the bend is fully seated, you hear the pitch glide up, which is a plain bend, not a pre-bend. Check yourself: the struck note should sound like the note at fret 17 without you fretting 17."
+      },
+      {
+        "heading": "Pull-Off Clarity from the 13th to the 10th Fret",
+        "body": "The pull-off across a three-fret span (13\u219210) needs the lower finger already planted on fret 10 before you pull. Flick the pulling finger downward toward the floor \u2014 not simply lift it \u2014 so the lower note speaks with volume close to the picked note above it. A lazy pull-off sounds ghostly; aim for both notes at equal volume."
+      },
+      {
+        "heading": "Phrasing Space: Rests Are Not Mistakes",
+        "body": "Gilmour's genius in this solo is what he does NOT play. Notice the dotted-quarter bend in measure 4 that is followed by a deliberate eighth-note rest before the phrase continues. Do not rush to fill that silence \u2014 let the bent note ring, release the vibrato, and wait. Players at this level habitually rush past rests; treat each rest as the period at the end of a sentence."
+      }
+    ],
+    "sections": [
+      {
+        "label": "Solo",
+        "start_beat": 0,
+        "end_beat": 37
+      }
+    ],
+    "drills": [
+      {
+        "name": "Single-String Pull-Off Ladder (13\u219210)",
+        "target_skill_temp_id": "9a705cdf-249e-4d06-aff6-63478885399f",
+        "song_specific": true,
+        "what": "Isolates the three-fret pull-off that opens and closes phrases throughout Comfortably Numb's solo \u2014 the 13\u219210 drop on the high-e string that anchors the D minor pentatonic box. Plant your index finger on fret 10 and your ring finger on fret 13 before every rep; the lower finger must be fretted first.",
+        "prepares_section": "Solo",
+        "section_start_beat": 3,
+        "section_end_beat": 4,
+        "mechanic_tier": 1,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 0,
+          "feel": "straight",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 13,
+                      "duration": "quarter",
+                      "link_to_next": "pull_off"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 10,
+                      "duration": "quarter"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 13,
+                      "duration": "quarter",
+                      "link_to_next": "pull_off"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 10,
+                      "duration": "quarter"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 55,
+        "target_bpm": 65,
+        "repetitions": 8,
+        "success_criterion": "Both notes ring at equal volume, no pitch glide on the lower note \u2014 it speaks clean and immediate.",
+        "common_trap": "Lifting the index finger off fret 10 before the pull-off, which silences the lower note entirely."
+      },
+      {
+        "name": "Pentatonic Two-String Roll (10th Position)",
+        "target_skill_temp_id": "9a705cdf-249e-4d06-aff6-63478885399f",
+        "song_specific": false,
+        "what": "Drills the alternating string crossings between string 1 and string 2 that form the backbone of Comfortably Numb's melodic solo phrases \u2014 moving between the 10th-position D minor pentatonic notes on strings 1 and 2. Keep the pick strokes alternate throughout; resist the urge to sweep.",
+        "prepares_section": "Solo",
+        "section_start_beat": 5,
+        "section_end_beat": 9,
+        "mechanic_tier": 2,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 0,
+          "feel": "straight",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 13,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 13,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 12,
+                      "duration": "eighth",
+                      "link_to_next": "hammer_on"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 13,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 10,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 13,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 13,
+                      "duration": "eighth"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 10,
+                      "duration": "eighth"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 60,
+        "target_bpm": 70,
+        "repetitions": 8,
+        "success_criterion": "Every string crossing is clean, with no unintentional muting of adjacent strings and a consistent picking volume.",
+        "common_trap": "Collapsing the wrist angle when crossing from string 1 to string 2, causing the pick to catch the wrong string."
+      },
+      {
+        "name": "Full-Step Bend and Hold with Vibrato",
+        "target_skill_temp_id": "9f57146a-d8a7-4078-82e8-a876aebea902",
+        "song_specific": true,
+        "what": "Targets the signature full-step bend-and-hold that appears in measure 1 and returns throughout Comfortably Numb's solo \u2014 fret 15 on the high-e string bent up a whole step and then vibratoed for the full duration. Bend first, reach the target pitch, THEN introduce the vibrato wrist roll. Do not vibrato on the way up.",
+        "prepares_section": "Solo",
+        "section_start_beat": 1,
+        "section_end_beat": 2,
+        "mechanic_tier": 1,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 0,
+          "feel": "straight",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 15,
+                      "duration": "half",
+                      "link_to_next": "bend",
+                      "bend": {
+                        "semitones": 1.0,
+                        "kind": "bend"
+                      },
+                      "effects": [
+                        "vibrato"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "half"
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 50,
+        "target_bpm": 60,
+        "repetitions": 8,
+        "success_criterion": "The bent note hits exactly the pitch of fret 17 and the vibrato is smooth and even \u2014 no wavering or accidental release.",
+        "common_trap": "Under-bending to only a half step because the ring finger lacks the strength to push the string the full distance; use all three fingers to push."
+      },
+      {
+        "name": "Pre-Bend Strike and Vibrato Release",
+        "target_skill_temp_id": "9f57146a-d8a7-4078-82e8-a876aebea902",
+        "song_specific": true,
+        "what": "Isolates the pre-bend in measure 8 of Comfortably Numb's solo \u2014 the most demanding moment in the excerpt \u2014 where fret 15 is silently bent a full step before the pick attacks, then held with vibrato. The pitch must already be at the top when the note sounds; there should be zero glide.",
+        "prepares_section": "Solo",
+        "section_start_beat": 32,
+        "section_end_beat": 33,
+        "mechanic_tier": 1,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 0,
+          "feel": "straight",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 15,
+                      "duration": "half",
+                      "link_to_next": "bend",
+                      "bend": {
+                        "semitones": 1.0,
+                        "kind": "pre_bend"
+                      },
+                      "effects": [
+                        "vibrato"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "half"
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 45,
+        "target_bpm": 55,
+        "repetitions": 8,
+        "success_criterion": "The struck note sounds immediately at pitch \u2014 identical to fret 17 \u2014 with no upward glide audible whatsoever.",
+        "common_trap": "Picking the string before completing the full bend, turning the pre-bend into an ordinary bend and losing the effect entirely."
+      }
+    ]
+  }
+}

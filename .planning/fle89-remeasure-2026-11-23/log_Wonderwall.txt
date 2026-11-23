@@ -1,0 +1,48 @@
+  [log] WARNING app.ai.governor: FLETCHER_PILOT_CEILING_ALERT 99% of the pilot ceiling is spent: $36.726400 of $36.9264 ($0.200000 left, ~1 breakdowns). Raise FLETCHER_PILOT_CEILING_USD before it hits.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO app.db.session: DB pool sized: pool_size=15 max_overflow=35 (ceiling 50) pool_timeout=30s.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Wonderwall': stop_reason=tool_use output_tokens=9522 max_tokens=20000
+  [log] WARNING app.ai.breakdown: Breakdown for 'Wonderwall' passed verification with 16 warning(s): UNIFORM_DURATION: m1: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m2: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m3: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m4: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m5: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m6: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m7: every note is 'eighth' — a grid, not a rhythm; UNIFORM_DURATION: m8: every note is 'eighth' — a grid, not a rhythm; RENDERER_WIDTH: m1: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m2: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m3: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m4: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m5: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m6: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m7: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m8: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle
+  [log] ERROR app.ai.breakdown: Breakdown for 'Wonderwall' by 'Oasis' FAILED verification (1 defect(s)): DRILL_CHORD: drill 1 ('G → Em7 Change with Frozen Anchor') m1: notes b1 A3 outside the chord 'G → Em7 Change with Frozen Anchor' names
+  [log] ERROR app.ai.breakdown: Refused the breakdown for 'Wonderwall' by 'Oasis' — raw Sonnet payload written to /tmp/fle89-remeasure-2026-11-23/raw/20261123T100519Z-wonderwall-oasis.json (FLE-143). Diagnose from that file rather than re-running the call.
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 1 (Wonderwall) | Landmine gates: 6 per song = 6 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Wonderwall — Oasis
+================================================================================
+
+  Throwaway eval user for this song: 9d29ce93-f892-4b26-a35d-f03dfd450283
+
+  target_skills provided to Sonnet:
+    id=f9cdd2a7-d873-4c5a-84b3-235ef5781a62  name='G-Em-D-A7sus4 chord changes'
+    id=85e86b01-2832-46d7-a6cd-68a698345045  name='downstroke pattern'
+
+  Calling run_technique_breakdown for Wonderwall... (live Anthropic)
+  [fle89] known_tuning for 'Wonderwall': 'standard' (catalog)
+
+  Wall clock before failure: 104.7s
+
+  ERROR (AIBreakdownError) for 'Wonderwall': Sonnet's breakdown for 'Wonderwall' failed 1 recording-free check(s), not serving a defective tab: DRILL_CHORD: drill 1 ('G → Em7 Change with Frozen Anchor') m1: notes b1 A3 outside the chord 'G → Em7 Change with Frozen Anchor' names
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 1
+  Songs with errors   : 1
+    - 'Wonderwall': TabVerificationError: Sonnet's breakdown for 'Wonderwall' failed 1 recording-free check(s), not serving a defective tab: DRILL_CHORD: drill 1 ('G → Em7 Change with Frozen Anchor') m1: notes b1 A3 outside the chord 'G → Em7 Change with Frozen Anchor' names
+  Total run time      : 104.9s
+  Actual tokens used  : input=13020 | output=9522
+  Estimated cost      : $0.1819 (input $0.0391 + output $0.1428)
+  Governor dollars_actual: $0.1819
+  Budget remaining    : $20/mo cap — this eval used ~$0.18
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================

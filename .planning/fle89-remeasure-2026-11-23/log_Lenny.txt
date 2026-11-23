@@ -1,0 +1,54 @@
+  [log] WARNING app.ai.governor: FLETCHER_PILOT_CEILING_ALERT 97% of the pilot ceiling is spent: $35.926400 of $36.9264 ($1.000000 left, ~5 breakdowns). Raise FLETCHER_PILOT_CEILING_USD before it hits.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO app.db.session: DB pool sized: pool_size=15 max_overflow=35 (ceiling 50) pool_timeout=30s.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Lenny': stop_reason=tool_use output_tokens=5855 max_tokens=20000
+  [log] WARNING app.models.song: Breakdown sections do not partition the tab's 57 beats — last section ends at beat 62, not 56 (the tab's last beat). Dropping all 2 sections; the song degrades to unsectioned (FLE-101 §1/§5).
+  [log] WARNING app.models.song: drill 0 ('Roll the E-Shape Arpeggio from Bass to Melody'): prepares_section 'Intro' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 1 ('b3→3 Slide at Fret 5→7'): prepares_section 'Intro' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 2 ('E-Shape Barre: Move Bb to C (Fret 6→8)'): prepares_section 'Riff' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] INFO app.models.song: FLE-44: forcing song_specific=True on drill 'E-Shape Barre: Move Bb to C (Fret 6→8)' for 'Lenny' — `what` names the song or artist but Sonnet emitted false.
+  [log] WARNING app.ai.breakdown: Breakdown for 'Lenny' passed verification with 11 warning(s): UNIFORM_DURATION: m7: every note is 'eighth' — a grid, not a rhythm; RENDERER_WIDTH: m1: 7 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m2: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m3: 7 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m4: 7 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m5: 7 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m6: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m7: 8 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m8: 5 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; TUNING_COHERENCE: inconclusive (no parseable chords or no notes) — cannot assess self-consistency; CHORD_NAME_UNPARSEABLE: 2 of 2 declared chord name(s) are not chord symbols ('E-shape (Bb)', 'E-shape (C)') — OWN_CHORDS skipped for this breakdown rather than scored against a partial chord list
+  [log] ERROR app.ai.breakdown: Breakdown for 'Lenny' by 'Stevie Ray Vaughan' FAILED verification (6 defect(s)): METER: m1: durations sum to 5 beats, bar is 4/4 (4) — 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m2: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m3: durations sum to 5 beats, bar is 4/4 (4) — 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m5: durations sum to 5 beats, bar is 4/4 (4) — 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m6: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m8: durations sum to 5 beats, bar is 4/4 (4) — 5 columns: 2x eighth, 2x quarter, half
+  [log] ERROR app.ai.breakdown: Refused the breakdown for 'Lenny' by 'Stevie Ray Vaughan' — raw Sonnet payload written to /tmp/fle89-remeasure-2026-11-23/raw/20261123T100445Z-lenny-stevie-ray-vaughan.json (FLE-143). Diagnose from that file rather than re-running the call.
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 1 (Lenny) | Landmine gates: 6 per song = 6 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Lenny — Stevie Ray Vaughan
+================================================================================
+
+  Throwaway eval user for this song: 84096c8d-8de5-45ce-8f82-86c91a157275
+
+  target_skills provided to Sonnet:
+    id=037db40e-4e36-497b-82de-bc0b5828decb  name='b3-3 slide E-shape'
+    id=95fca1d9-8cb2-4fc7-8605-a1edecf3c286  name='chord-melody attack'
+    id=03220433-c918-42f9-9e06-4699e8bfa495  name='E-shape barre voicings'
+
+  Calling run_technique_breakdown for Lenny... (live Anthropic)
+  [fle89] known_tuning for 'Lenny': 'eb_standard' (catalog)
+
+  Wall clock before failure: 71.1s
+
+  ERROR (AIBreakdownError) for 'Lenny': Sonnet's breakdown for 'Lenny' failed 6 recording-free check(s), not serving a defective tab: METER: m1: durations sum to 5 beats, bar is 4/4 (4) — 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m2: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m3: durations sum to 5 beats, bar is 4/4 (4) — 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m5: durations sum to 5 beats, bar is 4/4 (4) — 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m6: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m8: durations sum to 5 beats, bar is 4/4 (4) — 5 columns: 2x eighth, 2x quarter, half
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 1
+  Songs with errors   : 1
+    - 'Lenny': TabVerificationError: Sonnet's breakdown for 'Lenny' failed 6 recording-free check(s), not serving a defective tab: METER: m1: durations sum to 5 beats, bar is 4/4 (4) — 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m2: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m3: durations sum to 5 beats, bar is 4/4 (4) — 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m5: durations sum to 5 beats, bar is 4/4 (4) — 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m6: durations sum to 4.5 beats, bar is 4/4 (4) — 8 columns: quarter, 7x eighth; METER: m8: durations sum to 5 beats, bar is 4/4 (4) — 5 columns: 2x eighth, 2x quarter, half
+  Total run time      : 71.3s
+  Actual tokens used  : input=13125 | output=5855
+  Estimated cost      : $0.1272 (input $0.0394 + output $0.0878)
+  Governor dollars_actual: $0.1272
+  Budget remaining    : $20/mo cap — this eval used ~$0.13
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================

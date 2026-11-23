@@ -83,6 +83,12 @@ against notation or against the guitar itself, no recording needed:
                  C6 from the audit — it alone caught the whole Comfortably
                  Numb error (every C natural where B minor needs C#) purely
                  from the tab contradicting the chords shipped beside it.
+                 PARTIAL since FLE-154: blocking for a foreign note that is
+                 repeated or held, a WARNING for one in transit (a half step
+                 into the next note, or inside a chromatic run). Fret's ruling
+                 on FLE-144, measured on real refusals — see
+                 `_passing_tone_reason`. It still blocks Sweet Home Chicago m4
+                 and it no longer refuses that song's chromatic walkdown.
 
 Three checks are informational only and never block:
 
@@ -510,7 +516,27 @@ def _check_renderer_width(tab: Tab) -> list[str]:
     ]
 
 
-def _check_foreign_notes(tab: Tab, allowed: set[int]) -> dict[int, list[str]]:
+@dataclass(frozen=True)
+class _ForeignNote:
+    """One flagged note, kept as data rather than a formatted string.
+
+    FLE-154 needs to ask a SECOND question of each flagged note — is it a
+    passing tone? — and that question needs the note's column, its pitch and
+    its length, none of which survive `f"b{bi} {nm}"`. `_format_foreign`
+    renders the string the two call sites used to build inline, so their
+    messages are byte-identical to before.
+    """
+    beat: int       # 1-based column index inside its measure
+    name: str       # spelled pitch, e.g. "Bb3"
+    midi: int
+    duration: str
+
+
+def _format_foreign(found: list[_ForeignNote]) -> str:
+    return ", ".join(f"b{f.beat} {f.name}" for f in found)
+
+
+def _check_foreign_notes(tab: Tab, allowed: set[int]) -> dict[int, list[_ForeignNote]]:
     """Notes in `tab` whose pitch class is outside `allowed` in every tuning
     frame. Shared machinery: OWN_CHORDS sources `allowed` from
     `breakdown.chords`, DRILL_CHORD (FLE-126) from a drill's own name — same
@@ -529,7 +555,7 @@ def _check_foreign_notes(tab: Tab, allowed: set[int]) -> dict[int, list[str]]:
     om = _open_midi(tab.tuning)
     off = _tuning_offset(tab.tuning)
     frames = [0] if not off else [0, -off]
-    bad: dict[int, list[str]] = {}
+    bad: dict[int, list[_ForeignNote]] = {}
     for mi, m in enumerate(tab.measures, 1):
         for bi, bt in enumerate(m.beats, 1):
             for n in bt.notes:
@@ -540,8 +566,143 @@ def _check_foreign_notes(tab: Tab, allowed: set[int]) -> dict[int, list[str]]:
                     continue
                 nm, midi = _pitch(n.string, n.fret, om)
                 if all((midi + f) % 12 not in allowed for f in frames):
-                    bad.setdefault(mi, []).append(f"b{bi} {nm}")
+                    bad.setdefault(mi, []).append(
+                        _ForeignNote(bi, nm, midi, n.duration)
+                    )
     return bad
+
+
+# --- FLE-154: is a foreign note a passing tone? ----------------------------
+#
+# Fret's ruling on FLE-144 (2026-11-23): OWN_CHORDS was right that these notes
+# are outside the declared chords and wrong to refuse the breakdown for all of
+# them. A foreign note that is REPEATED or HELD is heard as harmony, and if it
+# contradicts the chord beside it the bar is wrong. A foreign note in TRANSIT is
+# heard as movement, and refusing it refuses the blues.
+#
+# Measured on the 2026-11-23 refusal payloads
+# (`.planning/fle89-remeasure-2026-11-23/raw/`), which is what the two tests
+# below replay:
+#
+#   Sweet Home Chicago m4   D3+Ab3 / D3+Bb3 x4      Bb struck 4 times, a whole
+#                                                   step off its neighbour —
+#                                                   STILL REFUSED, correctly
+#   Sweet Home Chicago m7   G2 F#2 F2(+B2) E2(+Bb2) chromatic bass walkdown —
+#                                                   WARNS
+#   Comfortably Numb m3/m7  B4 hammer-on to C5      half step up — WARNS
+#
+# Two tests, either one enough:
+#
+#   1. the note moves by a HALF STEP into the next sounding column;
+#   2. the note's column sits inside a CHROMATIC RUN of >= 3 columns.
+#
+# WHICH VOICE THE RUN IS MEASURED ON — the question FLE-154 asks for an answer
+# to, because SHC m7 is dyads: the run is measured on the bar's LOWEST VOICE
+# (the lowest sounding pitch of each column), and a foreign note anywhere in a
+# column the run covers is licensed by it, including the upper note of a dyad.
+# On SHC m7 the moving line IS the bass: G2-F#2-F2-E2 on the low E string, four
+# chromatic steps, with B2 and Bb2 riding on top of its last two columns. Bb2
+# is the one note that needs this test — it is approached by a half step from
+# B2 but never resolves, because the bar's upper voice stops there, so test 1
+# alone would still refuse it. Measuring the run on the top voice instead gets
+# this backwards: a two-note fragment (B2-Bb2) would license nothing while the
+# four-note line that is manifestly the point of the bar goes unread. In a
+# single-note bar the lowest voice IS the melody, so melodic chromatic runs are
+# covered by the same code with no special case.
+#
+# Thresholds below are a judgement, not a measurement, and Fret owns them.
+_MIN_CHROMATIC_RUN = 3
+# A foreign note struck more than twice in one bar is the "repeated" case the
+# ruling keeps blocking — two strikes allow one bar to pass through the same
+# chromatic note twice (a walk down and back up), four are Sweet Home Chicago
+# m4. This also stops a trill (B-C-B-C) from buying a pass off test 1, which
+# every B in it would otherwise satisfy.
+_MAX_PASSING_STRIKES = 2
+# ...and longer than a quarter is the "held" case. A passing tone is in
+# transit; a half note is a chord tone whether or not it belongs to the chord.
+_MAX_PASSING_BEATS = 1
+
+
+def _sounding_columns(
+    measure: Measure, om: dict[int, int]
+) -> list[tuple[int, list[int]]]:
+    """(1-based column index, sounding midis ascending) for every column of
+    `measure` that sounds at least one note at a definite pitch, in time order.
+
+    Bent notes are left out for the same reason `_check_foreign_notes` skips
+    them (FLE-115 §5): a bend does not sound at an integer fret, so its
+    fingered pitch is not a point a melodic line passes through. Rest columns
+    drop out too — so "the next column" below means the next column that
+    SOUNDS, not the next slot in `measure.beats`.
+    """
+    out: list[tuple[int, list[int]]] = []
+    for bi, bt in enumerate(measure.beats, 1):
+        midis = sorted(
+            _pitch(n.string, n.fret, om)[1] for n in bt.notes if n.bend is None
+        )
+        if midis:
+            out.append((bi, midis))
+    return out
+
+
+def _chromatic_run_columns(columns: list[tuple[int, list[int]]]) -> set[int]:
+    """Column indices covered by a chromatic run of >= `_MIN_CHROMATIC_RUN`
+    columns in the lowest voice (see the voice argument above).
+
+    A run is MONOTONIC: every step +1, or every step -1. B-C-B is an
+    oscillation, not a run, and Comfortably Numb m7's C5-B4-C5 is exactly that
+    shape — it earns its warning from the half-step test instead. A repeat
+    (step 0) ends a run; the repeated column starts the next candidate, so
+    SHC m7's trailing E2-E2 neither extends nor breaks the G2-F#2-F2-E2 run
+    that precedes it.
+    """
+    lows = [(bi, midis[0]) for bi, midis in columns]
+    covered: set[int] = set()
+    i = 0
+    while i < len(lows):
+        j, direction = i, 0
+        while j + 1 < len(lows):
+            step = lows[j + 1][1] - lows[j][1]
+            if step not in (1, -1) or (direction and step != direction):
+                break
+            direction = step
+            j += 1
+        if j - i + 1 >= _MIN_CHROMATIC_RUN:
+            covered.update(bi for bi, _ in lows[i:j + 1])
+        # Restart AT the turn note, not past it, so a run down and back up
+        # (A-Ab-G-Ab-A) reads as two runs sharing their pivot rather than one
+        # run plus an orphan tail. `j > i` guarantees progress.
+        i = j if j > i else i + 1
+    return covered
+
+
+def _passing_tone_reason(
+    measure: Measure, om: dict[int, int], f: _ForeignNote
+) -> str | None:
+    """Why `f` is a passing tone rather than a wrong note, or None if it isn't.
+
+    The reason is returned rather than a bool so the warning can say which test
+    licensed the note — a warning nobody can act on is noise, and "which voice
+    did you read" is the first question Fret will ask of one.
+    """
+    columns = _sounding_columns(measure, om)
+    index = {bi: k for k, (bi, _) in enumerate(columns)}
+    k = index.get(f.beat)
+    if k is None:          # unreachable: a flagged note sounds, so its column does
+        return None
+
+    # The ruling's blocking half, checked first: repeated or held is harmony.
+    if sum(1 for _, midis in columns if f.midi in midis) > _MAX_PASSING_STRIKES:
+        return None
+    if DURATION_BEATS.get(f.duration, _MAX_PASSING_BEATS) > _MAX_PASSING_BEATS:
+        return None
+
+    nxt = columns[k + 1][1] if k + 1 < len(columns) else []
+    if any(abs(m - f.midi) == 1 for m in nxt):
+        return "half step into the next note"
+    if f.beat in _chromatic_run_columns(columns):
+        return "inside a chromatic run in this bar's lowest voice"
+    return None
 
 
 # How many offending names a CHORD_NAME_UNPARSEABLE warning spells out.
@@ -611,11 +772,35 @@ def _check_own_chords(breakdown: Breakdown) -> tuple[list[str], list[str]]:
         return [], []
     bad = _check_foreign_notes(breakdown.tab, allowed)
     chord_names = sorted({c.name for c in breakdown.chords})
-    return [
-        f"m{mi}: notes {', '.join(notes)} outside this breakdown's own declared "
-        f"chords {chord_names}"
-        for mi, notes in sorted(bad.items())
-    ], []
+    om = _open_midi(breakdown.tab.tuning)
+    defects: list[str] = []
+    warnings: list[str] = []
+    for mi, found in sorted(bad.items()):
+        measure = breakdown.tab.measures[mi - 1]
+        wrong: list[_ForeignNote] = []
+        passing: list[tuple[_ForeignNote, str]] = []
+        for f in found:
+            why = _passing_tone_reason(measure, om, f)
+            if why:
+                passing.append((f, why))
+            else:
+                wrong.append(f)
+        if wrong:
+            defects.append(
+                f"m{mi}: notes {_format_foreign(wrong)} outside this "
+                f"breakdown's own declared chords {chord_names}"
+            )
+        if passing:
+            reasons = "; ".join(sorted({why for _, why in passing}))
+            defects_too = " (other notes in this bar still block)" if wrong else ""
+            warnings.append(
+                f"OWN_CHORDS: m{mi}: notes "
+                f"{_format_foreign([f for f, _ in passing])} outside this "
+                f"breakdown's own declared chords {chord_names} — passing "
+                f"tone{'s' if len(passing) > 1 else ''} ({reasons}), not "
+                f"blocking per FLE-154{defects_too}"
+            )
+    return defects, warnings
 
 
 # --- DRILL_CHORD (FLE-126): does a drill's own NAME match its snippet? -----
@@ -672,9 +857,16 @@ def _check_drill_chord_identity(drill: Drill) -> list[str]:
     if not allowed:
         return []
     bad = _check_foreign_notes(drill.tab_snippet, allowed)
+    # FLE-154's passing-tone warning is deliberately NOT applied here. The
+    # question DRILL_CHORD asks is different: not "does this bar move through a
+    # note outside the harmony" but "is the voicing this drill is NAMED after
+    # the one it actually plays". Little Wing drill1's F# is a chord tone of
+    # the shape under the player's fingers, held, in the position the name
+    # promises a G — "it was passing through" is not available to it.
     return [
-        f"m{mi}: notes {', '.join(notes)} outside the chord {drill.name!r} names"
-        for mi, notes in sorted(bad.items())
+        f"m{mi}: notes {_format_foreign(found)} outside the chord "
+        f"{drill.name!r} names"
+        for mi, found in sorted(bad.items())
     ]
 
 

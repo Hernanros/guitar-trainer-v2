@@ -59,7 +59,21 @@ def _breakdown(measures: list[Measure], names: list[str]) -> Breakdown:
 
 
 def _own_chords(result) -> list[str]:
-    return [d for d in result.blocking if d.startswith("OWN_CHORDS:")]
+    """Every OWN_CHORDS line, blocking OR warning.
+
+    FLE-154 split OWN_CHORDS' verdict: a foreign note in transit now warns
+    instead of refusing the breakdown. This file is about the PARSE — which
+    pitch classes end up in `allowed`, and so which notes get flagged at all —
+    not about which half of the verdict a flagged note lands in, and the one-
+    note-per-beat bars above are too short to make that distinction meaningful
+    anyway. Reading both lists keeps every assertion here measuring the thing
+    it was written to measure; `test_fle154_passing_tone.py` owns the split.
+    """
+    return [
+        line
+        for line in (*result.blocking, *result.warnings)
+        if line.startswith("OWN_CHORDS:")
+    ]
 
 
 def _unparseable(result) -> list[str]:
@@ -225,7 +239,7 @@ def test_one_unreadable_name_skips_own_chords_and_warns_without_blocking():
 
 
 def test_the_coverage_loss_is_real_and_pinned_deliberately():
-    """A note that OWN_CHORDS would block on its own stops being blocked once a
+    """A note that OWN_CHORDS would flag on its own stops being flagged once a
     SIBLING name is unreadable. That is the accepted cost of never inventing a
     false positive — if this test starts failing, read `_check_own_chords`'s
     docstring before "fixing" it."""

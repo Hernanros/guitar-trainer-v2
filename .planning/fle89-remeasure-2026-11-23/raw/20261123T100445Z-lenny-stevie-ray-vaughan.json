@@ -1,0 +1,1110 @@
+{
+  "song_title": "Lenny",
+  "song_artist": "Stevie Ray Vaughan",
+  "refused_at": "2026-11-23T10:04:45.831769+00:00",
+  "error_type": "TabVerificationError",
+  "error": "Sonnet's breakdown for 'Lenny' failed 6 recording-free check(s), not serving a defective tab: METER: m1: durations sum to 5 beats, bar is 4/4 (4) \u2014 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m2: durations sum to 4.5 beats, bar is 4/4 (4) \u2014 8 columns: quarter, 7x eighth; METER: m3: durations sum to 5 beats, bar is 4/4 (4) \u2014 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m5: durations sum to 5 beats, bar is 4/4 (4) \u2014 7 columns: quarter, 4x eighth, dotted-quarter, eighth; METER: m6: durations sum to 4.5 beats, bar is 4/4 (4) \u2014 8 columns: quarter, 7x eighth; METER: m8: durations sum to 5 beats, bar is 4/4 (4) \u2014 5 columns: 2x eighth, 2x quarter, half",
+  "defects": [
+    "METER: m1: durations sum to 5 beats, bar is 4/4 (4) \u2014 7 columns: quarter, 4x eighth, dotted-quarter, eighth",
+    "METER: m2: durations sum to 4.5 beats, bar is 4/4 (4) \u2014 8 columns: quarter, 7x eighth",
+    "METER: m3: durations sum to 5 beats, bar is 4/4 (4) \u2014 7 columns: quarter, 4x eighth, dotted-quarter, eighth",
+    "METER: m5: durations sum to 5 beats, bar is 4/4 (4) \u2014 7 columns: quarter, 4x eighth, dotted-quarter, eighth",
+    "METER: m6: durations sum to 4.5 beats, bar is 4/4 (4) \u2014 8 columns: quarter, 7x eighth",
+    "METER: m8: durations sum to 5 beats, bar is 4/4 (4) \u2014 5 columns: 2x eighth, 2x quarter, half"
+  ],
+  "warnings": [
+    "UNIFORM_DURATION: m7: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "RENDERER_WIDTH: m1: 7 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m2: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m3: 7 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m4: 7 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m5: 7 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m6: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m7: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m8: 5 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "TUNING_COHERENCE: inconclusive (no parseable chords or no notes) \u2014 cannot assess self-consistency",
+    "CHORD_NAME_UNPARSEABLE: 2 of 2 declared chord name(s) are not chord symbols ('E-shape (Bb)', 'E-shape (C)') \u2014 OWN_CHORDS skipped for this breakdown rather than scored against a partial chord list"
+  ],
+  "raw_input": {
+    "tab": {
+      "tuning": [
+        "Eb",
+        "Ab",
+        "Db",
+        "Gb",
+        "Bb",
+        "Eb"
+      ],
+      "capo": 0,
+      "feel": "swing",
+      "measures": [
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 7,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 8,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 8,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 8,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 8,
+                  "duration": "dotted-quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 8,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 7,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 8,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 8,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ],
+                  "link_to_next": "pull_off"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 5,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 5,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ],
+                  "link_to_next": "slide"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 7,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 8,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 8,
+                  "duration": "dotted-quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 8,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 8,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 6,
+                  "duration": "eighth",
+                  "link_to_next": "slide"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 8,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "link_to_next": "pull_off"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 5,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ],
+                  "bend": {
+                    "semitones": 1.0,
+                    "kind": "bend_release"
+                  }
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 5,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 9,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 9,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "dotted-quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 9,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 9,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 9,
+                  "duration": "eighth",
+                  "link_to_next": "pull_off"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "link_to_next": "slide"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 9,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ],
+                  "bend": {
+                    "semitones": 1.0,
+                    "kind": "bend_release"
+                  }
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 8,
+                  "duration": "eighth",
+                  "link_to_next": "slide"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 10,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 9,
+                  "duration": "eighth",
+                  "link_to_next": "pull_off"
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ],
+                  "bend": {
+                    "semitones": 1.0,
+                    "kind": "bend_release"
+                  }
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 3,
+                  "fret": 7,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 4,
+                  "fret": 7,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 5,
+                  "fret": 7,
+                  "duration": "quarter",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "notes": [
+                {
+                  "string": 6,
+                  "fret": 7,
+                  "duration": "half",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "chords": [
+      {
+        "name": "E-shape (Bb)",
+        "base_fret": 6,
+        "barre_fret": 6,
+        "positions": [
+          {
+            "string": 6,
+            "fret": 6,
+            "finger": 1
+          },
+          {
+            "string": 5,
+            "fret": 8,
+            "finger": 3
+          },
+          {
+            "string": 4,
+            "fret": 8,
+            "finger": 4
+          },
+          {
+            "string": 3,
+            "fret": 7,
+            "finger": 2
+          },
+          {
+            "string": 2,
+            "fret": 6,
+            "finger": 1
+          },
+          {
+            "string": 1,
+            "fret": 6,
+            "finger": 1
+          }
+        ]
+      },
+      {
+        "name": "E-shape (C)",
+        "base_fret": 8,
+        "barre_fret": 8,
+        "positions": [
+          {
+            "string": 6,
+            "fret": 8,
+            "finger": 1
+          },
+          {
+            "string": 5,
+            "fret": 10,
+            "finger": 3
+          },
+          {
+            "string": 4,
+            "fret": 10,
+            "finger": 4
+          },
+          {
+            "string": 3,
+            "fret": 9,
+            "finger": 2
+          },
+          {
+            "string": 2,
+            "fret": 8,
+            "finger": 1
+          },
+          {
+            "string": 1,
+            "fret": 8,
+            "finger": 1
+          }
+        ]
+      }
+    ],
+    "technique_notes": [
+      {
+        "heading": "Tuning: E\u266d Standard (Half Step Down)",
+        "body": "Tune every string DOWN a half step: low E\u2192Eb, A\u2192Ab, D\u2192Db, G\u2192Gb, B\u2192Bb, high e\u2192Eb. SRV used this tuning throughout most of his catalog \u2014 he fingers everything in familiar E-shape positions but the guitar sounds a half step lower than written. Without this, your phrases will clash with any recording."
+      },
+      {
+        "heading": "Chord-Melody Attack: Arpeggio from Bass to High Melody",
+        "body": "Lenny's signature move is rolling up from the bass note of an E-shape barre chord to the high melody note \u2014 not a strum, not a full chord attack. Use your pick or thumb to initiate from string 6 (or 4 depending on the inversion), and let each note ring into the next so it blooms into a chord rather than a chord struck all at once. The trap is rushing the roll and collapsing it into a strum \u2014 aim for a lazy, deliberate fan that takes up roughly a full beat."
+      },
+      {
+        "heading": "b3\u21923 Slide: The Blues Curl in E-Shape Position",
+        "body": "The core expressive move here is sliding from the minor 3rd to the major 3rd within the E-shape barre position \u2014 on the G string (string 3), that's fret 5 to fret 7 (or 7 to 9 in the C-shape area). Keep your fretting finger relaxed and let the slide glide in one fluid motion rather than hopping. If the pitch sounds flat on arrival, you're releasing finger pressure mid-slide \u2014 maintain even downward weight all the way to the target fret."
+      },
+      {
+        "heading": "Bend-Release on the G String",
+        "body": "Several phrases end with a 1-step bend on the G string (string 3) that releases back down \u2014 this is the 'sob' of the phrase. Support the bending finger with the fingers behind it; bending with one finger alone loses control and intonation. The release must land cleanly on the fretted pitch, not hang somewhere between \u2014 slow it down and listen for the pitch locking in on the way back."
+      },
+      {
+        "heading": "E-Shape Barre Voicings: Position Geography",
+        "body": "Lenny moves the entire E-shape vocabulary up the neck \u2014 Bb at fret 6, C at fret 8. The barre index locks the root on string 6 while fingers 2, 3, and 4 hold the inner triad shape unchanged. The common trap is letting the barre collapse at strings 1 and 2 \u2014 roll your index finger slightly toward the nut (toward its bony edge) for even pressure across all six strings."
+      }
+    ],
+    "sections": [
+      {
+        "label": "Intro",
+        "start_beat": 0,
+        "end_beat": 29
+      },
+      {
+        "label": "Riff",
+        "start_beat": 30,
+        "end_beat": 62
+      }
+    ],
+    "drills": [
+      {
+        "name": "Roll the E-Shape Arpeggio from Bass to Melody",
+        "target_skill_temp_id": "95fca1d9-8cb2-4fc7-8605-a1edecf3c286",
+        "song_specific": true,
+        "what": "Prepares the intro's chord-melody roll at the Bb E-shape barre (fret 6). Strike string 4 open bass note, then roll up through strings 3, 2, 1 \u2014 letting each ring \u2014 to arrive at the high melody note. This is the exact motion that opens Lenny.",
+        "mechanic_tier": 6,
+        "prepares_section": "Intro",
+        "section_start_beat": 0,
+        "section_end_beat": 6,
+        "tab_snippet": {
+          "tuning": [
+            "Eb",
+            "Ab",
+            "Db",
+            "Gb",
+            "Bb",
+            "Eb"
+          ],
+          "capo": 0,
+          "feel": "swing",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 4,
+                      "fret": 7,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 3,
+                      "fret": 7,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 8,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 8,
+                      "duration": "half",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 50,
+        "target_bpm": 60,
+        "repetitions": 8,
+        "success_criterion": "Each note blooms cleanly into the next with no gap \u2014 the top note sings out above the chord while the lower strings ring underneath.",
+        "common_trap": "Rushing the roll so it collapses into a simultaneous strum \u2014 slow down until you hear four distinct pitches cascading."
+      },
+      {
+        "name": "b3\u21923 Slide at Fret 5\u21927",
+        "target_skill_temp_id": "037db40e-4e36-497b-82de-bc0b5828decb",
+        "song_specific": true,
+        "what": "Prepares the b3\u21923 blues curl that closes phrases in the intro \u2014 the slide on string 3 from fret 5 to fret 7 inside the Bb E-shape position. This is the defining expressive gesture of Lenny's melodic vocabulary.",
+        "mechanic_tier": 1,
+        "prepares_section": "Intro",
+        "section_start_beat": 14,
+        "section_end_beat": 15,
+        "tab_snippet": {
+          "tuning": [
+            "Eb",
+            "Ab",
+            "Db",
+            "Gb",
+            "Bb",
+            "Eb"
+          ],
+          "capo": 0,
+          "feel": "swing",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 3,
+                      "fret": 5,
+                      "duration": "quarter",
+                      "link_to_next": "slide"
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 3,
+                      "fret": 7,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "half"
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 55,
+        "target_bpm": 65,
+        "repetitions": 8,
+        "success_criterion": "The target fret 7 rings in tune and sings \u2014 no pitch wobble on arrival, no drop in volume at the end of the slide.",
+        "common_trap": "Releasing fretting-hand pressure mid-slide, causing the pitch to go flat or dead before reaching fret 7."
+      },
+      {
+        "name": "E-Shape Barre: Move Bb to C (Fret 6\u21928)",
+        "target_skill_temp_id": "03220433-c918-42f9-9e06-4699e8bfa495",
+        "song_specific": false,
+        "what": "Prepares the neck shift from the Bb E-shape barre at fret 6 to the C E-shape at fret 8 \u2014 the same move that drives the second phrase of the Lenny riff. Hold each barre shape for a full bar, then shift up two frets and re-lock the barre.",
+        "mechanic_tier": 5,
+        "prepares_section": "Riff",
+        "section_start_beat": 30,
+        "section_end_beat": 37,
+        "tab_snippet": {
+          "tuning": [
+            "Eb",
+            "Ab",
+            "Db",
+            "Gb",
+            "Bb",
+            "Eb"
+          ],
+          "capo": 0,
+          "feel": "swing",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 6,
+                      "duration": "half",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 6,
+                      "duration": "half",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 6,
+                      "fret": 8,
+                      "duration": "half",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 8,
+                      "duration": "half",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 60,
+        "target_bpm": 70,
+        "repetitions": 8,
+        "success_criterion": "Both the low E string and the high e string ring clearly at frets 6 and 8 \u2014 no buzz, no muted strings, barre pressure even across all six strings at both positions.",
+        "common_trap": "Letting the barre index finger flatten and lose contact with strings 1 and 2 \u2014 roll your finger toward the nut edge for consistent pressure."
+      }
+    ]
+  }
+}

@@ -1,0 +1,2311 @@
+{
+  "song_title": "Wonderwall",
+  "song_artist": "Oasis",
+  "refused_at": "2026-11-23T10:05:19.387269+00:00",
+  "error_type": "TabVerificationError",
+  "error": "Sonnet's breakdown for 'Wonderwall' failed 1 recording-free check(s), not serving a defective tab: DRILL_CHORD: drill 1 ('G \u2192 Em7 Change with Frozen Anchor') m1: notes b1 A3 outside the chord 'G \u2192 Em7 Change with Frozen Anchor' names",
+  "defects": [
+    "DRILL_CHORD: drill 1 ('G \u2192 Em7 Change with Frozen Anchor') m1: notes b1 A3 outside the chord 'G \u2192 Em7 Change with Frozen Anchor' names"
+  ],
+  "warnings": [
+    "UNIFORM_DURATION: m1: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m2: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m3: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m4: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m5: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m6: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m7: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "UNIFORM_DURATION: m8: every note is 'eighth' \u2014 a grid, not a rhythm",
+    "RENDERER_WIDTH: m1: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m2: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m3: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m4: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m5: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m6: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m7: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle",
+    "RENDERER_WIDTH: m8: 8 beats > 4 \u2014 renders overlapped on a client older than FLE-116's width-from-content bundle"
+  ],
+  "raw_input": {
+    "tab": {
+      "tuning": [
+        "E",
+        "A",
+        "D",
+        "G",
+        "B",
+        "E"
+      ],
+      "capo": 2,
+      "feel": "straight",
+      "measures": [
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 6,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 6,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 6,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 6,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 6,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 6,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 6,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 6,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 5,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            }
+          ]
+        },
+        {
+          "time_signature": "4/4",
+          "beats": [
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            },
+            {
+              "notes": [
+                {
+                  "string": 1,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 2,
+                  "fret": 3,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 3,
+                  "fret": 2,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                },
+                {
+                  "string": 4,
+                  "fret": 0,
+                  "duration": "eighth",
+                  "effects": [
+                    "let_ring"
+                  ]
+                }
+              ]
+            },
+            {
+              "rest": "eighth"
+            }
+          ]
+        }
+      ]
+    },
+    "chords": [
+      {
+        "name": "G",
+        "sounding_name": "A",
+        "base_fret": 1,
+        "positions": [
+          {
+            "string": 6,
+            "fret": 3,
+            "finger": 2
+          },
+          {
+            "string": 5,
+            "fret": 2,
+            "finger": 1
+          },
+          {
+            "string": 4,
+            "fret": 0
+          },
+          {
+            "string": 3,
+            "fret": 0
+          },
+          {
+            "string": 2,
+            "fret": 3,
+            "finger": 3
+          },
+          {
+            "string": 1,
+            "fret": 3,
+            "finger": 4
+          }
+        ]
+      },
+      {
+        "name": "Em7",
+        "sounding_name": "F#m7",
+        "base_fret": 1,
+        "positions": [
+          {
+            "string": 6,
+            "fret": -1
+          },
+          {
+            "string": 5,
+            "fret": 2,
+            "finger": 1
+          },
+          {
+            "string": 4,
+            "fret": 2,
+            "finger": 2
+          },
+          {
+            "string": 3,
+            "fret": 0
+          },
+          {
+            "string": 2,
+            "fret": 3,
+            "finger": 3
+          },
+          {
+            "string": 1,
+            "fret": 3,
+            "finger": 4
+          }
+        ]
+      },
+      {
+        "name": "Dsus4",
+        "sounding_name": "Esus4",
+        "base_fret": 1,
+        "positions": [
+          {
+            "string": 6,
+            "fret": -1
+          },
+          {
+            "string": 5,
+            "fret": -1
+          },
+          {
+            "string": 4,
+            "fret": 0
+          },
+          {
+            "string": 3,
+            "fret": 2,
+            "finger": 1
+          },
+          {
+            "string": 2,
+            "fret": 3,
+            "finger": 3
+          },
+          {
+            "string": 1,
+            "fret": 3,
+            "finger": 4
+          }
+        ]
+      },
+      {
+        "name": "A7sus4",
+        "sounding_name": "B7sus4",
+        "base_fret": 1,
+        "positions": [
+          {
+            "string": 6,
+            "fret": -1
+          },
+          {
+            "string": 5,
+            "fret": -1
+          },
+          {
+            "string": 4,
+            "fret": 0
+          },
+          {
+            "string": 3,
+            "fret": 2,
+            "finger": 1
+          },
+          {
+            "string": 2,
+            "fret": 3,
+            "finger": 3
+          },
+          {
+            "string": 1,
+            "fret": 0
+          }
+        ]
+      }
+    ],
+    "technique_notes": [
+      {
+        "heading": "Capo 2 \u2014 Shapes vs. Sounds",
+        "body": "Clip your capo at the 2nd fret. Every fret number in this tab is relative to the capo \u2014 so 'fret 0' means the capoed string, and your open G shape here sounds as an A major to anyone with a tuner out. Play what your fingers see, not what the tuner reads."
+      },
+      {
+        "heading": "The Frozen Top Two Strings",
+        "body": "Notice that strings 1 and 2 (high e and B) stay at frets 3 and 3 across ALL four chords \u2014 G, Em7, Dsus4, and A7sus4. This is Noel Gallagher's signature trick: anchor fingers 3 and 4 on those two strings and never lift them. If you're scrambling between chords, you're doing too much work \u2014 your anchor fingers shouldn't move at all."
+      },
+      {
+        "heading": "Downstroke-Rest Pattern",
+        "body": "Each beat in this tab is a downstroke followed by an eighth-note rest \u2014 that rest is NOT silence you ignore, it's the groove. Let the strum ring for the first eighth, then damp or just stop the strum naturally before the next beat. The pattern is: DOWN-pause, DOWN-pause, DOWN-pause, DOWN-pause \u2014 four times per bar. Don't rush into the next hit; the space is what gives it the Oasis lurch."
+      },
+      {
+        "heading": "G \u2192 Em7 Change: Only Two Fingers Move",
+        "body": "Going from G to Em7, your anchor fingers (3 and 4) stay frozen on strings 1-2. Release string 6 entirely (mute it), then slide finger 1 from string 5 fret 2 to hold strings 5 and 4 at fret 2. That's it \u2014 two fingers adjust, two fingers don't move. If the change feels slow, you're probably lifting your anchor unnecessarily."
+      },
+      {
+        "heading": "Dsus4 \u2192 A7sus4: One-Finger Swap",
+        "body": "Dsus4 and A7sus4 are almost identical shapes: the only difference is that A7sus4 opens string 1 (lift finger 4 off the high e). Your anchor on string 2 (finger 3) stays put, and string 3 stays at fret 2 (finger 1). Practice just that lift in isolation \u2014 place the Dsus4 shape, lift finger 4, replace it. That micro-move is what distinguishes the two chords."
+      }
+    ],
+    "sections": [
+      {
+        "label": "Intro",
+        "start_beat": 0,
+        "end_beat": 31
+      },
+      {
+        "label": "Verse",
+        "start_beat": 32,
+        "end_beat": 63
+      }
+    ],
+    "drills": [
+      {
+        "name": "Anchor and Lock the Top Two Strings",
+        "target_skill_temp_id": "f9cdd2a7-d873-4c5a-84b3-235ef5781a62",
+        "song_specific": true,
+        "mechanic_tier": 3,
+        "what": "Plant fingers 3 and 4 on strings 1-2 at fret 3 (the anchor that never moves in the intro) and strike the full G shape. The goal is to feel that anchor lock in before you ever attempt a chord change.",
+        "prepares_section": "Intro",
+        "section_start_beat": 0,
+        "section_end_beat": 7,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 2,
+          "feel": "straight",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 6,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "eighth"
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 6,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "eighth"
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 6,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "eighth"
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 6,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "eighth"
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 60,
+        "target_bpm": 70,
+        "repetitions": 8,
+        "success_criterion": "Every string rings clean on each strike with zero buzzing, and your anchor fingers never visibly lift between repetitions.",
+        "common_trap": "Players tense up the whole hand trying to hold the anchor \u2014 the anchor fingers should be firm, the rest of the hand stays relaxed."
+      },
+      {
+        "name": "G \u2192 Em7 Change with Frozen Anchor",
+        "target_skill_temp_id": "f9cdd2a7-d873-4c5a-84b3-235ef5781a62",
+        "song_specific": true,
+        "mechanic_tier": 4,
+        "what": "Move between G and Em7 as heard in the intro's first two bars, keeping fingers 3 and 4 welded to strings 1-2. Only the bass-side fingers adjust \u2014 feel the anchor hold the whole transition together.",
+        "prepares_section": "Intro",
+        "section_start_beat": 0,
+        "section_end_beat": 15,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 2,
+          "feel": "straight",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 6,
+                      "fret": 3,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "quarter"
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 0,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 2,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "quarter"
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 55,
+        "target_bpm": 65,
+        "repetitions": 8,
+        "success_criterion": "The chord change lands clean on beat 3 with no gap in sound and no buzzing \u2014 strings 1 and 2 ring identically through both chords.",
+        "common_trap": "Lifting the anchor fingers to 'reset' \u2014 keep them down the entire measure, even during the change."
+      },
+      {
+        "name": "Dsus4 \u2192 A7sus4 One-Finger Lift",
+        "target_skill_temp_id": "f9cdd2a7-d873-4c5a-84b3-235ef5781a62",
+        "song_specific": true,
+        "mechanic_tier": 4,
+        "what": "Drill the Dsus4-to-A7sus4 swap heard in bars 3-4 of the intro. The only move is lifting finger 4 off string 1 to open it \u2014 everything else stays frozen. This isolates the smallest change in the whole progression.",
+        "prepares_section": "Intro",
+        "section_start_beat": 16,
+        "section_end_beat": 31,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 2,
+          "feel": "straight",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 3,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "quarter"
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 1,
+                      "fret": 0,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "quarter",
+                      "effects": [
+                        "let_ring"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "quarter"
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 60,
+        "target_bpm": 70,
+        "repetitions": 8,
+        "success_criterion": "The open high e on A7sus4 rings with the same volume as the fretted notes \u2014 no muting, no hesitation between shapes.",
+        "common_trap": "Accidentally muting string 1 on Dsus4 by letting finger 4 sit flat instead of arched \u2014 arch all fingertips."
+      },
+      {
+        "name": "Four-Bar Downstroke Groove",
+        "target_skill_temp_id": "85e86b01-2832-46d7-a6cd-68a698345045",
+        "song_specific": false,
+        "mechanic_tier": 4,
+        "what": "Lock in the DOWN-rest strumming pulse used throughout the verse. Each beat is a crisp downstroke on the G shape followed by a deliberate eighth rest \u2014 the pause is the groove, not dead time. This prepares the verse's rhythmic feel before you add chord changes.",
+        "prepares_section": "Verse",
+        "section_start_beat": 32,
+        "section_end_beat": 39,
+        "tab_snippet": {
+          "tuning": [
+            "E",
+            "A",
+            "D",
+            "G",
+            "B",
+            "E"
+          ],
+          "capo": 2,
+          "feel": "straight",
+          "measures": [
+            {
+              "time_signature": "4/4",
+              "beats": [
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 6,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "eighth"
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 6,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "eighth"
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 6,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "eighth"
+                },
+                {
+                  "notes": [
+                    {
+                      "string": 2,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 3,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 4,
+                      "fret": 0,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 5,
+                      "fret": 2,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    },
+                    {
+                      "string": 6,
+                      "fret": 3,
+                      "duration": "eighth",
+                      "effects": [
+                        "accent"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "rest": "eighth"
+                }
+              ]
+            }
+          ]
+        },
+        "start_bpm": 65,
+        "target_bpm": 80,
+        "repetitions": 8,
+        "success_criterion": "Four downstrokes per bar lock perfectly with the click, and the gaps between strokes are even \u2014 it feels like a pulse, not a stumble.",
+        "common_trap": "Trying to fill the rest with an upstroke \u2014 resist it. Oasis's power comes from the downstroke-only commitment."
+      }
+    ]
+  }
+}

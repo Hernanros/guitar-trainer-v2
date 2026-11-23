@@ -1,0 +1,61 @@
+  [log] WARNING app.ai.governor: FLETCHER_PILOT_CEILING_ALERT 98% of the pilot ceiling is spent: $36.326400 of $36.9264 ($0.600000 left, ~3 breakdowns). Raise FLETCHER_PILOT_CEILING_USD before it hits.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages/count_tokens "HTTP/1.1 200 OK"
+  [log] INFO app.db.session: DB pool sized: pool_size=15 max_overflow=35 (ceiling 50) pool_timeout=30s.
+  [log] INFO httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+  [log] INFO app.ai.breakdown: Sonnet breakdown returned for song 'Comfortably Numb': stop_reason=tool_use output_tokens=4826 max_tokens=20000
+  [log] WARNING app.models.song: Unrecognised link_to_next='bend' — ignored (FLE-115 §6.2); the rest of the tab is served unchanged. Legal values: hammer_on, pull_off, slide, tie. NOTE: 'bend' is a Bend.kind, not a link — a bent note sets the `bend` field; `link_to_next` is only for the four §4 no-fresh-pick relationships.
+  [log] WARNING app.models.song: Unrecognised link_to_next='bend' — ignored (FLE-115 §6.2); the rest of the tab is served unchanged. Legal values: hammer_on, pull_off, slide, tie. NOTE: 'bend' is a Bend.kind, not a link — a bent note sets the `bend` field; `link_to_next` is only for the four §4 no-fresh-pick relationships.
+  [log] WARNING app.models.song: Unrecognised link_to_next='bend' — ignored (FLE-115 §6.2); the rest of the tab is served unchanged. Legal values: hammer_on, pull_off, slide, tie. NOTE: 'bend' is a Bend.kind, not a link — a bent note sets the `bend` field; `link_to_next` is only for the four §4 no-fresh-pick relationships.
+  [log] WARNING app.models.song: Unrecognised link_to_next='bend' — ignored (FLE-115 §6.2); the rest of the tab is served unchanged. Legal values: hammer_on, pull_off, slide, tie. NOTE: 'bend' is a Bend.kind, not a link — a bent note sets the `bend` field; `link_to_next` is only for the four §4 no-fresh-pick relationships.
+  [log] WARNING app.models.song: Unrecognised link_to_next='bend' — ignored (FLE-115 §6.2); the rest of the tab is served unchanged. Legal values: hammer_on, pull_off, slide, tie. NOTE: 'bend' is a Bend.kind, not a link — a bent note sets the `bend` field; `link_to_next` is only for the four §4 no-fresh-pick relationships.
+  [log] WARNING app.models.song: Unrecognised link_to_next='bend' — ignored (FLE-115 §6.2); the rest of the tab is served unchanged. Legal values: hammer_on, pull_off, slide, tie. NOTE: 'bend' is a Bend.kind, not a link — a bent note sets the `bend` field; `link_to_next` is only for the four §4 no-fresh-pick relationships.
+  [log] WARNING app.models.song: Unrecognised link_to_next='bend' — ignored (FLE-115 §6.2); the rest of the tab is served unchanged. Legal values: hammer_on, pull_off, slide, tie. NOTE: 'bend' is a Bend.kind, not a link — a bent note sets the `bend` field; `link_to_next` is only for the four §4 no-fresh-pick relationships.
+  [log] WARNING app.models.song: Breakdown sections do not partition the tab's 35 beats — last section ends at beat 37, not 34 (the tab's last beat). Dropping all 1 sections; the song degrades to unsectioned (FLE-101 §1/§5).
+  [log] WARNING app.models.song: drill 0 ('Single-String Pull-Off Ladder (13→10)'): prepares_section 'Solo' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 1 ('Pentatonic Two-String Roll (10th Position)'): prepares_section 'Solo' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 2 ('Full-Step Bend and Hold with Vibrato'): prepares_section 'Solo' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] WARNING app.models.song: drill 3 ('Pre-Bend Strike and Vibrato Release'): prepares_section 'Solo' matches no emitted section label [] — clearing its section link; the drill falls back to the implicit whole-song section (FLE-101 §2/§5).
+  [log] INFO app.models.song: FLE-44: forcing song_specific=True on drill 'Pentatonic Two-String Roll (10th Position)' for 'Comfortably Numb' — `what` names the song or artist but Sonnet emitted false.
+  [log] WARNING app.ai.breakdown: Breakdown for 'Comfortably Numb' passed verification with 6 warning(s): RENDERER_WIDTH: m1: 5 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m2: 5 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m4: 5 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m5: 5 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m7: 5 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle; RENDERER_WIDTH: m8: 5 beats > 4 — renders overlapped on a client older than FLE-116's width-from-content bundle
+  [log] ERROR app.ai.breakdown: Breakdown for 'Comfortably Numb' by 'Pink Floyd' FAILED verification (3 defect(s)): METER: m4: durations sum to 4.5 beats, bar is 4/4 (4) — 5 columns: dotted-quarter, rest eighth, eighth, 2x quarter; OWN_CHORDS: m3: notes b2 B4 outside this breakdown's own declared chords ['Bb', 'C', 'Dm']; OWN_CHORDS: m7: notes b4 B4 outside this breakdown's own declared chords ['Bb', 'C', 'Dm']
+  [log] ERROR app.ai.breakdown: Refused the breakdown for 'Comfortably Numb' by 'Pink Floyd' — raw Sonnet payload written to /tmp/fle89-remeasure-2026-11-23/raw/20261123T100443Z-comfortably-numb-pink-floyd.json (FLE-143). Diagnose from that file rather than re-running the call.
+
+================================================================================
+GUITAR TRAINER v2 — DRILL QUALITY EVAL (Phase 4.1 Plan 04.1-05)
+Songs: 1 (Comfortably Numb) | Landmine gates: 6 per song = 6 total
+N1 CAVEAT: L2 (hallucinated id) coverage is limited to fake-UUID echo check.
+Real L2 coverage lives in Task 3 device step o.
+================================================================================
+
+================================================================================
+SONG 1/5: Comfortably Numb — Pink Floyd
+================================================================================
+
+  Throwaway eval user for this song: da5197d0-8653-4fd7-8abb-3d811b8260cb
+
+  target_skills provided to Sonnet:
+    id=9f57146a-d8a7-4078-82e8-a876aebea902  name='full-step bends with sustained vibrato'
+    id=9a705cdf-249e-4d06-aff6-63478885399f  name='D-minor pentatonic phrasing'
+
+  Calling run_technique_breakdown for Comfortably Numb... (live Anthropic)
+  [fle89] known_tuning for 'Comfortably Numb': 'standard' (catalog)
+
+  Wall clock before failure: 68.8s
+
+  ERROR (AIBreakdownError) for 'Comfortably Numb': Sonnet's breakdown for 'Comfortably Numb' failed 3 recording-free check(s), not serving a defective tab: METER: m4: durations sum to 4.5 beats, bar is 4/4 (4) — 5 columns: dotted-quarter, rest eighth, eighth, 2x quarter; OWN_CHORDS: m3: notes b2 B4 outside this breakdown's own declared chords ['Bb', 'C', 'Dm']; OWN_CHORDS: m7: notes b4 B4 outside this breakdown's own declared chords ['Bb', 'C', 'Dm']
+
+================================================================================
+EVAL SUMMARY
+================================================================================
+  Songs attempted     : 1
+  Songs with errors   : 1
+    - 'Comfortably Numb': TabVerificationError: Sonnet's breakdown for 'Comfortably Numb' failed 3 recording-free check(s), not serving a defective tab: METER: m4: durations sum to 4.5 beats, bar is 4/4 (4) — 5 columns: dotted-quarter, rest eighth, eighth, 2x quarter; OWN_CHORDS: m3: notes b2 B4 outside this breakdown's own declared chords ['Bb', 'C', 'Dm']; OWN_CHORDS: m7: notes b4 B4 outside this breakdown's own declared chords ['Bb', 'C', 'Dm']
+  Total run time      : 69.0s
+  Actual tokens used  : input=13022 | output=4826
+  Estimated cost      : $0.1115 (input $0.0391 + output $0.0724)
+  Governor dollars_actual: $0.1115
+  Budget remaining    : $20/mo cap — this eval used ~$0.11
+
+Next step: fill in .planning/phases/04.1-ai-drills/04.1-05-EVAL-RESULTS.md
+           with the landmine gate table above + your disposition.
+================================================================================
