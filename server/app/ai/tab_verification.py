@@ -85,7 +85,8 @@ against notation or against the guitar itself, no recording needed:
                  from the tab contradicting the chords shipped beside it.
                  PARTIAL since FLE-154: blocking for a foreign note that is
                  repeated or held, a WARNING for one in transit (a half step
-                 into the next note, or inside a chromatic run). Fret's ruling
+                 into the next note — the next bar's first note counts, per
+                 FLE-156 — or inside a chromatic run). Fret's ruling
                  on FLE-144, measured on real refusals — see
                  `_passing_tone_reason`. It still blocks Sweet Home Chicago m4
                  and it no longer refuses that song's chromatic walkdown.
@@ -677,13 +678,36 @@ def _chromatic_run_columns(columns: list[tuple[int, list[int]]]) -> set[int]:
 
 
 def _passing_tone_reason(
-    measure: Measure, om: dict[int, int], f: _ForeignNote
+    measure: Measure,
+    om: dict[int, int],
+    f: _ForeignNote,
+    next_measure: Measure | None = None,
 ) -> str | None:
     """Why `f` is a passing tone rather than a wrong note, or None if it isn't.
 
     The reason is returned rather than a bool so the warning can say which test
     licensed the note — a warning nobody can act on is noise, and "which voice
     did you read" is the first question Fret will ask of one.
+
+    FLE-156: `next_measure` is the bar AFTER `measure`, or None at the end of
+    the tab, and it exists so the half-step test can see across the barline. A
+    foreign note on the last column of a bar had no next note inside that bar,
+    so test 1 could not fire for it and it fell through to blocking unless a
+    chromatic run of 3+ in the SAME bar happened to cover it. That refused the
+    most ordinary chromatic move in blues: an approach note on the last 8th
+    leading into the next bar's downbeat (a C on the last 8th of an E bar
+    resolving into a B7 bar). The barline is a notation boundary, not a
+    musical one — a line that resolves across it resolves.
+
+    Only test 1 crosses. Strike counting and `_chromatic_run_columns` stay
+    inside the bar, as FLE-154 ruled: "repeated" means repeated within one bar,
+    and a run is read off one bar's lowest voice. Widening those would be a
+    separate ruling, not this card.
+
+    The note it resolves INTO is not required to be a chord tone, which is the
+    same licence test 1 already gave inside a bar — and OWN_CHORDS could not
+    ask for more if it wanted to, because `breakdown.chords` is an unpositioned
+    list, so "the chord this bar is on" is not a thing this check can read.
     """
     columns = _sounding_columns(measure, om)
     index = {bi: k for k, (bi, _) in enumerate(columns)}
@@ -697,9 +721,18 @@ def _passing_tone_reason(
     if DURATION_BEATS.get(f.duration, _MAX_PASSING_BEATS) > _MAX_PASSING_BEATS:
         return None
 
-    nxt = columns[k + 1][1] if k + 1 < len(columns) else []
-    if any(abs(m - f.midi) == 1 for m in nxt):
-        return "half step into the next note"
+    if k + 1 < len(columns):
+        if any(abs(m - f.midi) == 1 for m in columns[k + 1][1]):
+            return "half step into the next note"
+    else:
+        # Last sounding column of the bar: resolve into the next bar's first
+        # SOUNDING column. Rests drop out there exactly as they do inside a bar
+        # (`_sounding_columns`) — a rest is not a pitch a line passes through.
+        # A next bar that is all rests, or no next bar at all, leaves nothing
+        # to resolve into, and the note falls through to the run test as before.
+        across = _sounding_columns(next_measure, om) if next_measure else []
+        if across and any(abs(m - f.midi) == 1 for m in across[0][1]):
+            return "half step into the next bar's first note"
     if f.beat in _chromatic_run_columns(columns):
         return "inside a chromatic run in this bar's lowest voice"
     return None
@@ -777,10 +810,16 @@ def _check_own_chords(breakdown: Breakdown) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
     for mi, found in sorted(bad.items()):
         measure = breakdown.tab.measures[mi - 1]
+        # FLE-156: the next bar, for the half-step test's look across the
+        # barline. None on the last bar of the tab — there is no next downbeat
+        # to resolve into, so that bar behaves exactly as it did under FLE-154.
+        next_measure = (
+            breakdown.tab.measures[mi] if mi < len(breakdown.tab.measures) else None
+        )
         wrong: list[_ForeignNote] = []
         passing: list[tuple[_ForeignNote, str]] = []
         for f in found:
-            why = _passing_tone_reason(measure, om, f)
+            why = _passing_tone_reason(measure, om, f, next_measure)
             if why:
                 passing.append((f, why))
             else:
